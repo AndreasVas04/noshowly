@@ -1,0 +1,861 @@
+/**
+ * components/dashboard/WeekView.tsx
+ *
+ * Week view showing one staff member's schedule across all 7 days.
+ *
+ * Layout:
+ *  - Top bar: prev/next week arrows flanking the week date range ("Mar 30 – Apr 5"),
+ *    plus an "Add appointment" button on the right.
+ *  - Below the week range: staff selector pills. Clicking a pill switches to that
+ *    person's schedule for the entire week.
+ *    - 0 staff: no pills — all appointments shown in a single week grid.
+ *    - 1 staff: one name pill; an "Unassigned" pill is shown whenever
+ *      unassigned appointments exist for the current week.
+ *    - 2+ staff: one pill per staff member; an "Unassigned" pill is shown
+ *      whenever unassigned appointments exist (so legacy or migrated data is
+ *      always reachable).
+ *  - Desktop (lg+): 7-column grid, one column per day (Mon–Sun), showing
+ *    the selected staff member's appointments in each column.
+ *  - Mobile (< lg): day selector strip (Mon–Sun pills) + single day view for
+ *    the selected staff on the selected day.
+ *
+ * Interactions:
+ *  - Prev/next week arrows navigate the week.
+ *  - "Today" button resets to the current week — only shown when off the current week.
+ *  - Staff pills switch which staff member's schedule is displayed.
+ *  - Clicking a day column's empty area opens the add modal with that day
+ *    and staff pre-filled (when a named staff member is selected).
+ *  - Clicking an appointment card opens the edit modal.
+ *  - "Add appointment" button opens the add modal with the currently viewed date
+ *    (selectedDay on mobile, today-or-first-day on desktop).
+ *
+ * Data fetching:
+ *  - Barbers: fetched once on mount from GET /api/barbers.
+ *  - Appointments: fetched for the whole week via
+ *    GET /api/appointments?start=YYYY-MM-DD&end=YYYY-MM-DD whenever the week changes.
+ *    Staff filtering is done client-side so switching staff pills is instant.
+ *
+ * Staff is always optional in AddAppointmentModal. Unassigned appointments
+ * are always reachable via the "Unassigned" pill when at least one named
+ * staff member exists.
+ *
+ * This is a Client Component because it owns all navigation and modal state.
+ */
+
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  format,
+  addWeeks,
+  subWeeks,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  isToday,
+  isSameDay,
+  isSameWeek,
+} from 'date-fns';
+import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
+import type { AppointmentWithDetails, Barber } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats a Date as a YYYY-MM-DD string used as an API query parameter and
+ * as a map key when grouping appointments by day.
+ *
+ * @param date - The date to format.
+ * @returns ISO date string, e.g. "2026-04-01".
+ */
+function toDateParam(date: Date): string {
+  return format(date, 'yyyy-MM-dd');
+}
+
+/**
+ * Formats an ISO datetime string as a 24-hour time string.
+ * e.g. "2026-04-01T09:30:00Z" → "09:30"
+ *
+ * @param isoString - ISO 8601 datetime stored in the database (UTC).
+ * @returns 24-hour time string like "09:30".
+ */
+function formatTime(isoString: string): string {
+  const d = new Date(isoString);
+  const h = d.getHours().toString().padStart(2, '0');
+  const m = d.getMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+/**
+ * Filters appointments by the currently selected staff context, then returns
+ * only those on the given calendar day.
+ *
+ * @param appointments    - Full list of appointments for the week.
+ * @param selectedBarber  - Filtering context:
+ *                          null         → show all (0-staff case)
+ *                          'unassigned' → show only appointments with no barber
+ *                          UUID string  → show only that staff member's appointments
+ * @param day             - Calendar day to filter by.
+ * @returns Appointments matching both the staff filter and the given day, sorted
+ *          chronologically (API returns them in order already, so this preserves it).
+ */
+function getAppointmentsForDayAndStaff(
+  appointments: AppointmentWithDetails[],
+  selectedBarber: string | null,
+  day: Date
+): AppointmentWithDetails[] {
+  const dayKey = toDateParam(day);
+
+  return appointments.filter((apt) => {
+    // Day filter — compare the appointment's local date string to the target day.
+    if (toDateParam(new Date(apt.datetime)) !== dayKey) return false;
+
+    // Staff filter
+    if (selectedBarber === null) return true; // 0-staff: show all
+    if (selectedBarber === 'unassigned') return apt.barber_id === null;
+    return apt.barber_id === selectedBarber;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AppointmentCard — inline since it's only used in WeekView columns
+// ---------------------------------------------------------------------------
+
+/** Props for a single appointment card inside a week column. */
+interface WeekCardProps {
+  /** The appointment to render. */
+  apt: AppointmentWithDetails;
+  /** Called when the card is clicked to open the edit modal. */
+  onClick: () => void;
+}
+
+/**
+ * Compact appointment card for the week grid.
+ * Shows time (bold, 24h), client name, and service if set.
+ * Cancelled appointments are dimmed with a strikethrough on the name.
+ *
+ * @param props.apt     - The appointment data.
+ * @param props.onClick - Opens the edit modal for this appointment.
+ */
+function WeekCard({ apt, onClick }: WeekCardProps) {
+  const isCancelled = apt.status === 'cancelled';
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        e.stopPropagation(); // prevent column click from also firing
+        onClick();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.stopPropagation();
+          onClick();
+        }
+      }}
+      className={`
+        bg-white rounded-lg border px-2 py-1.5 space-y-0.5
+        hover:border-indigo-300 hover:bg-indigo-50/40 transition-colors
+        cursor-pointer
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+        ${isCancelled ? 'opacity-50 border-dashed border-gray-200' : 'border-gray-200'}
+      `}
+    >
+      {/* Time */}
+      <p className="text-xs font-bold text-gray-900 tabular-nums leading-none">
+        {formatTime(apt.datetime)}
+      </p>
+
+      {/* Client name */}
+      <p className={`text-xs font-semibold text-gray-800 truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
+        {apt.client_name ?? 'Unknown'}
+      </p>
+
+      {/* Service — only if set */}
+      {apt.service_type && (
+        <p className="text-xs text-gray-500 truncate leading-snug">
+          {apt.service_type}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DayColumn — one column in the 7-day desktop grid
+// ---------------------------------------------------------------------------
+
+/** Props for a single day column in the desktop week grid. */
+interface DayColumnProps {
+  /** The calendar day this column represents. */
+  day: Date;
+  /** Appointments to show in this column (already filtered by staff). */
+  appointments: AppointmentWithDetails[];
+  /** Called when the user clicks an appointment card. */
+  onAppointmentClick: (apt: AppointmentWithDetails) => void;
+  /**
+   * Called when the user clicks the empty body of the column.
+   * Used to open the add modal pre-filled with this day.
+   */
+  onColumnClick: () => void;
+}
+
+/**
+ * DayColumn renders a single day column in the desktop week grid.
+ * The column header shows the day name and date (today is highlighted in indigo).
+ * The empty body area is clickable to add a new appointment for that day.
+ *
+ * @param props.day                - The calendar day this column represents.
+ * @param props.appointments       - Appointments to display (already filtered).
+ * @param props.onAppointmentClick - Called when a card is clicked.
+ * @param props.onColumnClick      - Called when the empty column area is clicked.
+ */
+function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: DayColumnProps) {
+  const todayColumn = isToday(day);
+
+  return (
+    <div
+      className={`
+        flex flex-col flex-1 min-w-[115px] rounded-xl overflow-hidden border
+        ${todayColumn ? 'border-indigo-300' : 'border-gray-200'}
+      `}
+    >
+      {/* Column header */}
+      <div
+        className={`
+          px-2 py-2.5 text-center border-b shrink-0
+          ${todayColumn ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100'}
+        `}
+      >
+        <p className={`text-xs font-semibold uppercase tracking-wide leading-none
+          ${todayColumn ? 'text-indigo-500' : 'text-gray-400'}`}>
+          {format(day, 'EEE')}
+        </p>
+        <p className={`text-sm font-bold mt-0.5 leading-none
+          ${todayColumn ? 'text-indigo-600' : 'text-gray-900'}`}>
+          {format(day, 'd')}
+        </p>
+      </div>
+
+      {/* Clickable body — clicking empty area opens add modal for this day */}
+      <div
+        role="button"
+        tabIndex={-1}
+        aria-label={`Add appointment on ${format(day, 'EEEE, MMMM d')}`}
+        onClick={onColumnClick}
+        className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-gray-50 cursor-pointer"
+      >
+        {appointments.length === 0 && (
+          <p className="text-xs text-gray-300 p-1 select-none">—</p>
+        )}
+
+        {appointments.map((apt) => (
+          <WeekCard
+            key={apt.id}
+            apt={apt}
+            onClick={() => onAppointmentClick(apt)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+/**
+ * WeekView renders the week-based schedule with a staff selector and a
+ * 7-day column grid (desktop) or single-day mobile view.
+ *
+ * @returns The full week view with navigation, staff pills, day grid, and modal.
+ */
+export default function WeekView() {
+
+  // -------------------------------------------------------------------------
+  // Week navigation state
+  // -------------------------------------------------------------------------
+
+  /**
+   * Anchor date determines which Mon–Sun week strip is displayed.
+   * Any date within the desired week works; startOfWeek is derived from it.
+   */
+  const [anchor, setAnchor] = useState<Date>(() => new Date());
+
+  /**
+   * selectedDay is only used on mobile to determine which single day to display.
+   * On desktop all 7 columns are shown simultaneously.
+   */
+  const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
+
+  // -------------------------------------------------------------------------
+  // Staff state
+  // -------------------------------------------------------------------------
+
+  /** Staff members for the authenticated salon. */
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [isLoadingBarbers, setIsLoadingBarbers] = useState(true);
+
+  /**
+   * Which staff member's schedule to display.
+   *  null         — show all appointments (used when the salon has 0 staff).
+   *  'unassigned' — show only appointments with no barber assigned (1-staff + unassigned tab).
+   *  UUID string  — show only that staff member's appointments.
+   */
+  const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Appointments state
+  // -------------------------------------------------------------------------
+
+  /** All appointments for the visible week (unfiltered — filtering is client-side). */
+  const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
+  const [isLoadingApts, setIsLoadingApts] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Modal state
+  // -------------------------------------------------------------------------
+
+  const [modalOpen, setModalOpen] = useState(false);
+  /** Date to pre-fill when opening the add modal. */
+  const [modalInitialDate, setModalInitialDate] = useState<Date>(() => new Date());
+  /**
+   * Staff UUID to pre-select when the modal opens from a day column click.
+   * Undefined when opened via the "Add appointment" header button.
+   */
+  const [modalInitialBarberId, setModalInitialBarberId] = useState<string | undefined>(undefined);
+  /** When set, the modal opens in edit mode pre-filled with this appointment. */
+  const [editingAppointment, setEditingAppointment] = useState<AppointmentWithDetails | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Derived date values (recomputed each render — cheap)
+  // -------------------------------------------------------------------------
+
+  const weekStart  = startOfWeek(anchor, { weekStartsOn: 1 });
+  const weekEnd    = endOfWeek(anchor, { weekStartsOn: 1 });
+  const weekDays   = eachDayOfInterval({ start: weekStart, end: weekEnd });
+  const isCurrentWeek = isSameWeek(anchor, new Date(), { weekStartsOn: 1 });
+
+  /** Human-readable week label, e.g. "Mar 30 – Apr 5". */
+  const weekLabel = (() => {
+    const startStr = format(weekStart, 'MMM d');
+    const endYear  = weekEnd.getFullYear() !== new Date().getFullYear()
+      ? `, ${weekEnd.getFullYear()}`
+      : '';
+    return `${startStr} – ${format(weekEnd, 'MMM d')}${endYear}`;
+  })();
+
+  // -------------------------------------------------------------------------
+  // Data fetching
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetches the salon's staff list. Called once on mount.
+   * Sets the default selected staff to the first barber (or null if none).
+   */
+  const fetchBarbers = useCallback(async (): Promise<void> => {
+    setIsLoadingBarbers(true);
+    try {
+      const res = await fetch('/api/barbers', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to load staff');
+      const data = (await res.json()) as { barbers: Barber[] };
+      setBarbers(data.barbers);
+
+      // Default selection: first barber if any exist, otherwise null (show all).
+      setSelectedBarberId(data.barbers.length >= 1 ? data.barbers[0].id : null);
+    } catch (err) {
+      console.error('[WeekView] fetchBarbers error:', err);
+      setBarbers([]);
+      setSelectedBarberId(null);
+    } finally {
+      setIsLoadingBarbers(false);
+    }
+  }, []);
+
+  /**
+   * Fetches all appointments for the given Mon–Sun range in a single request.
+   * Staff filtering is done client-side so switching staff pills is instant.
+   *
+   * @param start - Monday of the target week.
+   * @param end   - Sunday of the target week.
+   */
+  const fetchWeekAppointments = useCallback(async (start: Date, end: Date): Promise<void> => {
+    setIsLoadingApts(true);
+    setError(null);
+    try {
+      const url = `/api/appointments?start=${toDateParam(start)}&end=${toDateParam(end)}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+      }
+      const data = (await res.json()) as { appointments: AppointmentWithDetails[] };
+      setAppointments(data.appointments);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong';
+      setError(msg);
+      console.error('[WeekView] fetchWeekAppointments error:', err);
+    } finally {
+      setIsLoadingApts(false);
+    }
+  }, []);
+
+  // Fetch barbers and appointments in parallel on mount.
+  useEffect(() => {
+    fetchBarbers();
+    fetchWeekAppointments(weekStart, weekEnd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-fetch appointments whenever the user navigates to a different week.
+  useEffect(() => {
+    fetchWeekAppointments(weekStart, weekEnd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor]);
+
+  // -------------------------------------------------------------------------
+  // Derived visibility flags
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether any appointments for the current week have no staff assigned.
+   * Drives the "Unassigned" tab visibility in the 1-staff case.
+   */
+  const hasUnassigned = appointments.some((a) => a.barber_id === null);
+
+  /**
+   * Show the "Unassigned" tab whenever unassigned appointments exist for the
+   * current week AND the salon has at least 1 named staff member.
+   * With 0 staff every appointment is unassigned by definition, so a separate
+   * tab adds no value. With 1+ staff this ensures that appointments saved
+   * without a barber (e.g. migrated data, or an older booking) are always
+   * reachable — not silently hidden behind a staff filter.
+   */
+  const showUnassignedTab = hasUnassigned && barbers.length >= 1;
+
+  /**
+   * Staff pills are shown when:
+   *  - There are 2+ staff members (always show all pills), OR
+   *  - There is 1+ staff member and unassigned appointments exist.
+   * With 0 staff: no pills — everything shown in a single view.
+   */
+  const showStaffPills = barbers.length >= 2 || showUnassignedTab;
+
+  // -------------------------------------------------------------------------
+  // Navigation handlers
+  // -------------------------------------------------------------------------
+
+  /** Move to the previous week; keep selectedDay on the same weekday. */
+  function handlePrevWeek(): void {
+    setAnchor((a) => subWeeks(a, 1));
+    setSelectedDay((d) => subWeeks(d, 1));
+  }
+
+  /** Move to the next week; keep selectedDay on the same weekday. */
+  function handleNextWeek(): void {
+    setAnchor((a) => addWeeks(a, 1));
+    setSelectedDay((d) => addWeeks(d, 1));
+  }
+
+  /** Reset to today's week and select today. Hidden when already on current week. */
+  function handleThisWeek(): void {
+    const today = new Date();
+    setAnchor(today);
+    setSelectedDay(today);
+  }
+
+  /** Select a day (mobile only — switches the single-day view). */
+  function handleDaySelect(day: Date): void {
+    setSelectedDay(day);
+    setAnchor(day);
+  }
+
+  // -------------------------------------------------------------------------
+  // Modal handlers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Opens the add modal from a day column click.
+   * Pre-fills the date and — when a named staff member is currently selected — the staff.
+   * When the "Unassigned" tab is active or there's no staff, no staff is pre-selected.
+   *
+   * @param day - The day column the user clicked.
+   */
+  function handleColumnClick(day: Date): void {
+    setEditingAppointment(null);
+    setModalInitialDate(day);
+    // Pre-select staff only when a real staff member (not 'unassigned') is viewed.
+    const preselect =
+      selectedBarberId && selectedBarberId !== 'unassigned'
+        ? selectedBarberId
+        : undefined;
+    setModalInitialBarberId(preselect);
+    setModalOpen(true);
+  }
+
+  /**
+   * Opens the add modal from the "Add appointment" header button.
+   * Uses the currently selected day (mobile) or today/anchor (desktop).
+   */
+  function handleHeaderAddClick(): void {
+    setEditingAppointment(null);
+    // Use selectedDay (tracks the mobile day strip selection).
+    // On desktop this will be today on first load, then whatever day was last tapped on mobile.
+    setModalInitialDate(selectedDay);
+    setModalInitialBarberId(undefined);
+    setModalOpen(true);
+  }
+
+  /**
+   * Opens the edit modal for a clicked appointment card.
+   *
+   * @param apt - The appointment to edit.
+   */
+  function handleAppointmentClick(apt: AppointmentWithDetails): void {
+    setEditingAppointment(apt);
+    setModalOpen(true);
+  }
+
+  /** Closes the modal without refreshing. */
+  function handleModalClose(): void {
+    setModalOpen(false);
+    setEditingAppointment(null);
+  }
+
+  /**
+   * Called after a successful save. Closes the modal and re-fetches the
+   * week so columns reflect the change immediately.
+   */
+  function handleModalSaved(): void {
+    setModalOpen(false);
+    setEditingAppointment(null);
+    fetchWeekAppointments(weekStart, weekEnd);
+  }
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
+  const isLoading = isLoadingBarbers || isLoadingApts;
+
+  return (
+    <div className="flex flex-col">
+
+      {/* =====================================================================
+          TOP BAR — week navigation + Add appointment button
+      ===================================================================== */}
+      <div className="flex items-center justify-between mb-4 gap-4">
+
+        {/* Left: arrows + week label + "Today" reset */}
+        <div className="flex items-center gap-2 min-w-0">
+
+          {/* Previous week */}
+          <button
+            onClick={handlePrevWeek}
+            aria-label="Previous week"
+            className="
+              p-2 rounded-lg border border-gray-200 shrink-0
+              text-gray-500 hover:text-gray-900 hover:bg-gray-50
+              transition-colors
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400
+            "
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+
+          {/* Week date range */}
+          <span className="text-base font-semibold text-gray-900 whitespace-nowrap">
+            {weekLabel}
+          </span>
+
+          {/* Next week */}
+          <button
+            onClick={handleNextWeek}
+            aria-label="Next week"
+            className="
+              p-2 rounded-lg border border-gray-200 shrink-0
+              text-gray-500 hover:text-gray-900 hover:bg-gray-50
+              transition-colors
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400
+            "
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          {/* "Today" shortcut — only visible when off the current week */}
+          {!isCurrentWeek && (
+            <button
+              onClick={handleThisWeek}
+              className="
+                text-sm font-medium text-indigo-600 hover:text-indigo-700 shrink-0
+                px-2.5 py-1.5 rounded-lg hover:bg-indigo-50
+                transition-colors
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+              "
+            >
+              Today
+            </button>
+          )}
+        </div>
+
+        {/* Right: Add appointment */}
+        <button
+          type="button"
+          onClick={handleHeaderAddClick}
+          className="
+            flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold shrink-0
+            bg-indigo-600 text-white hover:bg-indigo-700
+            transition-colors
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
+          "
+        >
+          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span className="hidden sm:inline">Add appointment</span>
+          <span className="sm:hidden">Add</span>
+        </button>
+      </div>
+
+      {/* =====================================================================
+          STAFF PILLS — shown when 2+ staff, or 1+ staff + unassigned appts exist
+      ===================================================================== */}
+      {!isLoadingBarbers && showStaffPills && (
+        <div className="flex flex-wrap gap-2 mb-4">
+
+          {/* One pill per named staff member */}
+          {barbers.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => setSelectedBarberId(b.id)}
+              className={`
+                px-3 py-1.5 rounded-full text-sm font-medium transition-colors
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                ${selectedBarberId === b.id
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }
+              `}
+            >
+              {b.name}
+            </button>
+          ))}
+
+          {/* "Unassigned" pill — shown whenever unassigned appointments exist (1+ staff) */}
+          {showUnassignedTab && (
+            <button
+              type="button"
+              onClick={() => setSelectedBarberId('unassigned')}
+              className={`
+                px-3 py-1.5 rounded-full text-sm font-medium transition-colors
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                ${selectedBarberId === 'unassigned'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }
+              `}
+            >
+              Unassigned
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* =====================================================================
+          MOBILE DAY SELECTOR — Mon–Sun pills (hidden on desktop)
+      ===================================================================== */}
+      <div className="flex lg:hidden items-center gap-1 mb-4">
+        {weekDays.map((day) => {
+          const isSelected = isSameDay(day, selectedDay);
+          const isCurrentDay = isToday(day);
+          return (
+            <button
+              key={toDateParam(day)}
+              type="button"
+              onClick={() => handleDaySelect(day)}
+              aria-label={format(day, 'EEEE, MMMM d')}
+              aria-pressed={isSelected}
+              className={`
+                flex flex-col items-center justify-center
+                flex-1 min-w-[42px] px-1 py-2 rounded-xl text-center transition-colors
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                ${isSelected
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isCurrentDay
+                    ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }
+              `}
+            >
+              <span className="text-xs font-semibold uppercase tracking-wide leading-none">
+                {format(day, 'EEE')}
+              </span>
+              <span className="text-sm font-bold mt-0.5 leading-none">
+                {format(day, 'd')}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* =====================================================================
+          LOADING SKELETON
+      ===================================================================== */}
+      {isLoading && (
+        <div className="hidden lg:flex gap-2">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex-1 min-w-[115px] rounded-xl border border-gray-200 overflow-hidden animate-pulse"
+            >
+              <div className="px-2 py-2.5 bg-white border-b border-gray-100 text-center">
+                <div className="h-3 bg-gray-200 rounded mx-auto w-8 mb-1" />
+                <div className="h-4 bg-gray-200 rounded mx-auto w-6" />
+              </div>
+              <div className="p-1.5 space-y-1.5 min-h-[220px] bg-gray-50">
+                <div className="h-14 bg-gray-200 rounded-lg" />
+                <div className="h-10 bg-gray-200 rounded-lg" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Mobile loading */}
+      {isLoading && (
+        <div className="lg:hidden space-y-3">
+          {[1, 2, 3].map((n) => (
+            <div key={n} className="bg-white rounded-xl border border-gray-200 px-4 py-3 animate-pulse">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-4 bg-gray-200 rounded" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-1/3" />
+                  <div className="h-3 bg-gray-100 rounded w-1/4" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* =====================================================================
+          ERROR STATE
+      ===================================================================== */}
+      {!isLoading && error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-700">{error}</p>
+          <button
+            onClick={() => fetchWeekAppointments(weekStart, weekEnd)}
+            className="text-sm text-red-600 underline mt-1 hover:text-red-800"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* =====================================================================
+          DESKTOP: 7-column week grid (lg+)
+      ===================================================================== */}
+      {!isLoading && !error && (
+        <div className="hidden lg:flex gap-2 overflow-x-auto pb-1">
+          {weekDays.map((day) => {
+            const dayApts = getAppointmentsForDayAndStaff(appointments, selectedBarberId, day);
+
+            return (
+              <DayColumn
+                key={toDateParam(day)}
+                day={day}
+                appointments={dayApts}
+                onAppointmentClick={handleAppointmentClick}
+                onColumnClick={() => handleColumnClick(day)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* =====================================================================
+          MOBILE: single selected-day view (< lg)
+      ===================================================================== */}
+      {!isLoading && !error && (
+        <div className="lg:hidden space-y-2">
+          {(() => {
+            const dayApts = getAppointmentsForDayAndStaff(appointments, selectedBarberId, selectedDay);
+
+            if (dayApts.length === 0) {
+              return (
+                <p className="text-sm text-gray-400 py-4">No appointments this day</p>
+              );
+            }
+
+            return dayApts.map((apt) => (
+              <button
+                key={apt.id}
+                type="button"
+                onClick={() => handleAppointmentClick(apt)}
+                className={`
+                  w-full text-left
+                  bg-white rounded-xl border border-gray-200
+                  px-4 py-3
+                  flex items-center justify-between gap-4
+                  hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                  ${apt.status === 'cancelled' ? 'opacity-40' : ''}
+                `}
+              >
+                <div className="w-12 shrink-0 text-sm font-bold text-gray-700 tabular-nums">
+                  {formatTime(apt.datetime)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold text-gray-900 truncate ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
+                    {apt.client_name ?? 'Unknown client'}
+                  </p>
+                  {apt.service_type && (
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">{apt.service_type}</p>
+                  )}
+                </div>
+              </button>
+            ));
+          })()}
+
+          {/* Mobile add button for the selected day */}
+          <button
+            type="button"
+            onClick={() => handleColumnClick(selectedDay)}
+            className="
+              w-full mt-2 py-2.5 rounded-xl border border-dashed border-gray-300
+              text-sm text-gray-400 hover:border-indigo-300 hover:text-indigo-500
+              transition-colors
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+            "
+          >
+            + Add for {format(selectedDay, 'EEE d')}
+          </button>
+        </div>
+      )}
+
+      {/* =====================================================================
+          ADD / EDIT MODAL
+      ===================================================================== */}
+      <AddAppointmentModal
+        isOpen={modalOpen}
+        onClose={handleModalClose}
+        onSaved={handleModalSaved}
+        initialDate={modalInitialDate}
+        initialBarberId={modalInitialBarberId}
+        appointment={editingAppointment ?? undefined}
+      />
+
+    </div>
+  );
+}

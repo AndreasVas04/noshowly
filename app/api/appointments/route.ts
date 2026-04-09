@@ -1,0 +1,393 @@
+/**
+ * app/api/appointments/route.ts
+ *
+ * GET  /api/appointments?date=YYYY-MM-DD
+ *   Returns all appointments for the authenticated salon on the given date,
+ *   ordered chronologically. Client and barber names are joined and flattened
+ *   so the frontend never needs extra round-trips.
+ *
+ * GET  /api/appointments?start=YYYY-MM-DD&end=YYYY-MM-DD
+ *   Returns all appointments for the authenticated salon within the date range
+ *   [start, end] inclusive, ordered chronologically. Used by WeekView to fetch
+ *   a full week (or wider range to cover mobile edge days) in one call.
+ *
+ * POST /api/appointments
+ *   Creates a new appointment for the authenticated salon.
+ *   Client creation is handled separately via POST /api/clients (Day 4).
+ *   This route expects an existing client_id, or null for a walk-in.
+ *
+ * Security:
+ *  - Authentication is verified on every request before anything else.
+ *  - salon_id is always derived from the authenticated session — the caller
+ *    never supplies it, preventing cross-salon data access.
+ *  - RLS on the appointments table provides a second enforcement layer.
+ *  - All inputs are validated before touching the database.
+ */
+
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { parseISO, startOfDay, endOfDay, isValid } from 'date-fns';
+import type {
+  Appointment,
+  AppointmentWithDetails,
+  AppointmentStatus,
+} from '@/types';
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+/**
+ * Raw row shape returned by Supabase when using the nested-select join syntax.
+ * The `clients` and `barbers` keys hold the joined sub-rows (or null if the
+ * related record was deleted / never set).
+ */
+type RawAppointmentRow = Omit<Appointment, 'client_id' | 'barber_id'> & {
+  client_id: string | null;
+  barber_id: string | null;
+  clients: { name: string; phone: string | null; email: string | null } | null;
+  barbers: { name: string } | null;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Transforms a raw Supabase joined row into the flat AppointmentWithDetails
+ * shape consumed by frontend components.
+ *
+ * @param row - Raw row from Supabase with nested clients/barbers objects.
+ * @returns Flattened AppointmentWithDetails with client_name, client_phone,
+ *          and barber_name at the top level.
+ */
+function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetails {
+  const { clients, barbers, ...rest } = row;
+  return {
+    ...rest,
+    client_name: clients?.name ?? null,
+    client_phone: clients?.phone ?? null,
+    client_email: clients?.email ?? null,
+    barber_name: barbers?.name ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET — list appointments for a day or date range
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns all appointments for the authenticated salon within the requested
+ * time window, sorted ascending by datetime. Client and barber display names
+ * are included in each row.
+ *
+ * Accepts one of two mutually exclusive query-param forms:
+ *  - ?date=YYYY-MM-DD          — single calendar day (existing behaviour)
+ *  - ?start=YYYY-MM-DD&end=YYYY-MM-DD — inclusive date range (week view)
+ *
+ * @returns 200 { appointments: AppointmentWithDetails[] }
+ * @returns 400 { error: string }               — missing or invalid params
+ * @returns 401 { error: "Unauthorized" }       — no valid session
+ * @returns 404 { error: "Salon not found" }    — user has no salon record
+ * @returns 500 { error: string }               — unexpected DB error
+ */
+export async function GET(request: Request): Promise<Response> {
+  // Step 1: Verify authentication — always first.
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Step 2: Parse query params and determine the time window to query.
+  const { searchParams } = new URL(request.url);
+  const dateParam  = searchParams.get('date');
+  const startParam = searchParams.get('start');
+  const endParam   = searchParams.get('end');
+
+  let rangeStart: string;
+  let rangeEnd: string;
+
+  if (dateParam) {
+    // ---- Single-day mode: ?date=YYYY-MM-DD --------------------------------
+    // Validate format: must be a parseable ISO date string.
+    const parsed = parseISO(dateParam);
+    if (!isValid(parsed)) {
+      return Response.json(
+        { error: 'Invalid date format. Expected YYYY-MM-DD.' },
+        { status: 400 }
+      );
+    }
+
+    // Build UTC range for the entire calendar day.
+    rangeStart = startOfDay(parsed).toISOString();
+    rangeEnd   = endOfDay(parsed).toISOString();
+
+  } else if (startParam && endParam) {
+    // ---- Date-range mode: ?start=YYYY-MM-DD&end=YYYY-MM-DD ---------------
+    const parsedStart = parseISO(startParam);
+    const parsedEnd   = parseISO(endParam);
+
+    if (!isValid(parsedStart) || !isValid(parsedEnd)) {
+      return Response.json(
+        { error: 'Invalid date format. Expected YYYY-MM-DD for both start and end.' },
+        { status: 400 }
+      );
+    }
+
+    if (parsedEnd < parsedStart) {
+      return Response.json(
+        { error: 'end date must be on or after start date.' },
+        { status: 400 }
+      );
+    }
+
+    // Build UTC range spanning from the start of the first day to the end
+    // of the last day, covering all appointments within the inclusive range.
+    rangeStart = startOfDay(parsedStart).toISOString();
+    rangeEnd   = endOfDay(parsedEnd).toISOString();
+
+  } else {
+    // Neither form was supplied — return a helpful 400.
+    return Response.json(
+      { error: 'Provide either ?date=YYYY-MM-DD or ?start=YYYY-MM-DD&end=YYYY-MM-DD' },
+      { status: 400 }
+    );
+  }
+
+  // Step 3: Resolve the salon for this user.
+  // salon_id is derived from the session — never trusted from the client.
+  const { data: salon, error: salonError } = await supabase
+    .from('salons')
+    .select('id')
+    .eq('user_id', session.user.id)
+    .single();
+
+  if (salonError || !salon) {
+    return Response.json({ error: 'Salon not found' }, { status: 404 });
+  }
+
+  // Step 4: Fetch appointments for the time window with joined client and
+  // barber names. The nested select syntax performs LEFT JOINs via the
+  // foreign keys defined in the database schema.
+  const { data: rows, error: dbError } = await supabase
+    .from('appointments')
+    .select(`
+      *,
+      clients (name, phone, email),
+      barbers (name)
+    `)
+    .eq('salon_id', salon.id)
+    .gte('datetime', rangeStart)
+    .lte('datetime', rangeEnd)
+    .order('datetime', { ascending: true });
+
+  if (dbError) {
+    console.error('[GET /api/appointments] DB error:', dbError.message);
+    return Response.json({ error: 'Failed to load appointments' }, { status: 500 });
+  }
+
+  // Cast through unknown because our Database type has Relationships: [] —
+  // the Supabase TS client can't infer the join shape, but the SQL foreign
+  // keys are defined so the data is correct at runtime.
+  const appointments: AppointmentWithDetails[] = (rows as unknown as RawAppointmentRow[]).map(
+    toAppointmentWithDetails
+  );
+
+  return Response.json({ appointments }, { status: 200 });
+}
+
+// ---------------------------------------------------------------------------
+// POST — create appointment
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a new appointment for the authenticated salon.
+ *
+ * Request body:
+ * {
+ *   datetime:         string,          // ISO timestamp, required
+ *   client_id?:       string | null,   // existing client UUID, optional
+ *   barber_id?:       string | null,   // existing barber UUID, optional
+ *   service_type?:    ServiceType,     // "Haircut" | "Shave" | "Colour" | "Other"
+ *   duration_minutes?: number,         // defaults to 30
+ *   notes?:           string | null,
+ * }
+ *
+ * Note: client creation (new clients) is handled by POST /api/clients.
+ * This route only attaches an already-existing client record.
+ *
+ * @returns 201 { appointment: Appointment }
+ * @returns 400 { error: string }               — validation failure
+ * @returns 401 { error: "Unauthorized" }       — no valid session
+ * @returns 404 { error: "Salon not found" }    — user has no salon record
+ * @returns 500 { error: string }               — unexpected DB error
+ */
+export async function POST(request: Request): Promise<Response> {
+  // Step 1: Verify authentication.
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Step 2: Parse and validate the request body.
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+  }
+
+  if (typeof body !== 'object' || body === null) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
+  const raw = body as Record<string, unknown>;
+
+  // Validate required: datetime
+  if (typeof raw.datetime !== 'string' || !raw.datetime.trim()) {
+    return Response.json({ error: 'datetime is required and must be a string' }, { status: 400 });
+  }
+
+  const datetimeParsed = new Date(raw.datetime);
+  if (isNaN(datetimeParsed.getTime())) {
+    return Response.json({ error: 'datetime must be a valid ISO timestamp' }, { status: 400 });
+  }
+
+  // Validate optional: client_id
+  if (raw.client_id !== undefined && raw.client_id !== null && typeof raw.client_id !== 'string') {
+    return Response.json({ error: 'client_id must be a string or null' }, { status: 400 });
+  }
+
+  // Validate optional: barber_id
+  if (raw.barber_id !== undefined && raw.barber_id !== null && typeof raw.barber_id !== 'string') {
+    return Response.json({ error: 'barber_id must be a string or null' }, { status: 400 });
+  }
+
+  // Validate optional: service_type — any non-empty string is accepted (services are custom per salon)
+  if (
+    raw.service_type !== undefined &&
+    raw.service_type !== null &&
+    (typeof raw.service_type !== 'string' || raw.service_type.trim().length === 0 || raw.service_type.length > 100)
+  ) {
+    return Response.json(
+      { error: 'service_type must be a non-empty string of 100 characters or fewer' },
+      { status: 400 }
+    );
+  }
+
+  // Validate optional: duration_minutes (positive integer)
+  if (
+    raw.duration_minutes !== undefined &&
+    (typeof raw.duration_minutes !== 'number' ||
+      !Number.isInteger(raw.duration_minutes) ||
+      raw.duration_minutes < 1 ||
+      raw.duration_minutes > 480)
+  ) {
+    return Response.json(
+      { error: 'duration_minutes must be an integer between 1 and 480' },
+      { status: 400 }
+    );
+  }
+
+  // Validate optional: notes
+  if (
+    raw.notes !== undefined &&
+    raw.notes !== null &&
+    (typeof raw.notes !== 'string' || raw.notes.length > 1000)
+  ) {
+    return Response.json(
+      { error: 'notes must be a string of 1000 characters or fewer' },
+      { status: 400 }
+    );
+  }
+
+  // Step 3: Resolve salon for this user.
+  const { data: salon, error: salonError } = await supabase
+    .from('salons')
+    .select('id')
+    .eq('user_id', session.user.id)
+    .single();
+
+  if (salonError || !salon) {
+    return Response.json({ error: 'Salon not found' }, { status: 404 });
+  }
+
+  // Step 4: Double-booking checks — run before inserting to prevent conflicts.
+  // A 30-minute window around the requested datetime is used so back-to-back
+  // same-client or same-staff bookings still require at least a 30-minute gap.
+  const clientId = (raw.client_id as string | null | undefined) ?? null;
+  const barberId = (raw.barber_id as string | null | undefined) ?? null;
+  const windowStart = new Date(datetimeParsed.getTime() - 30 * 60 * 1000).toISOString();
+  const windowEnd   = new Date(datetimeParsed.getTime() + 30 * 60 * 1000).toISOString();
+
+  // 4a: Check if the client already has an active appointment in the time window.
+  // Protects against accidentally booking the same person twice at the same time.
+  if (clientId) {
+    const { data: clientConflicts } = await supabase
+      .from('appointments')
+      .select('id')
+      .eq('salon_id', salon.id)
+      .eq('client_id', clientId)
+      .neq('status', 'cancelled')
+      .gte('datetime', windowStart)
+      .lte('datetime', windowEnd);
+
+    if (clientConflicts && clientConflicts.length > 0) {
+      return Response.json(
+        { error: 'This client already has an appointment at that time.' },
+        { status: 409 }
+      );
+    }
+  }
+
+  // 4b: Check if the selected staff member already has an active appointment
+  // in the time window. Skipped when no staff is assigned (walk-in appointments).
+  if (barberId) {
+    const { data: staffConflicts } = await supabase
+      .from('appointments')
+      .select('id')
+      .eq('salon_id', salon.id)
+      .eq('barber_id', barberId)
+      .neq('status', 'cancelled')
+      .gte('datetime', windowStart)
+      .lte('datetime', windowEnd);
+
+    if (staffConflicts && staffConflicts.length > 0) {
+      return Response.json(
+        { error: 'This staff member already has an appointment at that time.' },
+        { status: 409 }
+      );
+    }
+  }
+
+  // Step 5: Insert the appointment.
+  // salon_id is derived from session — never accepted from client request body.
+  const { data: appointment, error: insertError } = await supabase
+    .from('appointments')
+    .insert({
+      salon_id: salon.id,
+      client_id: clientId,
+      barber_id: barberId,
+      datetime: datetimeParsed.toISOString(),
+      service_type: (raw.service_type as string | undefined) ?? null,
+      duration_minutes: (raw.duration_minutes as number | undefined) ?? 30,
+      notes: (raw.notes as string | null | undefined) ?? null,
+      status: 'scheduled' as AppointmentStatus,
+    })
+    .select()
+    .single();
+
+  if (insertError || !appointment) {
+    console.error('[POST /api/appointments] DB error:', insertError?.message);
+    return Response.json({ error: 'Failed to create appointment' }, { status: 500 });
+  }
+
+  return Response.json({ appointment: appointment as Appointment }, { status: 201 });
+}
