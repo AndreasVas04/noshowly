@@ -3,22 +3,30 @@
  *
  * Handles the password reset flow — second half (setting the new password).
  *
- * Supabase is configured to use the PKCE flow, so the reset link arrives as:
- *   https://noshowly.com/auth/reset-password?code=<one-time-code>
+ * The Supabase browser client is configured with flowType: 'implicit', so
+ * reset links arrive with tokens in the URL hash fragment:
+ *   https://noshowly.com/auth/reset-password#access_token=xxx&refresh_token=xxx&type=recovery
  *
- * On mount we read the ?code param via useSearchParams and call
- * exchangeCodeForSession(code), which exchanges the one-time code for a live
- * session. Once the session is established we show the new-password form.
- * Submitting calls updateUser({ password }) and redirects to /dashboard.
+ * On mount we parse window.location.hash, verify type === 'recovery', then
+ * call setSession() to establish the session. The new-password form is shown
+ * once the session is ready. Submitting calls updateUser({ password }) and
+ * redirects to /dashboard on success.
  *
- * "Back to sign in" calls signOut() first so the established recovery session
- * does not cause the middleware to redirect /login to /dashboard.
+ * Why implicit instead of PKCE:
+ *   PKCE stores a code verifier in browser storage at the time the reset is
+ *   requested. If the user opens the reset email in a different browser or
+ *   private tab, the verifier is gone and the exchange fails with
+ *   "PKCE code verifier not found in storage". The implicit flow puts tokens
+ *   directly in the URL hash, so it works regardless of where the link is opened.
+ *
+ * "Back to sign in" calls signOut() first so the established session does not
+ * cause the middleware to redirect /login → /dashboard.
  */
 
 'use client';
 
-import { useState, useEffect, FormEvent, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
@@ -27,27 +35,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/** Possible states for the initial code-exchange step. */
+/** Possible states for the initial token verification step. */
 type ExchangeStatus = 'loading' | 'ready' | 'error';
 
 /** Possible states for the password update form. */
 type FormStatus = 'idle' | 'submitting' | 'error' | 'success';
 
 /**
- * Inner component that reads ?code and drives the reset flow.
- * Must be wrapped in Suspense because useSearchParams() suspends on the client.
+ * ResetPasswordPage parses the URL hash on mount, establishes a Supabase
+ * session via setSession(), then lets the user set a new password.
  *
- * @returns The reset password UI.
+ * @returns The reset password page JSX.
  */
-function ResetPasswordContent() {
+export default function ResetPasswordPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const supabase = createBrowserSupabaseClient();
 
-  const code = searchParams.get('code');
-
   const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus>('loading');
-  const [exchangeError, setExchangeError]   = useState<string>('');
+  const [exchangeError,  setExchangeError]  = useState<string>('');
 
   const [password,        setPassword]        = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -58,24 +63,44 @@ function ResetPasswordContent() {
   const [formError,       setFormError]       = useState<string>('');
 
   /**
-   * Exchanges the one-time PKCE code for a Supabase session on mount.
-   * The code comes from the ?code= query param that Supabase appends to the
-   * redirectTo URL when the user clicks the password reset email link.
+   * Parses the URL hash fragment and calls setSession() to establish a
+   * Supabase session from the recovery tokens.
+   *
+   * The hash has the shape (after stripping the leading '#'):
+   *   access_token=xxx&refresh_token=xxx&type=recovery&...
    */
   useEffect(() => {
-    async function exchange() {
-      if (!code) {
+    async function processHash() {
+      // Strip the leading '#' before parsing.
+      const params = new URLSearchParams(window.location.hash.substring(1));
+
+      const accessToken  = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      const type         = params.get('type');
+
+      if (!accessToken || !refreshToken) {
         setExchangeError(
-          'No reset code found. Please use the link from your password reset email.'
+          'No reset token found. Please use the link from your password reset email.'
         );
         setExchangeStatus('error');
         return;
       }
 
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (type !== 'recovery') {
+        setExchangeError(
+          'This link is not a password reset link. Please request a new password reset email.'
+        );
+        setExchangeStatus('error');
+        return;
+      }
+
+      const { error } = await supabase.auth.setSession({
+        access_token:  accessToken,
+        refresh_token: refreshToken,
+      });
 
       if (error) {
-        console.error('[reset-password] exchangeCodeForSession failed:', error.message);
+        console.error('[reset-password] setSession failed:', error.message);
         setExchangeError(
           'This reset link has expired or has already been used. Please request a new one.'
         );
@@ -86,7 +111,7 @@ function ResetPasswordContent() {
       setExchangeStatus('ready');
     }
 
-    exchange();
+    processHash();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -145,8 +170,8 @@ function ResetPasswordContent() {
 
   /**
    * Signs the user out then navigates to /login.
-   * exchangeCodeForSession establishes a real session, so without signing out
-   * the middleware would redirect /login to /dashboard.
+   * setSession() establishes a real session; without signing out the middleware
+   * would redirect /login to /dashboard.
    */
   async function handleBackToSignIn() {
     await supabase.auth.signOut();
@@ -176,7 +201,7 @@ function ResetPasswordContent() {
         <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
 
           {/* ------------------------------------------------------------
-              LOADING — exchangeCodeForSession in flight
+              LOADING — setSession in flight
           ------------------------------------------------------------ */}
           {exchangeStatus === 'loading' && (
             <div className="text-center py-6">
@@ -186,7 +211,7 @@ function ResetPasswordContent() {
           )}
 
           {/* ------------------------------------------------------------
-              ERROR — no code, expired, or already used
+              ERROR — no token, wrong type, expired, or already used
           ------------------------------------------------------------ */}
           {exchangeStatus === 'error' && (
             <div className="text-center py-4">
@@ -244,7 +269,7 @@ function ResetPasswordContent() {
           )}
 
           {/* ------------------------------------------------------------
-              FORM — shown after exchangeCodeForSession succeeds
+              FORM — shown after setSession succeeds
           ------------------------------------------------------------ */}
           {exchangeStatus === 'ready' && formStatus !== 'success' && (
             <>
@@ -370,25 +395,5 @@ function ResetPasswordContent() {
         )}
       </motion.div>
     </main>
-  );
-}
-
-/**
- * ResetPasswordPage wraps the inner component in Suspense, which Next.js
- * requires whenever a client component calls useSearchParams().
- *
- * @returns The suspense-wrapped reset password page.
- */
-export default function ResetPasswordPage() {
-  return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9]">
-          <div className="w-8 h-8 border-2 border-[#1A1A1A]/20 border-t-[#1A1A1A] rounded-full animate-spin" />
-        </main>
-      }
-    >
-      <ResetPasswordContent />
-    </Suspense>
   );
 }
