@@ -3,20 +3,17 @@
  *
  * Handles the password reset flow — second half (setting the new password).
  *
- * How it works:
- *   1. Supabase sends the user an email with a link like:
- *        https://noshowly.com/auth/reset-password#access_token=xxx&refresh_token=xxx&type=recovery
- *   2. The browser never sends the URL fragment (#...) to the server, so we
- *      must parse it client-side on mount with window.location.hash.
- *   3. We extract access_token, refresh_token, and type from the fragment.
- *   4. If type === 'recovery', we call supabase.auth.setSession() to establish
- *      the session, then show the new-password form.
- *   5. On submit, supabase.auth.updateUser({ password }) persists the new password.
- *   6. On success, redirect to /dashboard.
- *   7. If the hash is missing, malformed, or not a recovery token, show an error.
+ * Two flows are supported because Supabase project settings control which one
+ * is used:
  *
- * "Back to sign in" signs the user out first so the middleware does not redirect
- * /login to /dashboard due to the active recovery session.
+ *   Hash flow (implicit):  /auth/reset-password#access_token=xxx&refresh_token=xxx&type=recovery
+ *     → parse window.location.hash, call setSession({ access_token, refresh_token })
+ *
+ *   PKCE flow:             /auth/reset-password?code=xxx
+ *     → read ?code query param, call exchangeCodeForSession(code)
+ *
+ * Debug logging is intentionally left in so that the exact URL, tokens, and
+ * Supabase responses can be inspected in the browser console.
  */
 
 'use client';
@@ -38,8 +35,8 @@ type ExchangeStatus = 'loading' | 'ready' | 'error';
 type FormStatus = 'idle' | 'submitting' | 'error' | 'success';
 
 /**
- * ResetPasswordPage parses the URL hash on mount, establishes a Supabase
- * session from the recovery token, then lets the user set a new password.
+ * ResetPasswordPage detects which reset flow Supabase used, establishes a
+ * session from the token, then lets the user set a new password.
  *
  * @returns The reset password page JSX.
  */
@@ -59,68 +56,109 @@ export default function ResetPasswordPage() {
   const [formError, setFormError] = useState<string>('');
 
   /**
-   * On mount, parse the URL hash fragment to extract the recovery tokens and
-   * establish a Supabase session.
+   * On mount, determine which Supabase reset flow is in use and attempt to
+   * establish a session. Logs everything to the browser console for debugging.
    *
-   * The hash has the shape: #access_token=xxx&refresh_token=xxx&type=recovery
-   * We strip the leading '#' and parse with URLSearchParams, then call
-   * setSession() which authenticates the user for the updateUser() call.
-   *
-   * Fails gracefully if the hash is missing, malformed, or not a recovery token.
+   * Priority:
+   *   1. Hash fragment contains access_token → implicit/hash flow → setSession()
+   *   2. Query string contains code= → PKCE flow → exchangeCodeForSession()
+   *   3. Neither → show error
    */
   useEffect(() => {
-    async function processHash() {
-      // window.location.hash includes the '#' prefix — strip it before parsing.
-      const raw = typeof window !== 'undefined' ? window.location.hash.substring(1) : '';
+    async function processToken() {
+      // -----------------------------------------------------------------------
+      // Log the raw URL so we can see exactly what Supabase sent.
+      // -----------------------------------------------------------------------
+      console.log('[reset-password] href  :', window.location.href);
+      console.log('[reset-password] hash  :', window.location.hash);
+      console.log('[reset-password] search:', window.location.search);
 
-      if (!raw) {
-        setExchangeError(
-          'No reset token found. Please use the link from your password reset email.'
-        );
-        setExchangeStatus('error');
-        return;
-      }
+      const hashRaw   = window.location.hash.substring(1);   // strip leading '#'
+      const hashParams  = new URLSearchParams(hashRaw);
+      const searchParams = new URLSearchParams(window.location.search);
 
-      const params = new URLSearchParams(raw);
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
-      const type = params.get('type');
+      console.log('[reset-password] hash params:', Object.fromEntries(hashParams.entries()));
+      console.log('[reset-password] search params:', Object.fromEntries(searchParams.entries()));
 
-      if (!accessToken || !refreshToken) {
-        setExchangeError(
-          'The reset link is missing required tokens. Please request a new password reset email.'
-        );
-        setExchangeStatus('error');
-        return;
-      }
+      const accessToken  = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      const hashType     = hashParams.get('type');
+      const code         = searchParams.get('code');
 
-      if (type !== 'recovery') {
-        setExchangeError(
-          'This link is not a password reset link. Please request a new password reset email.'
-        );
-        setExchangeStatus('error');
-        return;
-      }
-
-      // Establish the session so updateUser() is authorised.
-      const { error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
+      console.log('[reset-password] flow detection →', {
+        hasHashAccessToken: !!accessToken,
+        hasHashRefreshToken: !!refreshToken,
+        hashType,
+        hasCode: !!code,
       });
 
-      if (error) {
-        console.error('[reset-password] setSession failed:', error.message);
-        setExchangeError(
-          'This reset link has expired or has already been used. Please request a new one.'
-        );
-        setExchangeStatus('error');
+      // -----------------------------------------------------------------------
+      // FLOW 1 — Hash fragment with access_token (implicit / hash flow)
+      // -----------------------------------------------------------------------
+      if (accessToken && refreshToken) {
+        console.log('[reset-password] using hash flow → calling setSession()');
+
+        if (hashType !== 'recovery') {
+          console.warn('[reset-password] hash type is not "recovery":', hashType);
+          setExchangeError(
+            'This link is not a password reset link. Please request a new password reset email.'
+          );
+          setExchangeStatus('error');
+          return;
+        }
+
+        const { data, error } = await supabase.auth.setSession({
+          access_token:  accessToken,
+          refresh_token: refreshToken,
+        });
+
+        console.log('[reset-password] setSession result →', { data, error });
+
+        if (error) {
+          setExchangeError(
+            'This reset link has expired or has already been used. Please request a new one.'
+          );
+          setExchangeStatus('error');
+          return;
+        }
+
+        setExchangeStatus('ready');
         return;
       }
 
-      setExchangeStatus('ready');
+      // -----------------------------------------------------------------------
+      // FLOW 2 — Query param ?code= (PKCE flow)
+      // -----------------------------------------------------------------------
+      if (code) {
+        console.log('[reset-password] using PKCE flow → calling exchangeCodeForSession()');
+
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+        console.log('[reset-password] exchangeCodeForSession result →', { data, error });
+
+        if (error) {
+          setExchangeError(
+            'This reset link has expired or has already been used. Please request a new one.'
+          );
+          setExchangeStatus('error');
+          return;
+        }
+
+        setExchangeStatus('ready');
+        return;
+      }
+
+      // -----------------------------------------------------------------------
+      // FLOW 3 — Nothing found
+      // -----------------------------------------------------------------------
+      console.warn('[reset-password] no token found in hash or query string');
+      setExchangeError(
+        'No reset token found. Please use the link from your password reset email.'
+      );
+      setExchangeStatus('error');
     }
 
-    processHash();
+    processToken();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -158,10 +196,11 @@ export default function ResetPasswordPage() {
     setFormError('');
 
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      console.log('[reset-password] calling updateUser()');
+      const { data, error } = await supabase.auth.updateUser({ password });
+      console.log('[reset-password] updateUser result →', { data, error });
 
       if (error) {
-        console.error('[reset-password] updateUser failed:', error.message);
         setFormStatus('error');
         setFormError(
           'Could not update your password. Please try again or request a new reset link.'
@@ -171,7 +210,8 @@ export default function ResetPasswordPage() {
 
       setFormStatus('success');
       setTimeout(() => router.push('/dashboard'), 1200);
-    } catch {
+    } catch (err) {
+      console.error('[reset-password] unexpected error in handleSubmit:', err);
       setFormStatus('error');
       setFormError('Something went wrong. Please check your connection and try again.');
     }
@@ -180,8 +220,8 @@ export default function ResetPasswordPage() {
   /**
    * Signs the user out before navigating to /login.
    *
-   * setSession() establishes a real Supabase session. Without signing out first,
-   * the middleware detects the active session and redirects /login to /dashboard.
+   * setSession() / exchangeCodeForSession() establish a real Supabase session.
+   * Without signing out, the middleware redirects /login to /dashboard.
    */
   async function handleBackToSignIn() {
     await supabase.auth.signOut();
@@ -211,7 +251,7 @@ export default function ResetPasswordPage() {
         <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
 
           {/* ------------------------------------------------------------
-              LOADING — parsing hash and calling setSession
+              LOADING — parsing URL and calling Supabase
           ------------------------------------------------------------ */}
           {exchangeStatus === 'loading' && (
             <div className="text-center py-6">
@@ -221,7 +261,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              ERROR — bad hash, wrong type, expired token, or setSession fail
+              ERROR — bad hash, wrong type, expired, or no token at all
           ------------------------------------------------------------ */}
           {exchangeStatus === 'error' && (
             <div className="text-center py-4">
@@ -279,7 +319,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              FORM — shown after setSession succeeds
+              FORM — shown after session is established
           ------------------------------------------------------------ */}
           {exchangeStatus === 'ready' && formStatus !== 'success' && (
             <>
