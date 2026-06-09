@@ -1,29 +1,22 @@
 /**
  * app/auth/reset-password/page.tsx
  *
- * Handles the second half of the password reset flow.
+ * Handles the password reset flow — second half (setting the new password).
  *
- * How Supabase password reset works in production:
- *   1. User clicks the reset link in their email.
- *   2. Supabase redirects to this page with the token in the URL fragment
- *      (e.g. #access_token=...&type=recovery). The fragment is never sent to
- *      the server — it is processed entirely by the Supabase JS client on load.
- *   3. The JS client emits a PASSWORD_RECOVERY auth event, which we listen for
- *      via onAuthStateChange. When it fires, we show the new-password form.
- *   4. After updateUser() succeeds, we redirect to /dashboard.
+ * How it works:
+ *   1. Supabase sends the user an email with a link like:
+ *        https://noshowly.com/auth/reset-password#access_token=xxx&refresh_token=xxx&type=recovery
+ *   2. The browser never sends the URL fragment (#...) to the server, so we
+ *      must parse it client-side on mount with window.location.hash.
+ *   3. We extract access_token, refresh_token, and type from the fragment.
+ *   4. If type === 'recovery', we call supabase.auth.setSession() to establish
+ *      the session, then show the new-password form.
+ *   5. On submit, supabase.auth.updateUser({ password }) persists the new password.
+ *   6. On success, redirect to /dashboard.
+ *   7. If the hash is missing, malformed, or not a recovery token, show an error.
  *
- * Why onAuthStateChange instead of reading URL params:
- *   The default Supabase production flow puts the token in the URL hash (#),
- *   not the query string (?). Query params like ?code or ?token_hash are only
- *   present for specific flow configurations. The onAuthStateChange approach
- *   handles all flows correctly.
- *
- * Security:
- *  - Tokens are single-use and expire after a short window.
- *  - Session is established by the Supabase client before the form is shown.
- *  - Raw Supabase errors are never surfaced verbatim.
- *  - "Back to sign in" signs the user out first to prevent middleware
- *    redirecting them to /dashboard when they are still in a recovery session.
+ * "Back to sign in" signs the user out first so the middleware does not redirect
+ * /login to /dashboard due to the active recovery session.
  */
 
 'use client';
@@ -38,18 +31,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/** Possible states for the initial token verification. */
+/** Possible states for the initial token verification step. */
 type ExchangeStatus = 'loading' | 'ready' | 'error';
 
 /** Possible states for the password update form. */
 type FormStatus = 'idle' | 'submitting' | 'error' | 'success';
 
-/** How long to wait for the PASSWORD_RECOVERY event before showing an error (ms). */
-const RECOVERY_TIMEOUT_MS = 8000;
-
 /**
- * ResetPasswordPage listens for the Supabase PASSWORD_RECOVERY auth event and
- * then renders a form for the user to set their new password.
+ * ResetPasswordPage parses the URL hash on mount, establishes a Supabase
+ * session from the recovery token, then lets the user set a new password.
  *
  * @returns The reset password page JSX.
  */
@@ -69,42 +59,68 @@ export default function ResetPasswordPage() {
   const [formError, setFormError] = useState<string>('');
 
   /**
-   * Subscribes to Supabase auth state changes on mount.
+   * On mount, parse the URL hash fragment to extract the recovery tokens and
+   * establish a Supabase session.
    *
-   * When the user lands on this page via a password reset email link, the
-   * Supabase JS client processes the URL hash and emits a PASSWORD_RECOVERY
-   * event. We listen for that event and show the form once it fires.
+   * The hash has the shape: #access_token=xxx&refresh_token=xxx&type=recovery
+   * We strip the leading '#' and parse with URLSearchParams, then call
+   * setSession() which authenticates the user for the updateUser() call.
    *
-   * A timeout guard shows an error if no event fires within RECOVERY_TIMEOUT_MS,
-   * which handles expired links and users who navigate to this URL directly.
+   * Fails gracefully if the hash is missing, malformed, or not a recovery token.
    */
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setExchangeStatus('ready');
+    async function processHash() {
+      // window.location.hash includes the '#' prefix — strip it before parsing.
+      const raw = typeof window !== 'undefined' ? window.location.hash.substring(1) : '';
+
+      if (!raw) {
+        setExchangeError(
+          'No reset token found. Please use the link from your password reset email.'
+        );
+        setExchangeStatus('error');
+        return;
       }
-    });
 
-    // Fallback: if PASSWORD_RECOVERY never fires within the timeout window,
-    // the link is expired, already used, or the user navigated here directly.
-    const timeout = setTimeout(() => {
-      setExchangeStatus((current) => {
-        if (current === 'loading') {
-          setExchangeError(
-            'This reset link has expired or has already been used. Please request a new one.'
-          );
-          return 'error';
-        }
-        return current;
+      const params = new URLSearchParams(raw);
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      const type = params.get('type');
+
+      if (!accessToken || !refreshToken) {
+        setExchangeError(
+          'The reset link is missing required tokens. Please request a new password reset email.'
+        );
+        setExchangeStatus('error');
+        return;
+      }
+
+      if (type !== 'recovery') {
+        setExchangeError(
+          'This link is not a password reset link. Please request a new password reset email.'
+        );
+        setExchangeStatus('error');
+        return;
+      }
+
+      // Establish the session so updateUser() is authorised.
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
       });
-    }, RECOVERY_TIMEOUT_MS);
 
-    return () => {
-      subscription.unsubscribe();
-      clearTimeout(timeout);
-    };
+      if (error) {
+        console.error('[reset-password] setSession failed:', error.message);
+        setExchangeError(
+          'This reset link has expired or has already been used. Please request a new one.'
+        );
+        setExchangeStatus('error');
+        return;
+      }
+
+      setExchangeStatus('ready');
+    }
+
+    processHash();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -124,7 +140,7 @@ export default function ResetPasswordPage() {
   }
 
   /**
-   * Submits the new password via Supabase updateUser, then redirects to /dashboard.
+   * Submits the new password and redirects to /dashboard on success.
    *
    * @param e - The form submit event.
    */
@@ -154,7 +170,6 @@ export default function ResetPasswordPage() {
       }
 
       setFormStatus('success');
-      // Short delay so the success state is visible before navigating.
       setTimeout(() => router.push('/dashboard'), 1200);
     } catch {
       setFormStatus('error');
@@ -165,9 +180,8 @@ export default function ResetPasswordPage() {
   /**
    * Signs the user out before navigating to /login.
    *
-   * This is necessary because clicking the reset link establishes a Supabase
-   * session. Without signing out first, the middleware would detect the active
-   * session and redirect /login to /dashboard instead of showing the sign-in form.
+   * setSession() establishes a real Supabase session. Without signing out first,
+   * the middleware detects the active session and redirects /login to /dashboard.
    */
   async function handleBackToSignIn() {
     await supabase.auth.signOut();
@@ -197,7 +211,7 @@ export default function ResetPasswordPage() {
         <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
 
           {/* ------------------------------------------------------------
-              LOADING — waiting for the PASSWORD_RECOVERY event
+              LOADING — parsing hash and calling setSession
           ------------------------------------------------------------ */}
           {exchangeStatus === 'loading' && (
             <div className="text-center py-6">
@@ -207,7 +221,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              EXCHANGE ERROR — expired / already used / no token found
+              ERROR — bad hash, wrong type, expired token, or setSession fail
           ------------------------------------------------------------ */}
           {exchangeStatus === 'error' && (
             <div className="text-center py-4">
@@ -234,7 +248,7 @@ export default function ResetPasswordPage() {
               <button
                 type="button"
                 onClick={handleBackToSignIn}
-                className="inline-block w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+                className="inline-flex items-center justify-center w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
               >
                 Back to sign in
               </button>
@@ -242,7 +256,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              SUCCESS — password updated
+              SUCCESS — password updated, redirecting
           ------------------------------------------------------------ */}
           {formStatus === 'success' && (
             <div className="text-center py-4">
@@ -265,7 +279,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              FORM — shown once the PASSWORD_RECOVERY event fires
+              FORM — shown after setSession succeeds
           ------------------------------------------------------------ */}
           {exchangeStatus === 'ready' && formStatus !== 'success' && (
             <>
@@ -379,7 +393,7 @@ export default function ResetPasswordPage() {
 
         </div>
 
-        {/* Back to sign in — only shown when not in the loading or success states */}
+        {/* Bottom back-link — hidden during loading and after success */}
         {exchangeStatus !== 'loading' && formStatus !== 'success' && (
           <p className="mt-7 text-center text-sm text-[#C8C8C8]">
             <button
