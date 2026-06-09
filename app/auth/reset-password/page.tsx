@@ -3,17 +3,19 @@
  *
  * Handles the second half of the password reset flow.
  *
- * Supabase sends the user an email with a link that includes a one-time `code`
- * parameter. This page:
- *  1. Reads the `code` from the URL.
- *  2. Exchanges it for a session via exchangeCodeForSession() on mount.
- *  3. Shows a form for the user to enter and confirm their new password.
- *  4. Calls updateUser() to persist the new password.
- *  5. Redirects to /dashboard on success.
+ * Supabase may redirect to this page with one of two URL formats:
+ *  - PKCE flow:      ?code=<one-time-code>
+ *  - Email OTP flow: ?token_hash=<hash>&type=recovery
+ *
+ * This page:
+ *  1. Detects which format is present and verifies the token on mount.
+ *  2. Shows a form for the user to enter and confirm their new password.
+ *  3. Calls updateUser() to persist the new password.
+ *  4. Redirects to /dashboard on success.
  *
  * Security:
- *  - The code is single-use and expires after a short window.
- *  - Session is established server-side via the PKCE exchange before any form is shown.
+ *  - Tokens are single-use and expire after a short window.
+ *  - Session is established before the form is shown.
  *  - Raw Supabase errors are never surfaced verbatim.
  */
 
@@ -48,7 +50,9 @@ function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const supabase = createBrowserSupabaseClient();
 
-  const code = searchParams.get('code');
+  const code       = searchParams.get('code');
+  const tokenHash  = searchParams.get('token_hash');
+  const otpType    = searchParams.get('type');
 
   const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus>('loading');
   const [exchangeError, setExchangeError] = useState<string>('');
@@ -62,25 +66,41 @@ function ResetPasswordContent() {
   const [formError, setFormError] = useState<string>('');
 
   /**
-   * Exchanges the one-time code from the URL for an active Supabase session.
-   * Runs once on mount. Without a valid code the form is never shown.
+   * Verifies the token from the URL on mount.
+   *
+   * Supabase uses two formats depending on project settings:
+   *  - Email OTP flow (most common on production): token_hash + type params
+   *  - PKCE flow: code param
+   *
+   * Either way, a valid session must be established before the form is shown.
    */
   useEffect(() => {
-    if (!code) {
+    if (tokenHash && otpType) {
+      // Email OTP flow — verify the hash directly as a recovery token.
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' }).then(({ error }) => {
+        if (error) {
+          console.error('[reset-password] verifyOtp failed:', error.message);
+          setExchangeStatus('error');
+          setExchangeError('This reset link has expired or has already been used. Please request a new one.');
+        } else {
+          setExchangeStatus('ready');
+        }
+      });
+    } else if (code) {
+      // PKCE flow — exchange the one-time code for a session.
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (error) {
+          console.error('[reset-password] Code exchange failed:', error.message);
+          setExchangeStatus('error');
+          setExchangeError('This reset link has expired or has already been used. Please request a new one.');
+        } else {
+          setExchangeStatus('ready');
+        }
+      });
+    } else {
       setExchangeStatus('error');
       setExchangeError('No reset code found in the URL. Please request a new password reset link.');
-      return;
     }
-
-    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-      if (error) {
-        console.error('[reset-password] Code exchange failed:', error.message);
-        setExchangeStatus('error');
-        setExchangeError('This reset link has expired or has already been used. Please request a new one.');
-      } else {
-        setExchangeStatus('ready');
-      }
-    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
