@@ -9,29 +9,17 @@
  *
  * On mobile (<lg breakpoint) the sidebar collapses to a top navigation bar.
  *
- * Design: dark (#1A1A1A) sidebar, Playfair Display logo, Montserrat nav.
+ * Design: dark gradient sidebar, Playfair Display logo, Montserrat nav.
+ * Active route highlighting handled client-side by DashboardNavLinks.
  *
  * This is a Server Component — fetches the salon name server-side.
  */
 
-import Link from 'next/link';
 import Image from 'next/image';
+import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import LogoutButton from '@/components/layout/LogoutButton';
-
-/** A single navigation entry in the sidebar. */
-interface NavItem {
-  label: string;
-  href: string;
-}
-
-/** All sidebar navigation links. */
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Today', href: '/dashboard' },
-  { label: 'Week', href: '/dashboard/week' },
-  { label: 'Booking', href: '/dashboard/booking' },
-  { label: 'Settings', href: '/dashboard/settings' },
-];
+import DashboardNavLinks, { MobileNavLinks } from '@/components/dashboard/DashboardNavLinks';
 
 /**
  * DashboardLayout wraps every /dashboard/* page with the sidebar and header.
@@ -74,12 +62,10 @@ export default async function DashboardLayout({
       {/* =================================================================
           SIDEBAR — hidden on mobile, visible as left column on lg+
       ================================================================== */}
-      <aside className="
-        hidden lg:flex lg:flex-col
-        w-60 shrink-0
-        bg-[#1A1A1A]
-        min-h-screen sticky top-0
-      ">
+      <aside
+        className="hidden lg:flex lg:flex-col w-60 shrink-0 min-h-screen sticky top-0"
+        style={{ background: 'linear-gradient(180deg, #1A1A1A 0%, #111111 100%)' }}
+      >
         {/* Brand logo */}
         <div className="px-6 py-6 border-b border-white/10">
           <Image src="/Logo.png" alt="Noshowly" width={160} height={40} className="h-10 w-auto" />
@@ -93,22 +79,8 @@ export default async function DashboardLayout({
           <p className="text-sm font-medium text-white/80 truncate">{salonName}</p>
         </div>
 
-        {/* Nav links */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="
-                flex items-center px-3 py-2.5 rounded-lg text-sm font-medium
-                text-white/60 hover:text-white hover:bg-white/10
-                transition-colors
-              "
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        {/* Nav links — client component for active-state detection */}
+        <DashboardNavLinks />
 
         {/* Upgrade link */}
         <div className="px-3 pb-2">
@@ -133,27 +105,15 @@ export default async function DashboardLayout({
       {/* =================================================================
           MOBILE TOP BAR — visible below lg breakpoint
       ================================================================== */}
-      <header className="
-        lg:hidden
-        flex items-center justify-between gap-4
-        bg-[#1A1A1A]
-        px-4 py-3
-      ">
+      <header
+        className="lg:hidden flex items-center justify-between gap-4 px-4 py-3"
+        style={{ background: 'linear-gradient(180deg, #1A1A1A 0%, #111111 100%)' }}
+      >
         {/* Brand */}
         <Image src="/Logo.png" alt="Noshowly" width={120} height={32} className="h-7 w-auto shrink-0" />
 
-        {/* Horizontal nav */}
-        <nav className="flex items-center gap-1 overflow-x-auto">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="text-sm font-medium text-white/60 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        {/* Horizontal nav — client component for active-state detection */}
+        <MobileNavLinks />
 
         {/* Logout */}
         <div className="shrink-0">

@@ -20,6 +20,19 @@ import Badge from '@/components/ui/Badge';
 import type { AppointmentWithDetails } from '@/types';
 
 /**
+ * Returns the hex color for a given appointment status.
+ * Used to render the colored status dot beside each appointment.
+ *
+ * @param status - The appointment status string.
+ * @returns A hex color string.
+ */
+function statusColor(status: string): string {
+  if (status === 'confirmed') return '#10B981';
+  if (status === 'cancelled') return '#EF4444';
+  return '#F59E0B'; // scheduled / pending
+}
+
+/**
  * Formats an ISO datetime string as a 24-hour clock time string.
  *
  * @param isoString - ISO 8601 datetime string (UTC).
@@ -70,12 +83,18 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
         'bg-white rounded-xl border border-[#C8C8C8]/40',
         'px-4 py-3.5',
         'flex items-center gap-3',
-        'hover:border-[#1A1A1A]/20 hover:shadow-sm transition-all duration-150',
+        'hover:border-[#6366F1]/20 hover:shadow-sm hover:bg-[#FAFAFE] transition-all duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20',
         'cursor-pointer',
         isCancelled ? 'opacity-40' : '',
       ].join(' ')}
     >
+      {/* Status dot */}
+      <div
+        className="w-2 h-2 rounded-full shrink-0 ml-0.5"
+        style={{ background: statusColor(appointment.status) }}
+      />
+
       {/* Left: time — fixed width so all times vertically align */}
       <div className="w-12 shrink-0 text-right">
         <span className="text-sm font-semibold text-[#1A1A1A] tabular-nums">{time}</span>

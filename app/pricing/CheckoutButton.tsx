@@ -73,7 +73,7 @@ export default function CheckoutButton({ plan, highlighted }: CheckoutButtonProp
         className={`
           w-full rounded-xl px-4 py-3 text-sm font-semibold h-auto transition-colors
           ${highlighted
-            ? 'bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white'
+            ? 'bg-[#6366F1] hover:bg-[#4F46E5] text-white'
             : 'bg-transparent border border-[#C8C8C8] text-[#1A1A1A] hover:border-[#1A1A1A] hover:bg-[#1A1A1A]/5'
           }
         `}

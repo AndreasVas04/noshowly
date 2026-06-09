@@ -2,12 +2,13 @@
  * components/landing/LandingNav.tsx
  *
  * Responsive navigation bar for the public landing page.
- * Client component because the mobile menu requires toggle state.
+ * Client component because the mobile menu requires toggle state and
+ * the scroll-aware background requires a scroll event listener.
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Menu, X } from 'lucide-react';
@@ -15,14 +16,36 @@ import { Menu, X } from 'lucide-react';
 /**
  * LandingNav renders a sticky top navigation bar with logo, section links,
  * sign-in link, and a start-trial CTA. Collapses to a hamburger on mobile.
+ * Applies a frosted glass effect when the page is scrolled more than 20px.
  *
  * @returns The navigation bar JSX.
  */
 export default function LandingNav() {
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    /**
+     * Updates the scrolled state based on window.scrollY position.
+     * Triggers a visual transition at the 20px threshold.
+     */
+    function handleScroll() {
+      setScrolled(window.scrollY > 20);
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-[#C8C8C8]/40 backdrop-blur-sm">
+    <header
+      className={[
+        'sticky top-0 z-50 transition-all duration-300',
+        scrolled
+          ? 'backdrop-blur-md bg-white/80 shadow-sm border-b border-transparent'
+          : 'bg-white border-b border-[#C8C8C8]/40',
+      ].join(' ')}
+    >
       <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
 
         {/* Logo */}
@@ -52,7 +75,7 @@ export default function LandingNav() {
           </Link>
           <Link
             href="/register"
-            className="h-9 px-5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors inline-flex items-center font-body"
+            className="h-9 px-5 bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold rounded-lg transition-colors inline-flex items-center font-body"
           >
             Start free trial
           </Link>
@@ -92,7 +115,7 @@ export default function LandingNav() {
           </Link>
           <Link
             href="/register"
-            className="block w-full h-11 bg-[#1A1A1A] text-white text-sm font-semibold rounded-lg transition-colors text-center leading-[2.75rem] font-body mt-2"
+            className="block w-full h-11 bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold rounded-lg transition-colors text-center leading-[2.75rem] font-body mt-2"
           >
             Start free trial
           </Link>

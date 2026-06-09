@@ -17,6 +17,8 @@
   --color-brand-dark: #1A1A1A;
   --color-brand-graphite: #2D2D2D;
   --color-brand-gray: #C8C8C8;
+  --color-indigo: #6366F1;
+  --color-indigo-light: #EEF2FF;
   /* shadcn tokens */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -137,3 +139,20 @@
     @apply font-sans;
   }
 }
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom thin scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C8C8C8; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2D2D2D; }
+
+/* Text selection */
+::selection { background-color: #6366F1; color: #ffffff; }
+
+/* Focus visible with indigo */
+*:focus-visible { outline: 2px solid #6366F1 !important; outline-offset: 2px; }

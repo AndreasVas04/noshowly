@@ -6,8 +6,8 @@
  *  - Pending appointments (status='scheduled' in the DB)
  *  - Cancelled appointments
  *
- * Premium design: clean white shadcn Cards, no colored backgrounds,
- * brand-dark typography, Framer Motion fade-in on load.
+ * Premium design: white shadcn Cards with colored left border and subtle tinted
+ * background, brand-dark typography, Framer Motion fade-in on load.
  *
  * Fetches today's appointments from GET /api/appointments?date=YYYY-MM-DD.
  */
@@ -55,17 +55,19 @@ type StatConfig = {
   loading: boolean;
   /** Tailwind border-left color class for the accent line. */
   accentClass: string;
+  /** Tailwind background tint class matching the accent color. */
+  bgClass: string;
 };
 
 /**
- * Renders a single stat card with a colored left border accent, large count,
- * and a subtle icon in the corner.
+ * Renders a single stat card with a colored left border accent, tinted
+ * background, large count, and a subtle icon in the corner.
  *
  * @param props - Card data and loading state.
  */
-function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
+function StatCard({ label, count, icon, loading, accentClass, bgClass }: StatConfig) {
   return (
-    <Card className={`border-[#C8C8C8]/40 shadow-none border-l-[3px] ${accentClass}`}>
+    <Card className={`border-[#C8C8C8]/40 shadow-none border-l-[3px] ${accentClass} ${bgClass}`}>
       <CardContent className="px-5 py-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-wider">{label}</p>
@@ -127,22 +129,25 @@ export default function StatsCards({ plan }: StatsCardsProps) {
       label: 'Confirmed',
       count: stats.confirmed,
       loading,
-      icon: <CheckCircle className="w-4 h-4" />,
+      icon: <CheckCircle className="w-4 h-4 text-emerald-500" />,
       accentClass: 'border-l-emerald-500',
+      bgClass: 'bg-emerald-50/50',
     },
     {
       label: 'Pending',
       count: stats.pending,
       loading,
-      icon: <Clock className="w-4 h-4" />,
+      icon: <Clock className="w-4 h-4 text-amber-400" />,
       accentClass: 'border-l-amber-400',
+      bgClass: 'bg-amber-50/50',
     },
     {
       label: 'Cancelled',
       count: stats.cancelled,
       loading,
-      icon: <XCircle className="w-4 h-4" />,
+      icon: <XCircle className="w-4 h-4 text-red-400" />,
       accentClass: 'border-l-red-400',
+      bgClass: 'bg-red-50/50',
     },
   ];
 

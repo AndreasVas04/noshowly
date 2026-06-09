@@ -164,7 +164,14 @@ export default function RegisterPage() {
   // Email confirmation screen
   if (status === 'success') {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9] px-4">
+      <main
+        className="min-h-screen flex items-center justify-center px-4 py-12"
+        style={{
+          backgroundColor: '#F9F9F9',
+          backgroundImage: 'radial-gradient(circle, #C8C8C8 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
+        }}
+      >
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -210,7 +217,14 @@ export default function RegisterPage() {
   const isLoading = status === 'loading';
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9] px-4 py-12">
+    <main
+      className="min-h-screen flex items-center justify-center px-4 py-12"
+      style={{
+        backgroundColor: '#F9F9F9',
+        backgroundImage: 'radial-gradient(circle, #C8C8C8 1px, transparent 1px)',
+        backgroundSize: '28px 28px',
+      }}
+    >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}

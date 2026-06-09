@@ -122,19 +122,24 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
       {/* Badge — shown for current plan or most popular */}
       {(isCurrent || highlighted) && (
         <div className="absolute -top-3.5 inset-x-0 flex justify-center z-10">
-          <span className="rounded-full bg-[#1A1A1A] px-3 py-1 text-xs font-semibold text-white">
+          <span
+            className={[
+              'rounded-full px-3 py-1 text-xs font-semibold text-white',
+              highlighted ? 'bg-[#6366F1]' : 'bg-[#1A1A1A]',
+            ].join(' ')}
+          >
             {isCurrent ? 'Current plan' : 'Most popular'}
           </span>
         </div>
       )}
 
       <Card
-        className={`
-          flex flex-col h-full rounded-2xl border shadow-none transition-shadow hover:shadow-md
-          ${isCurrent    ? 'border-[#1A1A1A]'      :
-            highlighted  ? 'border-[#1A1A1A]/30'   :
-                           'border-[#C8C8C8]/40'   }
-        `}
+        className={[
+          'flex flex-col h-full rounded-2xl border shadow-none hover:-translate-y-1 hover:shadow-lg transition-all duration-200',
+          isCurrent    ? 'border-[#1A1A1A]'      :
+          highlighted  ? 'border-[#6366F1]/40'   :
+                         'border-[#C8C8C8]/40',
+        ].join(' ')}
       >
         <CardHeader className="px-7 pt-7 pb-5">
           <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">
@@ -168,7 +173,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-[#1A1A1A]"
+                  className={`mt-0.5 h-4 w-4 shrink-0 ${highlighted ? 'text-[#6366F1]' : 'text-[#1A1A1A]'}`}
                   viewBox="0 0 20 20"
                   fill="currentColor"
                   aria-hidden="true"
