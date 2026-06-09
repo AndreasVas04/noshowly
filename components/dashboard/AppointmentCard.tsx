@@ -8,14 +8,10 @@
  *  - Client name + service type and staff name (centre)
  *  - Status badge (right, colour-coded)
  *
- * Cancelled appointments are rendered with reduced opacity and a strikethrough
- * on the client name so they fade into the background without disappearing.
+ * Cancelled appointments render with reduced opacity and strikethrough on
+ * the client name. Clicking opens the edit modal in the parent.
  *
- * The card is interactive — clicking it opens the edit modal in the parent.
- * The onClick prop is wired up by DayView when it renders the card list.
- *
- * This is a Client Component so it can accept the onClick function prop from
- * the parent DayView (Client Components cannot pass functions to Server Components).
+ * Premium design: white card, subtle border, brand-dark hover state.
  */
 
 'use client';
@@ -23,16 +19,11 @@
 import Badge from '@/components/ui/Badge';
 import type { AppointmentWithDetails } from '@/types';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Formats an ISO datetime string as a 24-hour clock time string.
- * e.g. "2026-04-01T09:30:00Z" → "09:30"
  *
- * @param isoString - ISO 8601 datetime string stored in the database (UTC).
- * @returns Formatted time string like "09:30" or "14:00".
+ * @param isoString - ISO 8601 datetime string (UTC).
+ * @returns Formatted time string like "09:30".
  */
 function formatTime(isoString: string): string {
   const date = new Date(isoString);
@@ -41,40 +32,30 @@ function formatTime(isoString: string): string {
   return `${h}:${m}`;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 /** Props accepted by AppointmentCard. */
 interface AppointmentCardProps {
-  /** The appointment to render, with client and staff names pre-joined. */
   appointment: AppointmentWithDetails;
-  /**
-   * Called when the user clicks the card.
-   * The parent (DayView) uses this to open the edit modal for this appointment.
-   */
   onClick: () => void;
 }
 
 /**
- * AppointmentCard renders a single appointment row in the day view.
- * Clicking the card fires the onClick callback so the parent can open
- * the edit modal.
+ * Renders a single appointment row. Clicking opens the edit modal.
  *
- * Cancelled appointments render at reduced opacity with a strikethrough on the
- * client name — they stay visible but de-emphasised so the owner focuses on
- * active appointments.
- *
- * @param props.appointment - The appointment data including display names.
- * @param props.onClick     - Callback to open the edit modal for this appointment.
- * @returns A styled, clickable card with time, client details, and status badge.
+ * @param props.appointment - Appointment data with joined display names.
+ * @param props.onClick     - Opens the edit modal.
  */
+/** Returns up to 2 initials from a client's display name. */
+function clientInitials(name: string | null): string {
+  if (!name) return '?';
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function AppointmentCard({ appointment, onClick }: AppointmentCardProps) {
   const time = formatTime(appointment.datetime);
   const isCancelled = appointment.status === 'cancelled';
 
-  // Build the secondary info line: "Haircut · Maria" or just "Haircut" or "Maria".
-  // If service_type is null/empty, show nothing — no "Appointment" fallback.
   const parts: string[] = [];
   if (appointment.service_type) parts.push(appointment.service_type);
   if (appointment.barber_name) parts.push(appointment.barber_name);
@@ -84,37 +65,39 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
     <button
       type="button"
       onClick={onClick}
-      className={`
-        w-full text-left
-        bg-white rounded-xl border border-gray-200
-        px-4 py-3
-        flex items-center justify-between gap-4
-        hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
-        cursor-pointer
-        ${isCancelled ? 'opacity-40' : ''}
-      `}
+      className={[
+        'w-full text-left',
+        'bg-white rounded-xl border border-[#C8C8C8]/40',
+        'px-4 py-3.5',
+        'flex items-center gap-3',
+        'hover:border-[#1A1A1A]/20 hover:shadow-sm transition-all duration-150',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20',
+        'cursor-pointer',
+        isCancelled ? 'opacity-40' : '',
+      ].join(' ')}
     >
-
-      {/* Left: time column — fixed width so all times vertically align */}
-      <div className="w-12 shrink-0 text-sm font-bold text-gray-700 tabular-nums">
-        {time}
+      {/* Left: time — fixed width so all times vertically align */}
+      <div className="w-12 shrink-0 text-right">
+        <span className="text-sm font-semibold text-[#1A1A1A] tabular-nums">{time}</span>
       </div>
 
-      {/* Centre: client name + service/staff detail + notes */}
+      {/* Divider */}
+      <div className="w-px h-8 bg-[#C8C8C8]/30 shrink-0" />
+
+      {/* Client initial avatar */}
+      <div className="w-8 h-8 rounded-full bg-[#1A1A1A]/8 flex items-center justify-center shrink-0">
+        <span className="text-[10px] font-semibold text-[#1A1A1A]">
+          {clientInitials(appointment.client_name)}
+        </span>
+      </div>
+
+      {/* Centre: client details */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold text-gray-900 truncate ${isCancelled ? 'line-through' : ''}`}>
+        <p className={`text-sm font-semibold text-[#1A1A1A] truncate ${isCancelled ? 'line-through' : ''}`}>
           {appointment.client_name ?? 'Unknown client'}
         </p>
         {detailLine && (
-          <p className="text-xs text-gray-500 mt-0.5 truncate">
-            {detailLine}
-          </p>
-        )}
-        {appointment.notes && (
-          <p className="text-xs text-gray-400 italic mt-0.5 truncate">
-            {appointment.notes}
-          </p>
+          <p className="text-xs text-[#C8C8C8] mt-0.5 truncate">{detailLine}</p>
         )}
       </div>
 
@@ -122,7 +105,6 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
       <div className="shrink-0">
         <Badge status={appointment.status} />
       </div>
-
     </button>
   );
 }

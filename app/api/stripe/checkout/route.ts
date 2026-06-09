@@ -22,7 +22,7 @@
  *    accepted from the client.
  *  - STRIPE_SECRET_KEY is server-only; never returned in the response.
  *
- * @param request - POST body: { plan: 'solo' | 'salon' | 'studio' }
+ * @param request - POST body: { plan: PaidPlan } (one of the 3 valid plan keys)
  * @returns 200 { url: string }     — Stripe Checkout URL; redirect the user here.
  * @returns 400 { error: string }   — Invalid or missing plan.
  * @returns 401 { error: string }   — Not authenticated.
@@ -34,6 +34,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { stripe } from '@/lib/stripe';
 import type { Database } from '@/types';
+import type { PaidPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Service-role client — needed to write stripe_customer_id back to the user row.
@@ -52,31 +53,32 @@ const adminSupabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY);
 // Plan → Stripe price ID mapping
 // ---------------------------------------------------------------------------
 
-/** Allowed plan names that map to Stripe price IDs. */
-type CheckoutPlan = 'solo' | 'salon' | 'studio';
+/**
+ * All 3 paid plan names that map to Stripe price IDs.
+ * Aliased from PaidPlan for clarity at the checkout boundary.
+ */
+type CheckoutPlan = PaidPlan;
 
-const VALID_PLANS: CheckoutPlan[] = ['solo', 'salon', 'studio'];
+/** Exhaustive list of valid checkout plan names — used for input validation. */
+const VALID_PLANS: CheckoutPlan[] = ['starter', 'professional', 'business'];
 
 /**
- * Maps a NoShowly plan name to its Stripe price ID from environment variables.
- * Throws if the corresponding env var is not configured.
+ * Maps a Noshowly plan name to its Stripe price ID from environment variables.
  *
- * @param plan - The plan name chosen by the user.
+ * Env var convention: plan 'solo-sms' → STRIPE_SOLO_SMS_PRICE_ID.
+ * Hyphens in the plan name are replaced with underscores, then uppercased.
+ *
+ * @param plan - The validated plan name chosen by the user.
  * @returns The Stripe price ID for the plan.
- * @throws If the price ID env var is missing.
+ * @throws If the corresponding env var is not configured.
  */
 function getPriceId(plan: CheckoutPlan): string {
-  const envMap: Record<CheckoutPlan, string | undefined> = {
-    solo:   process.env.STRIPE_SOLO_PRICE_ID,
-    salon:  process.env.STRIPE_SALON_PRICE_ID,
-    studio: process.env.STRIPE_STUDIO_PRICE_ID,
-  };
-
-  const priceId = envMap[plan];
+  // 'solo-sms' → 'STRIPE_SOLO_SMS_PRICE_ID'
+  const envKey = `STRIPE_${plan.toUpperCase().replace(/-/g, '_')}_PRICE_ID`;
+  const priceId = process.env[envKey];
   if (!priceId) {
-    throw new Error(`Missing Stripe price ID for plan "${plan}". Set STRIPE_${plan.toUpperCase()}_PRICE_ID.`);
+    throw new Error(`Missing Stripe price ID env var: ${envKey}`);
   }
-
   return priceId;
 }
 

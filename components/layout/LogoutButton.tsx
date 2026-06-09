@@ -1,11 +1,8 @@
 /**
  * components/layout/LogoutButton.tsx
  *
- * Client Component: renders a "Sign out" button that calls Supabase signOut
- * and redirects to /login.
- *
- * Extracted from the dashboard layout so the layout can remain a Server Component
- * (and do server-side data fetching) while this small piece handles browser APIs.
+ * Client Component: renders a "Sign out" button styled for the dark sidebar.
+ * Calls Supabase signOut and redirects to /login.
  *
  * Security: Supabase clears the session cookie on signOut — the middleware will
  * enforce this on the next /dashboard/* request even if the client-side redirect fails.
@@ -17,7 +14,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
 /**
- * Renders a "Sign out" button.
+ * Renders a "Sign out" button styled for the dark sidebar.
  * On click, signs the user out of Supabase and navigates to /login.
  *
  * @returns A styled button element that triggers sign-out.
@@ -29,7 +26,6 @@ export default function LogoutButton() {
   /**
    * Signs the user out via Supabase, then navigates to /login.
    * Errors are caught silently — navigation to /login happens regardless.
-   * The middleware will clear the stale session on the next protected-route request.
    */
   async function handleLogout() {
     try {
@@ -45,8 +41,8 @@ export default function LogoutButton() {
     <button
       onClick={handleLogout}
       className="
-        w-full text-left px-3 py-2 rounded-lg text-sm font-medium
-        text-gray-500 hover:text-gray-900 hover:bg-gray-50
+        w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap
+        text-white/40 hover:text-white/70 hover:bg-white/5
         transition-colors
       "
     >

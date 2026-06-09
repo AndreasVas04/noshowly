@@ -1,0 +1,15 @@
+-- Migration: add_storage_bucket.sql
+--
+-- IMPORTANT: Supabase Storage buckets CANNOT be created via SQL.
+-- You must create the 'staff-photos' bucket manually through one of:
+--   1. Supabase Dashboard → Storage → New Bucket
+--      - Name: staff-photos
+--      - Public bucket: YES (so photo URLs are publicly readable)
+--   2. Supabase Management API:
+--      POST /v1/projects/{ref}/storage/buckets
+--      { "name": "staff-photos", "public": true }
+--
+-- After creating the bucket, the RLS policies below ensure uploads are
+-- restricted to authenticated users (enforced in the API route, not here).
+--
+-- No SQL migration needed — this file documents the manual step required.

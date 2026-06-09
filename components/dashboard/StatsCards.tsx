@@ -1,49 +1,44 @@
 /**
  * components/dashboard/StatsCards.tsx
  *
- * Shows three summary stat cards at the top of the Today dashboard:
- *  - Confirmed appointments (green)
- *  - Pending appointments (yellow) — status='scheduled' in the DB
- *  - Cancelled appointments (red)
+ * Three summary stat cards at the top of the Today dashboard:
+ *  - Confirmed appointments
+ *  - Pending appointments (status='scheduled' in the DB)
+ *  - Cancelled appointments
  *
- * Data scope: today only. The component fetches today's appointments
- * independently from GET /api/appointments?date=YYYY-MM-DD.
+ * Premium design: clean white shadcn Cards, no colored backgrounds,
+ * brand-dark typography, Framer Motion fade-in on load.
  *
- * This is a Client Component because it performs data fetching on mount.
+ * Fetches today's appointments from GET /api/appointments?date=YYYY-MM-DD.
  */
 
 'use client';
 
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import type { AppointmentWithDetails } from '@/types';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { motion } from 'framer-motion';
+import { Card, CardContent } from '@/components/ui/card';
+import { CheckCircle, Clock, XCircle } from 'lucide-react';
+import type { AppointmentWithDetails, UserPlan } from '@/types';
 
 /** Aggregated counts for today's appointments, split by status. */
 type DayStats = {
   confirmed: number;
-  /** Appointments with status='scheduled' — shown as "Pending" in the UI. */
+  /** Appointments with status='scheduled' — shown as "Pending" in UI. */
   pending: number;
   cancelled: number;
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Counts today's appointments by status.
  *
- * @param appointments - The list of appointments returned by the API.
- * @returns An object with confirmed, pending, and cancelled counts.
+ * @param appointments - List returned by the API.
+ * @returns Counts split by confirmed, pending, and cancelled.
  */
 function computeStats(appointments: AppointmentWithDetails[]): DayStats {
   return appointments.reduce<DayStats>(
     (acc, appt) => {
-      if (appt.status === 'confirmed')  acc.confirmed++;
+      if (appt.status === 'confirmed') acc.confirmed++;
       else if (appt.status === 'scheduled') acc.pending++;
       else if (appt.status === 'cancelled') acc.cancelled++;
       return acc;
@@ -52,113 +47,64 @@ function computeStats(appointments: AppointmentWithDetails[]): DayStats {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sub-component: individual stat card
-// ---------------------------------------------------------------------------
-
-type StatCardProps = {
+/** Config for a single stat card. */
+type StatConfig = {
   label: string;
   count: number;
-  /** Tailwind colour classes for the card's accent and icon background. */
-  colorClasses: {
-    border: string;
-    iconBg: string;
-    iconText: string;
-    countText: string;
-  };
   icon: React.ReactNode;
   loading: boolean;
+  /** Tailwind border-left color class for the accent line. */
+  accentClass: string;
 };
 
 /**
- * Renders a single stat card with an icon, a large number, and a label.
+ * Renders a single stat card with a colored left border accent, large count,
+ * and a subtle icon in the corner.
  *
- * @param props - Visual configuration and data for the card.
+ * @param props - Card data and loading state.
  */
-function StatCard({ label, count, colorClasses, icon, loading }: StatCardProps) {
+function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
   return (
-    <div
-      className={`
-        flex items-center gap-4 rounded-xl border bg-white px-5 py-4
-        shadow-sm ${colorClasses.border}
-      `}
-    >
-      {/* Icon badge */}
-      <div
-        className={`
-          flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg
-          ${colorClasses.iconBg} ${colorClasses.iconText}
-        `}
-      >
-        {icon}
-      </div>
-
-      {/* Count + label */}
-      <div>
+    <Card className={`border-[#C8C8C8]/40 shadow-none border-l-[3px] ${accentClass}`}>
+      <CardContent className="px-5 py-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-wider">{label}</p>
+          <div className="text-[#C8C8C8]">{icon}</div>
+        </div>
         {loading ? (
-          <div className="h-7 w-8 animate-pulse rounded bg-gray-200" />
+          <div className="h-8 w-10 animate-pulse rounded bg-[#C8C8C8]/20" />
         ) : (
-          <p className={`text-2xl font-bold leading-none ${colorClasses.countText}`}>
-            {count}
-          </p>
+          <p className="text-3xl font-semibold text-[#1A1A1A] tabular-nums leading-none">{count}</p>
         )}
-        <p className="mt-0.5 text-sm text-gray-500">{label}</p>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Icons (inline SVG, no external dependency)
-// ---------------------------------------------------------------------------
-
-/** Checkmark circle icon — used for Confirmed. */
-const CheckIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-    <path
-      fillRule="evenodd"
-      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-      clipRule="evenodd"
-    />
-  </svg>
-);
-
-/** Clock icon — used for Pending. */
-const ClockIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-    <path
-      fillRule="evenodd"
-      d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
-      clipRule="evenodd"
-    />
-  </svg>
-);
-
-/** X circle icon — used for Cancelled. */
-const XIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-    <path
-      fillRule="evenodd"
-      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-      clipRule="evenodd"
-    />
-  </svg>
-);
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+/** Props for StatsCards. */
+interface StatsCardsProps {
+  /**
+   * The authenticated user's current plan.
+   * Stats are only shown for plans that include SMS (professional / business),
+   * since confirmed/pending/cancelled counts are only meaningful when clients
+   * can reply YES or NO. For starter and trial plans there are no SMS responses,
+   * so the cards are hidden.
+   */
+  plan: UserPlan;
+}
 
 /**
- * StatsCards displays a row of three summary cards showing today's appointment
- * counts by status: Confirmed (green), Pending (yellow), Cancelled (red).
+ * StatsCards displays a row of three summary cards for today's appointment counts.
+ * Only rendered for professional and business plan users.
  *
- * Data is fetched from GET /api/appointments?date=YYYY-MM-DD on mount.
- *
- * @returns A flex row of three stat cards.
+ * @param props - plan from the server component parent.
+ * @returns A grid of three stat cards, or null when the plan does not include SMS.
  */
-export default function StatsCards() {
-  const [stats, setStats]   = useState<DayStats>({ confirmed: 0, pending: 0, cancelled: 0 });
+export default function StatsCards({ plan }: StatsCardsProps) {
+  // Only show stats for plans with SMS confirmation support.
+  // On starter and trial, clients never reply YES/NO, so the counts are meaningless.
+  if (plan !== 'professional' && plan !== 'business') return null;
+  const [stats, setStats] = useState<DayStats>({ confirmed: 0, pending: 0, cancelled: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -171,54 +117,46 @@ export default function StatsCards() {
         setStats(computeStats(data));
       })
       .catch(() => {
-        // Silently fail — stats are non-critical; the appointment list still shows
+        // Silently fail — stats are non-critical
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const cards: StatCardProps[] = [
+  const cards: StatConfig[] = [
     {
-      label:  'Confirmed',
-      count:  stats.confirmed,
+      label: 'Confirmed',
+      count: stats.confirmed,
       loading,
-      icon:   <CheckIcon />,
-      colorClasses: {
-        border:    'border-green-200',
-        iconBg:    'bg-green-100',
-        iconText:  'text-green-600',
-        countText: 'text-green-700',
-      },
+      icon: <CheckCircle className="w-4 h-4" />,
+      accentClass: 'border-l-emerald-500',
     },
     {
-      label:  'Pending',
-      count:  stats.pending,
+      label: 'Pending',
+      count: stats.pending,
       loading,
-      icon:   <ClockIcon />,
-      colorClasses: {
-        border:    'border-yellow-200',
-        iconBg:    'bg-yellow-100',
-        iconText:  'text-yellow-600',
-        countText: 'text-yellow-700',
-      },
+      icon: <Clock className="w-4 h-4" />,
+      accentClass: 'border-l-amber-400',
     },
     {
-      label:  'Cancelled',
-      count:  stats.cancelled,
+      label: 'Cancelled',
+      count: stats.cancelled,
       loading,
-      icon:   <XIcon />,
-      colorClasses: {
-        border:    'border-red-200',
-        iconBg:    'bg-red-100',
-        iconText:  'text-red-600',
-        countText: 'text-red-700',
-      },
+      icon: <XCircle className="w-4 h-4" />,
+      accentClass: 'border-l-red-400',
     },
   ];
 
   return (
     <div className="grid grid-cols-3 gap-4 mb-8">
-      {cards.map((card) => (
-        <StatCard key={card.label} {...card} />
+      {cards.map((card, i) => (
+        <motion.div
+          key={card.label}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: i * 0.06, ease: 'easeOut' }}
+        >
+          <StatCard {...card} />
+        </motion.div>
       ))}
     </div>
   );

@@ -61,7 +61,7 @@ export default function PrivacyPage() {
 
         <Section title="What we collect">
           <p>
-            We collect your name, email address, salon name, and timezone when you create an account.
+            We collect your name, email address, business name, and timezone when you create an account.
           </p>
           <p>
             When you add appointments, you enter client names, phone numbers, and optionally email
@@ -120,8 +120,8 @@ export default function PrivacyPage() {
 
         <Section title="Security">
           <p>
-            All connections use HTTPS. Passwords are hashed and we cannot see them. Your salon data
-            is isolated at the database level so no other salon can access it.
+            All connections use HTTPS. Passwords are hashed and we cannot see them. Your business data
+            is isolated at the database level so no other account can access it.
           </p>
         </Section>
 

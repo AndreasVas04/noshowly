@@ -1,20 +1,20 @@
 /**
  * app/login/page.tsx
  *
- * Login page for NoShowly.
+ * Premium login page for Noshowly business owners.
  *
- * Only the salon owner logs in — end clients (haircut customers) never have accounts.
- * Authentication is handled entirely by Supabase Auth (email + password).
- *
- * On successful login the user is redirected to /dashboard.
- * On failure a user-friendly error message is shown without leaking internals.
+ * Features:
+ *  - Email + password sign-in via Supabase Auth.
+ *  - Show/hide password toggle (lucide-react Eye / EyeOff icons).
+ *  - "Forgot password?" inline flow: shows an email input and calls
+ *    supabase.auth.resetPasswordForEmail(). Displays a success message
+ *    after sending and handles errors gracefully.
  *
  * Security:
- * - Inputs are validated client-side before the Supabase call to avoid unnecessary
- *   network requests, but Supabase also enforces this server-side.
- * - We never display raw Supabase error messages — they may reveal implementation details.
- * - The form is disabled while submitting to prevent duplicate submissions.
- * - Rate limiting for auth attempts is enforced by Supabase on their side.
+ *  - Raw Supabase error messages are never surfaced (prevents user enumeration).
+ *  - Password reset success message is shown regardless of whether the email
+ *    exists — prevents leaking which emails are registered.
+ *  - Form is disabled while submitting to prevent duplicate submissions.
  */
 
 'use client';
@@ -22,34 +22,29 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Eye, EyeOff } from 'lucide-react';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Shape of the form's local state. */
+/** Shape of the sign-in form's local state. */
 interface LoginFormState {
   email: string;
   password: string;
 }
 
-/** Possible UI states for the form. */
+/** Possible UI states for the sign-in form. */
 type FormStatus = 'idle' | 'loading' | 'error';
 
-// ---------------------------------------------------------------------------
-// Page component
-// ---------------------------------------------------------------------------
+/** Possible UI states for the forgot-password flow. */
+type ResetStatus = 'idle' | 'loading' | 'success' | 'error';
 
 /**
- * LoginPage renders the email + password sign-in form.
- *
- * Flow:
- *  1. User fills in email + password and submits.
- *  2. We validate inputs locally (non-empty, basic email shape).
- *  3. We call Supabase signInWithPassword.
- *  4. On success: router.push('/dashboard') — middleware will verify the session.
- *  5. On failure: show a safe, generic error message.
+ * LoginPage renders a centered, premium email + password sign-in form.
+ * Includes show/hide password and a forgot-password reset flow.
  *
  * @returns The login page JSX.
  */
@@ -57,23 +52,26 @@ export default function LoginPage() {
   const router = useRouter();
   const supabase = createBrowserSupabaseClient();
 
+  // ----- Sign-in form state -----
   const [form, setForm] = useState<LoginFormState>({ email: '', password: '' });
   const [status, setStatus] = useState<FormStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
+  // ----- Forgot-password flow state -----
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetStatus, setResetStatus] = useState<ResetStatus>('idle');
+  const [resetError, setResetError] = useState<string>('');
 
   /**
-   * Updates a single form field while keeping the rest intact.
+   * Updates a single sign-in form field and clears any displayed error.
    *
-   * @param field - The field name to update ('email' | 'password').
-   * @param value - The new value for the field.
+   * @param field - The field name to update.
+   * @param value - The new value.
    */
   function handleChange(field: keyof LoginFormState, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
-    // Clear any previous error as soon as the user starts typing again
     if (status === 'error') {
       setStatus('idle');
       setErrorMessage('');
@@ -81,16 +79,14 @@ export default function LoginPage() {
   }
 
   /**
-   * Validates form fields before submitting to Supabase.
-   * Returns an error string if invalid, or null if valid.
+   * Validates sign-in form fields before submitting.
    *
-   * @param email - The email value to validate.
-   * @param password - The password value to validate.
+   * @param email - Email value to validate.
+   * @param password - Password value to validate.
    * @returns A human-readable error string, or null if inputs are valid.
    */
   function validate(email: string, password: string): string | null {
     if (!email.trim()) return 'Email is required.';
-    // Basic email shape check — Supabase enforces the real validation server-side
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return 'Please enter a valid email address.';
     }
@@ -99,22 +95,15 @@ export default function LoginPage() {
     return null;
   }
 
-  // ---------------------------------------------------------------------------
-  // Submit handler
-  // ---------------------------------------------------------------------------
-
   /**
-   * Handles form submission: validates inputs, calls Supabase auth,
-   * and redirects to /dashboard on success.
+   * Handles sign-in form submission: validates, calls Supabase, redirects on success.
    *
-   * @param e - The form submit event (prevented to avoid page reload).
+   * @param e - The form submit event.
    */
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     const { email, password } = form;
-
-    // Client-side validation before hitting the network
     const validationError = validate(email, password);
     if (validationError) {
       setStatus('error');
@@ -132,55 +121,120 @@ export default function LoginPage() {
       });
 
       if (error) {
-        // Security: do NOT surface raw Supabase error messages — they can leak info.
-        // Show a single generic message for all auth failures to prevent user enumeration.
+        // Security: never surface raw Supabase error messages — prevents
+        // enumeration attacks where error wording reveals if an email exists.
         setStatus('error');
         setErrorMessage('Invalid email or password. Please try again.');
         return;
       }
 
-      // Session cookie is set by Supabase — redirect to dashboard.
-      // middleware.ts will verify the session on every /dashboard/* request.
       router.push('/dashboard');
-      router.refresh(); // Ensure server components re-render with the new session
+      router.refresh();
     } catch {
-      // Network or unexpected error — don't crash, show safe message
       setStatus('error');
       setErrorMessage('Something went wrong. Please check your connection and try again.');
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  /**
+   * Opens the forgot-password panel and pre-fills the email if already typed.
+   */
+  function openResetPanel() {
+    setResetEmail(form.email);
+    setResetStatus('idle');
+    setResetError('');
+    setShowReset(true);
+  }
+
+  /**
+   * Closes the forgot-password panel and resets its state.
+   */
+  function closeResetPanel() {
+    setShowReset(false);
+    setResetStatus('idle');
+    setResetError('');
+  }
+
+  /**
+   * Sends a password reset email via Supabase Auth.
+   *
+   * Security: always shows the same success message regardless of whether the
+   * email exists — prevents leaking which email addresses are registered.
+   *
+   * @param e - The form submit event.
+   */
+  async function handleResetSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    const email = resetEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setResetError('Please enter a valid email address.');
+      return;
+    }
+
+    setResetStatus('loading');
+    setResetError('');
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      });
+
+      if (error) {
+        // Only surface a generic error — do not reveal whether the email exists.
+        console.error('[login/reset] Password reset error:', error.message);
+        setResetError('Could not send the reset email. Please try again.');
+        setResetStatus('error');
+        return;
+      }
+
+      // Always show success — even if email doesn't exist, to prevent enumeration.
+      setResetStatus('success');
+    } catch {
+      setResetError('Something went wrong. Please check your connection and try again.');
+      setResetStatus('error');
+    }
+  }
 
   const isLoading = status === 'loading';
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md">
-
-        {/* Logo / Brand */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Noshowly</h1>
-          <p className="mt-2 text-sm text-gray-500">Sign in to your salon dashboard</p>
+    <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9] px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        className="w-full max-w-md"
+      >
+        {/* Logo */}
+        <div className="text-center mb-10">
+          <div className="flex justify-center mb-2">
+            <Image src="/Logo.png" alt="Noshowly" width={200} height={50} className="h-16 w-auto" />
+          </div>
+          <p className="mt-2 text-sm text-[#C8C8C8] font-medium tracking-wide uppercase">
+            Appointment Reminders
+          </p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Welcome back</h2>
+        {/* ----------------------------------------------------------------
+            SIGN-IN CARD
+        ---------------------------------------------------------------- */}
+        <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
+          <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-1">
+            Welcome back
+          </h2>
+          <p className="text-sm text-[#C8C8C8] mb-7">
+            Sign in to your dashboard
+          </p>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
 
-            {/* Email field */}
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
+            {/* Email */}
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-sm font-medium text-[#1A1A1A]">
                 Email address
-              </label>
-              <input
+              </Label>
+              <Input
                 id="email"
                 type="email"
                 autoComplete="email"
@@ -189,88 +243,199 @@ export default function LoginPage() {
                 value={form.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 placeholder="you@example.com"
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  placeholder:text-gray-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition
-                "
+                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
               />
             </div>
 
-            {/* Password field */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium text-gray-700"
-                >
+            {/* Password */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-sm font-medium text-[#1A1A1A]">
                   Password
-                </label>
-                {/* Placeholder for future forgot-password flow */}
-                <span className="text-xs text-gray-400">Forgot password? Coming soon</span>
+                </Label>
+                <button
+                  type="button"
+                  onClick={openResetPanel}
+                  className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                >
+                  Forgot password?
+                </button>
               </div>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                disabled={isLoading}
-                value={form.password}
-                onChange={(e) => handleChange('password', e.target.value)}
-                placeholder="••••••••"
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  placeholder:text-gray-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition
-                "
-              />
+
+              {/* Password input with show/hide toggle */}
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  disabled={isLoading}
+                  value={form.password}
+                  onChange={(e) => handleChange('password', e.target.value)}
+                  placeholder="••••••••"
+                  className="h-11 pr-10 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A]"
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPassword((v) => !v)}
+                  tabIndex={-1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                >
+                  {/* Hidden → EyeOff (password not visible). Visible → Eye (password visible). */}
+                  {showPassword
+                    ? <Eye    className="h-4 w-4" aria-hidden="true" />
+                    : <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  }
+                </button>
+              </div>
             </div>
 
-            {/* Error message */}
-            {status === 'error' && (
-              <div
-                role="alert"
-                className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
-              >
-                {errorMessage}
-              </div>
-            )}
+            {/* Sign-in error */}
+            <AnimatePresence>
+              {status === 'error' && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  role="alert"
+                  className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700"
+                >
+                  {errorMessage}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {/* Submit button */}
-            <button
+            {/* Submit */}
+            <Button
               type="submit"
               disabled={isLoading}
-              className="
-                w-full rounded-lg bg-black text-white text-sm font-medium
-                px-4 py-2.5
-                hover:bg-gray-800
-                focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition
-              "
+              className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
             >
               {isLoading ? 'Signing in…' : 'Sign in'}
-            </button>
+            </Button>
 
           </form>
+
+          {/* ----------------------------------------------------------------
+              FORGOT PASSWORD PANEL — slides in below the form
+          ---------------------------------------------------------------- */}
+          <AnimatePresence>
+            {showReset && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="mt-6 pt-6 border-t border-[#C8C8C8]/40">
+                  {resetStatus === 'success' ? (
+                    /* Success state */
+                    <div className="text-center">
+                      <div className="w-10 h-10 bg-[#1A1A1A]/5 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <svg
+                          className="w-5 h-5 text-[#1A1A1A]"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-medium text-[#1A1A1A] mb-1">Check your email</p>
+                      <p className="text-xs text-[#C8C8C8] mb-4">
+                        If an account exists for {resetEmail}, we sent a password reset link.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={closeResetPanel}
+                        className="text-xs font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
+                      >
+                        Back to sign in
+                      </button>
+                    </div>
+                  ) : (
+                    /* Input state */
+                    <form onSubmit={handleResetSubmit} noValidate className="space-y-4">
+                      <div>
+                        <p className="text-sm font-medium text-[#1A1A1A] mb-0.5">Reset your password</p>
+                        <p className="text-xs text-[#C8C8C8]">
+                          Enter your email and we will send a reset link.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="reset-email" className="text-sm font-medium text-[#1A1A1A]">
+                          Email address
+                        </Label>
+                        <Input
+                          id="reset-email"
+                          type="email"
+                          autoComplete="email"
+                          disabled={resetStatus === 'loading'}
+                          value={resetEmail}
+                          onChange={(e) => {
+                            setResetEmail(e.target.value);
+                            if (resetError) setResetError('');
+                          }}
+                          placeholder="you@example.com"
+                          className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                        />
+                      </div>
+
+                      {/* Reset error */}
+                      <AnimatePresence>
+                        {resetError && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            role="alert"
+                            className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700"
+                          >
+                            {resetError}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="submit"
+                          disabled={resetStatus === 'loading'}
+                          className="flex-1 h-10 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+                        >
+                          {resetStatus === 'loading' ? 'Sending…' : 'Send reset link'}
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={closeResetPanel}
+                          className="text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
         </div>
 
         {/* Register link */}
-        <p className="mt-6 text-center text-sm text-gray-500">
+        <p className="mt-7 text-center text-sm text-[#C8C8C8]">
           Don&apos;t have an account?{' '}
           <Link
             href="/register"
-            className="font-medium text-black underline underline-offset-4 hover:text-gray-700"
+            className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
           >
-            Start your free trial
+            Sign up
           </Link>
         </p>
-
-      </div>
+      </motion.div>
     </main>
   );
 }

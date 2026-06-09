@@ -1,0 +1,2447 @@
+/**
+ * app/dashboard/booking/page.tsx
+ *
+ * Online Booking management page — /dashboard/booking.
+ *
+ * This is the centralised place for all booking-related configuration:
+ *  1. Booking page — slug, description, no-preference toggles, live status.
+ *  2. Staff — add/remove staff members, update name/photo (file upload)/bio,
+ *     per-staff services (add/edit/delete), weekly availability (unlimited breaks).
+ *  3. Publish — CTA to go live or take offline.
+ *
+ * Design: brand-dark palette, shadcn Input + Button.
+ * Security: all mutations go through API routes.
+ */
+
+'use client';
+
+import { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react';
+import { Camera } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import type { Barber, BookingPage, StaffAvailability, StaffService } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Local types
+// ---------------------------------------------------------------------------
+
+type LoadState = 'loading' | 'ready' | 'error';
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+/** A single working interval { start: HH:MM, end: HH:MM }. */
+type SlotEntry = { start: string; end: string };
+
+/** Per-day availability state — uses unlimited time_slots array. */
+type DayState = {
+  is_available: boolean;
+  /** Array of working intervals; should have at least 1 when is_available=true. */
+  time_slots: SlotEntry[];
+};
+
+/** In-memory form state for a single barber. */
+type BarberFormState = {
+  name: string;
+  bio: string;
+  /** Current photo URL (set after upload or loaded from DB). */
+  photo_url: string;
+  /** day_of_week (0=Sun … 6=Sat) → day availability state. */
+  availability: Record<number, DayState>;
+};
+
+/** In-memory form state for editing a staff service inline. */
+type StaffServiceEditForm = {
+  name: string;
+  duration: string;
+  price: string;
+};
+
+/** State for the add-new-service form per barber. */
+type AddStaffServiceForm = {
+  name: string;
+  duration: string;
+  price: string;
+};
+
+/** State for the Instagram-style photo crop modal. */
+type CropModalState = {
+  barberId: string;
+  /** Object URL created from the selected File. Must be revoked on close. */
+  src: string;
+  naturalW: number;
+  naturalH: number;
+};
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Radius of the circular crop overlay in CSS pixels. */
+const CIRCLE_RADIUS = 140;
+
+/** Output canvas size (square, in pixels) for the cropped JPEG. */
+const CROP_OUTPUT_SIZE = 400;
+
+/** Days displayed in the availability grid, Mon-first order. */
+const WEEK_DAYS = [
+  { label: 'Mon', value: 1 },
+  { label: 'Tue', value: 2 },
+  { label: 'Wed', value: 3 },
+  { label: 'Thu', value: 4 },
+  { label: 'Fri', value: 5 },
+  { label: 'Sat', value: 6 },
+  { label: 'Sun', value: 0 },
+] as const;
+
+/**
+ * Default per-day availability when no DB record exists.
+ * Mon–Fri available 09:00–17:00; Sat and Sun unavailable.
+ */
+function makeDefaultDayState(dayOfWeek: number): DayState {
+  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  return {
+    is_available: isWeekday,
+    time_slots: isWeekday ? [{ start: '09:00', end: '17:00' }] : [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the initial BarberFormState for a barber, merging in any
+ * existing staff_availability records from the database.
+ *
+ * Prefers the JSONB `time_slots` column; falls back to legacy start/end_time columns.
+ *
+ * @param barber       - The barber row from the database.
+ * @param availability - All staff_availability records (all barbers).
+ * @returns            Populated BarberFormState ready for the form.
+ */
+function buildBarberForm(barber: Barber, availability: StaffAvailability[]): BarberFormState {
+  const barberRecords = availability.filter((a) => a.barber_id === barber.id);
+  const days: Record<number, DayState> = {};
+
+  for (let dow = 0; dow <= 6; dow++) {
+    const rec = barberRecords.find((a) => a.day_of_week === dow);
+    if (rec) {
+      let slots: SlotEntry[] = [];
+      if (rec.time_slots && rec.time_slots.length > 0) {
+        // Primary: use JSONB time_slots column.
+        slots = rec.time_slots as SlotEntry[];
+      } else if (rec.start_time_1 && rec.end_time_1) {
+        // Legacy fallback: reconstruct from start/end_time columns.
+        slots = [{ start: rec.start_time_1, end: rec.end_time_1 }];
+        if (rec.start_time_2 && rec.end_time_2) {
+          slots.push({ start: rec.start_time_2, end: rec.end_time_2 });
+        }
+      } else if (rec.is_available) {
+        slots = [{ start: '09:00', end: '17:00' }];
+      }
+      days[dow] = { is_available: rec.is_available, time_slots: slots };
+    } else {
+      days[dow] = makeDefaultDayState(dow);
+    }
+  }
+
+  return {
+    name: barber.name,
+    bio: barber.bio ?? '',
+    photo_url: barber.photo_url ?? '',
+    availability: days,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+/** Large toggle switch (for booking page settings). */
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+        checked ? 'bg-[#1A1A1A]' : 'bg-[#C8C8C8]'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
+
+/** Small toggle switch (compact h-5 w-9 version for availability rows). */
+function SmallToggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+        checked ? 'bg-[#1A1A1A]' : 'bg-[#C8C8C8]/60'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-4' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
+/** Wraps a settings section in a card with consistent styling. */
+function SectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 overflow-hidden">
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page component
+// ---------------------------------------------------------------------------
+
+/**
+ * BookingPage manages the full Online Booking setup:
+ * slug/description/no-preference toggles, per-staff services,
+ * photo uploads, availability, and publish controls.
+ *
+ * @returns The booking management page JSX.
+ */
+export default function BookingPage() {
+  // -------------------------------------------------------------------------
+  // Global load state
+  // -------------------------------------------------------------------------
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+
+  // -------------------------------------------------------------------------
+  // Section 1: Booking page settings
+  // -------------------------------------------------------------------------
+  const [bookingPage, setBookingPage] = useState<BookingPage | null>(null);
+  const [bookingSlug, setBookingSlug] = useState('');
+  const [bookingDescription, setBookingDescription] = useState('');
+  const [customPageTitle, setCustomPageTitle] = useState('');
+  const [customIntro, setCustomIntro] = useState('');
+  const [requirePhone, setRequirePhone] = useState(true);
+  const [requireEmail, setRequireEmail] = useState(true);
+  const [requireFieldsError, setRequireFieldsError] = useState('');
+  const [allowNoPreferenceStaff, setAllowNoPreferenceStaff] = useState(false);
+  const [allowNoPreferenceService, setAllowNoPreferenceService] = useState(false);
+  const [bookingSaveStatus, setBookingSaveStatus] = useState<SaveStatus>('idle');
+  const [bookingError, setBookingError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  // -------------------------------------------------------------------------
+  // Section 2: Staff
+  // -------------------------------------------------------------------------
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [staffAvailability, setStaffAvailability] = useState<StaffAvailability[]>([]);
+  const [barberForms, setBarberForms] = useState<Record<string, BarberFormState>>({});
+  const [addBarberName, setAddBarberName] = useState('');
+  const [addingBarber, setAddingBarber] = useState(false);
+  const [addBarberError, setAddBarberError] = useState('');
+  const [barberSaveStatuses, setBarberSaveStatuses] = useState<Record<string, SaveStatus>>({});
+  const [deletingBarberId, setDeletingBarberId] = useState<string | null>(null);
+  /** Photo remove state: barberId whose photo is being removed, or null. */
+  const [removingPhotoForId, setRemovingPhotoForId] = useState<string | null>(null);
+  const photoInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  /** Debounce timer for booking page settings auto-save. */
+  const bookingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Per-barber debounce timers for profile + availability auto-save. */
+  const barberDebounceRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /**
+   * Ref that always holds the latest doSaveBookingPage closure.
+   * The debounce timer reads from this ref so it always calls the freshest version
+   * of the function (avoids stale-closure issues with toggled boolean state).
+   */
+  const doSaveBookingPageRef = useRef<() => Promise<void>>(async () => {});
+  /**
+   * Ref that always holds the latest handleSaveBarber closure.
+   * Same pattern as doSaveBookingPageRef — prevents stale closures in debounce timers.
+   */
+  const handleSaveBarberRef = useRef<(id: string) => Promise<void>>(async () => {});
+
+  // ── Crop modal ──────────────────────────────────────────────────────────────
+  /** Non-null when the crop modal is open. */
+  const [cropModal, setCropModal] = useState<CropModalState | null>(null);
+  /** Image offset from the crop circle center (px, in rendered/screen space). */
+  const [cropX, setCropX] = useState(0);
+  const [cropY, setCropY] = useState(0);
+  /** Current zoom scale multiplier. */
+  const [cropScale, setCropScale] = useState(1);
+  /** True while the cropped image is being uploaded. */
+  const [cropUploading, setCropUploading] = useState(false);
+  /** True while the user is actively dragging the image. */
+  const [isDragging, setIsDragging] = useState(false);
+
+  /**
+   * Ref mirror of crop position/scale — kept in sync with state so the
+   * non-passive wheel handler and the canvas export can read latest values
+   * without stale closures.
+   */
+  const cropXRef = useRef(0);
+  const cropYRef = useRef(0);
+  const cropScaleRef = useRef(1);
+
+  /** Active mouse/touch drag start snapshot. */
+  const dragRef = useRef<{
+    startMouseX: number; startMouseY: number;
+    startCropX: number;  startCropY: number;
+  } | null>(null);
+
+  /** Active pinch-zoom start snapshot. */
+  const pinchRef = useRef<{
+    startDist: number; startScale: number;
+    startCropX: number; startCropY: number;
+  } | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Per-staff services
+  // -------------------------------------------------------------------------
+  /** Map of barberId → list of that barber's staff services. */
+  const [staffServices, setStaffServices] = useState<Record<string, StaffService[]>>({});
+  /** Which barber's "add service" form is open (barberId or null). */
+  const [addingServiceForId, setAddingServiceForId] = useState<string | null>(null);
+  /** The add-service form state per barberId. */
+  const [addServiceForms, setAddServiceForms] = useState<Record<string, AddStaffServiceForm>>({});
+  const [savingAddServiceId, setSavingAddServiceId] = useState<string | null>(null);
+  const [addServiceErrors, setAddServiceErrors] = useState<Record<string, string>>({});
+  /** Which staff service is being inline-edited (serviceId or null). */
+  const [editingStaffServiceId, setEditingStaffServiceId] = useState<string | null>(null);
+  const [staffServiceEditForms, setStaffServiceEditForms] = useState<Record<string, StaffServiceEditForm>>({});
+  const [savingStaffServiceId, setSavingStaffServiceId] = useState<string | null>(null);
+  const [deletingStaffServiceId, setDeletingStaffServiceId] = useState<string | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Initial data load
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetches booking page, barbers, staff services, and availability in parallel
+   * on mount. Initialises form state from loaded data.
+   */
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [bookingRes, barbersRes, staffServicesRes, availabilityRes] = await Promise.all([
+          fetch('/api/booking-page'),
+          fetch('/api/barbers'),
+          fetch('/api/staff-services'),
+          fetch('/api/staff-availability'),
+        ]);
+
+        const [bookingData, barbersData, staffServicesData, availData] = await Promise.all([
+          bookingRes.ok
+            ? (bookingRes.json() as Promise<{ bookingPage: BookingPage | null }>)
+            : Promise.resolve({ bookingPage: null }),
+          barbersRes.ok
+            ? (barbersRes.json() as Promise<{ barbers: Barber[] }>)
+            : Promise.resolve({ barbers: [] }),
+          staffServicesRes.ok
+            ? (staffServicesRes.json() as Promise<{ staffServices: StaffService[] }>)
+            : Promise.resolve({ staffServices: [] }),
+          availabilityRes.ok
+            ? (availabilityRes.json() as Promise<{ availability: StaffAvailability[] }>)
+            : Promise.resolve({ availability: [] }),
+        ]);
+
+        const bp = bookingData.bookingPage;
+        setBookingPage(bp);
+        if (bp) {
+          setBookingSlug(bp.slug);
+          setBookingDescription(bp.description ?? '');
+          setCustomPageTitle(bp.custom_title ?? '');
+          setCustomIntro(bp.custom_intro ?? '');
+          setRequirePhone(bp.require_phone ?? true);
+          setRequireEmail(bp.require_email ?? true);
+          setAllowNoPreferenceStaff(bp.allow_no_preference_staff ?? false);
+          setAllowNoPreferenceService(bp.allow_no_preference_service ?? false);
+        }
+
+        const loadedBarbers = barbersData.barbers ?? [];
+        const loadedAvailability = availData.availability ?? [];
+        const loadedServices = staffServicesData.staffServices ?? [];
+
+        setBarbers(loadedBarbers);
+        setStaffAvailability(loadedAvailability);
+
+        // Build per-barber services map.
+        const servicesMap: Record<string, StaffService[]> = {};
+        for (const barber of loadedBarbers) {
+          servicesMap[barber.id] = loadedServices.filter((s) => s.barber_id === barber.id);
+        }
+        setStaffServices(servicesMap);
+
+        // Initialise per-barber form state from DB data.
+        const forms: Record<string, BarberFormState> = {};
+        for (const barber of loadedBarbers) {
+          forms[barber.id] = buildBarberForm(barber, loadedAvailability);
+        }
+        setBarberForms(forms);
+
+        setLoadState('ready');
+      } catch {
+        setLoadState('error');
+      }
+    }
+
+    void loadData();
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Section 1 handlers: Booking page settings
+  // -------------------------------------------------------------------------
+
+  /**
+   * Creates or updates the booking page via POST or PUT /api/booking-page.
+   *
+   * @param e - Form submit event.
+   */
+  async function handleBookingSave(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    setBookingError('');
+    setRequireFieldsError('');
+
+    const slug = bookingSlug.trim().toLowerCase();
+    if (!slug) { setBookingError('URL slug is required.'); return; }
+    if (slug.length < 3 || slug.length > 50) { setBookingError('Slug must be between 3 and 50 characters.'); return; }
+    if (!/^[a-z0-9-]+$/.test(slug)) { setBookingError('Slug may only contain lowercase letters, digits, and hyphens.'); return; }
+    if (!requirePhone && !requireEmail) {
+      setRequireFieldsError('At least one contact field (phone or email) must be required.');
+      return;
+    }
+
+    setBookingSaveStatus('saving');
+
+    try {
+      const method = bookingPage ? 'PUT' : 'POST';
+      const res = await fetch('/api/booking-page', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug,
+          description: bookingDescription.trim() || null,
+          custom_title: customPageTitle.trim() || null,
+          custom_intro: customIntro.trim() || null,
+          require_phone: requirePhone,
+          require_email: requireEmail,
+          allow_no_preference_staff: allowNoPreferenceStaff,
+          allow_no_preference_service: allowNoPreferenceService,
+          ...(bookingPage ? {} : { is_active: false }),
+        }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setBookingError(data.error ?? 'Failed to save. Please try again.');
+        setBookingSaveStatus('error');
+        return;
+      }
+
+      const data = (await res.json()) as { bookingPage: BookingPage };
+      setBookingPage(data.bookingPage);
+      setBookingSlug(data.bookingPage.slug);
+      setBookingDescription(data.bookingPage.description ?? '');
+      setCustomPageTitle(data.bookingPage.custom_title ?? '');
+      setCustomIntro(data.bookingPage.custom_intro ?? '');
+      setRequirePhone(data.bookingPage.require_phone ?? true);
+      setRequireEmail(data.bookingPage.require_email ?? true);
+      setAllowNoPreferenceStaff(data.bookingPage.allow_no_preference_staff ?? false);
+      setAllowNoPreferenceService(data.bookingPage.allow_no_preference_service ?? false);
+      setBookingSaveStatus('saved');
+      setTimeout(() => setBookingSaveStatus('idle'), 2000);
+    } catch {
+      setBookingError('Something went wrong. Please check your connection and try again.');
+      setBookingSaveStatus('error');
+    }
+  }
+
+  /**
+   * Toggles the booking page's is_active flag via PUT /api/booking-page.
+   *
+   * @param active - New desired active state.
+   */
+  async function handleBookingToggle(active: boolean): Promise<void> {
+    if (!bookingPage) return;
+
+    try {
+      const res = await fetch('/api/booking-page', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: active }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to update. Please try again.');
+        return;
+      }
+
+      const data = (await res.json()) as { bookingPage: BookingPage };
+      setBookingPage(data.bookingPage);
+    } catch {
+      alert('Something went wrong. Please check your connection and try again.');
+    }
+  }
+
+  /** Copies the booking page URL to the clipboard. */
+  async function handleCopyLink(): Promise<void> {
+    if (!bookingPage) return;
+    const url = `${window.location.origin}/book/${bookingPage.slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert(`Your booking link: ${url}`);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Auto-save helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Saves booking page settings via PUT /api/booking-page.
+   * Called by the debounce timer — only runs when a booking page already exists.
+   * Does not take a form event; reads state directly from closure.
+   */
+  async function doSaveBookingPage(): Promise<void> {
+    if (!bookingPage) return;
+    setBookingError('');
+    setRequireFieldsError('');
+
+    // Validate that at least one contact method is required.
+    if (!requirePhone && !requireEmail) {
+      setRequireFieldsError('At least one contact field (phone or email) must be required.');
+      return;
+    }
+
+    setBookingSaveStatus('saving');
+
+    try {
+      const res = await fetch('/api/booking-page', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description:                bookingDescription.trim() || null,
+          custom_title:               customPageTitle.trim() || null,
+          custom_intro:               customIntro.trim() || null,
+          require_phone:              requirePhone,
+          require_email:              requireEmail,
+          allow_no_preference_staff:  allowNoPreferenceStaff,
+          allow_no_preference_service: allowNoPreferenceService,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setBookingError(data.error ?? 'Failed to save. Please try again.');
+        setBookingSaveStatus('error');
+        return;
+      }
+
+      const data = (await res.json()) as { bookingPage: BookingPage };
+      setBookingPage(data.bookingPage);
+      setBookingDescription(data.bookingPage.description ?? '');
+      setCustomPageTitle(data.bookingPage.custom_title ?? '');
+      setCustomIntro(data.bookingPage.custom_intro ?? '');
+      setRequirePhone(data.bookingPage.require_phone ?? true);
+      setRequireEmail(data.bookingPage.require_email ?? true);
+      setAllowNoPreferenceStaff(data.bookingPage.allow_no_preference_staff ?? false);
+      setAllowNoPreferenceService(data.bookingPage.allow_no_preference_service ?? false);
+      setBookingSaveStatus('saved');
+      setTimeout(() => setBookingSaveStatus('idle'), 2000);
+    } catch {
+      setBookingError('Something went wrong. Please check your connection and try again.');
+      setBookingSaveStatus('error');
+    }
+  }
+
+  /**
+   * Schedules an auto-save of booking page settings after 800 ms of inactivity.
+   * Clears any previously pending save before scheduling a new one.
+   * Uses doSaveBookingPageRef to avoid stale-closure issues.
+   */
+  function scheduleBookingSave(): void {
+    if (bookingDebounceRef.current) clearTimeout(bookingDebounceRef.current);
+    bookingDebounceRef.current = setTimeout(() => {
+      void doSaveBookingPageRef.current();
+    }, 800);
+  }
+
+  /**
+   * Schedules an auto-save for a barber's profile and availability after 800 ms.
+   * Clears any previously pending save for this barber before scheduling a new one.
+   * Uses handleSaveBarberRef to avoid stale-closure issues.
+   *
+   * @param barberId - UUID of the barber whose data should be saved.
+   */
+  function scheduleBarberSave(barberId: string): void {
+    if (barberDebounceRefs.current[barberId]) clearTimeout(barberDebounceRefs.current[barberId]);
+    barberDebounceRefs.current[barberId] = setTimeout(() => {
+      void handleSaveBarberRef.current(barberId);
+    }, 800);
+  }
+
+  // -------------------------------------------------------------------------
+  // Staff handlers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Updates a field in a barber's form state.
+   *
+   * @param barberId - UUID of the barber.
+   * @param field    - Which field to update.
+   * @param value    - New value.
+   */
+  function updateBarberField(barberId: string, field: 'name' | 'photo_url' | 'bio', value: string): void {
+    setBarberForms((prev) => ({
+      ...prev,
+      [barberId]: { ...prev[barberId], [field]: value },
+    }));
+    // photo_url changes are handled by the upload/remove functions directly — skip debounce.
+    if (field !== 'photo_url') {
+      scheduleBarberSave(barberId);
+    }
+  }
+
+  /**
+   * Updates a single day's is_available flag in a barber's form.
+   * Ensures there is at least one default slot when toggling on.
+   *
+   * @param barberId  - UUID of the barber.
+   * @param dow       - Day of week (0=Sun … 6=Sat).
+   * @param available - New availability flag.
+   */
+  function setDayAvailable(barberId: string, dow: number, available: boolean): void {
+    setBarberForms((prev) => {
+      const current = prev[barberId]?.availability[dow] ?? makeDefaultDayState(dow);
+      return {
+        ...prev,
+        [barberId]: {
+          ...prev[barberId],
+          availability: {
+            ...prev[barberId].availability,
+            [dow]: {
+              is_available: available,
+              time_slots: available
+                ? current.time_slots.length > 0
+                  ? current.time_slots
+                  : [{ start: '09:00', end: '17:00' }]
+                : [],
+            },
+          },
+        },
+      };
+    });
+    scheduleBarberSave(barberId);
+  }
+
+  /**
+   * Updates a specific time slot for a day.
+   *
+   * @param barberId   - UUID of the barber.
+   * @param dow        - Day of week.
+   * @param slotIndex  - Index in the time_slots array.
+   * @param field      - 'start' or 'end'.
+   * @param value      - HH:MM value.
+   */
+  function updateSlot(barberId: string, dow: number, slotIndex: number, field: 'start' | 'end', value: string): void {
+    setBarberForms((prev) => {
+      const day = prev[barberId]?.availability[dow];
+      if (!day) return prev;
+      const newSlots = day.time_slots.map((slot, i) =>
+        i === slotIndex ? { ...slot, [field]: value } : slot
+      );
+      return {
+        ...prev,
+        [barberId]: {
+          ...prev[barberId],
+          availability: {
+            ...prev[barberId].availability,
+            [dow]: { ...day, time_slots: newSlots },
+          },
+        },
+      };
+    });
+    scheduleBarberSave(barberId);
+  }
+
+  /**
+   * Adds a new time slot to a day (for the "+ Add break" button).
+   *
+   * @param barberId - UUID of the barber.
+   * @param dow      - Day of week.
+   */
+  function addSlot(barberId: string, dow: number): void {
+    setBarberForms((prev) => {
+      const day = prev[barberId]?.availability[dow];
+      if (!day) return prev;
+      return {
+        ...prev,
+        [barberId]: {
+          ...prev[barberId],
+          availability: {
+            ...prev[barberId].availability,
+            [dow]: {
+              ...day,
+              time_slots: [...day.time_slots, { start: '13:00', end: '17:00' }],
+            },
+          },
+        },
+      };
+    });
+    scheduleBarberSave(barberId);
+  }
+
+  /**
+   * Removes a time slot from a day (the "× Remove" button).
+   * Prevents removal of the last slot.
+   *
+   * @param barberId   - UUID of the barber.
+   * @param dow        - Day of week.
+   * @param slotIndex  - Index to remove.
+   */
+  function removeSlot(barberId: string, dow: number, slotIndex: number): void {
+    setBarberForms((prev) => {
+      const day = prev[barberId]?.availability[dow];
+      if (!day || day.time_slots.length <= 1) return prev; // keep at least 1 slot
+      return {
+        ...prev,
+        [barberId]: {
+          ...prev[barberId],
+          availability: {
+            ...prev[barberId].availability,
+            [dow]: {
+              ...day,
+              time_slots: day.time_slots.filter((_, i) => i !== slotIndex),
+            },
+          },
+        },
+      };
+    });
+    scheduleBarberSave(barberId);
+  }
+
+  /**
+   * Handles photo file selection — loads the file into the crop modal instead
+   * of uploading directly. The actual upload happens in handleCropApply.
+   *
+   * @param barberId - UUID of the barber whose photo is being uploaded.
+   * @param e        - File input change event.
+   */
+  async function handlePhotoUpload(barberId: string, e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Always reset the input immediately so the same file can be re-selected.
+    const input = photoInputRefs.current[barberId];
+    if (input) input.value = '';
+
+    // Create an object URL and load the image to obtain natural dimensions.
+    const src = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = src;
+      });
+
+      const nW = img.naturalWidth;
+      const nH = img.naturalHeight;
+      // Initial scale: smallest value that makes the image fully cover the circle.
+      const minS = Math.max((CIRCLE_RADIUS * 2) / nW, (CIRCLE_RADIUS * 2) / nH);
+
+      // Sync refs before opening modal so wheel/canvas handlers read fresh values.
+      cropXRef.current = 0;
+      cropYRef.current = 0;
+      cropScaleRef.current = minS;
+
+      setCropX(0);
+      setCropY(0);
+      setCropScale(minS);
+      setCropModal({ barberId, src, naturalW: nW, naturalH: nH });
+    } catch {
+      URL.revokeObjectURL(src);
+      alert('Could not load the selected image. Please try another file.');
+    }
+  }
+
+  /**
+   * Removes the photo for a staff member via PUT /api/barbers/[id] with photo_url: null.
+   * Updates the avatar in the form state immediately on success.
+   *
+   * @param barberId - UUID of the barber whose photo should be removed.
+   */
+  async function handleRemovePhoto(barberId: string): Promise<void> {
+    setRemovingPhotoForId(barberId);
+    try {
+      const res = await fetch(`/api/barbers/${barberId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_url: null }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to remove photo. Please try again.');
+        return;
+      }
+
+      // Clear photo from form state so the avatar reverts to initials immediately.
+      updateBarberField(barberId, 'photo_url', '');
+    } catch {
+      alert('Something went wrong. Please try again.');
+    } finally {
+      setRemovingPhotoForId(null);
+    }
+  }
+
+  // ── Crop modal helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Returns the minimum crop scale at which the image fully covers the circle.
+   * Both axes must cover CIRCLE_RADIUS * 2.
+   */
+  function getCropMinScale(nW: number, nH: number): number {
+    return Math.max((CIRCLE_RADIUS * 2) / nW, (CIRCLE_RADIUS * 2) / nH);
+  }
+
+  /**
+   * Clamps (x, y) so the rendered image always fully covers the crop circle.
+   * The image must not expose background outside its edges inside the circle.
+   */
+  function clampCropPos(x: number, y: number, scale: number, nW: number, nH: number) {
+    const maxX = Math.max(0, (nW * scale) / 2 - CIRCLE_RADIUS);
+    const maxY = Math.max(0, (nH * scale) / 2 - CIRCLE_RADIUS);
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    };
+  }
+
+  /** Mouse down on the image — begin drag. */
+  function handleCropMouseDown(e: React.MouseEvent): void {
+    e.preventDefault();
+    dragRef.current = {
+      startMouseX: e.clientX, startMouseY: e.clientY,
+      startCropX: cropXRef.current, startCropY: cropYRef.current,
+    };
+    setIsDragging(true);
+  }
+
+  /** Mouse move on the modal backdrop — update drag position. */
+  function handleCropMouseMove(e: React.MouseEvent): void {
+    if (!dragRef.current || !cropModal) return;
+    const dx = e.clientX - dragRef.current.startMouseX;
+    const dy = e.clientY - dragRef.current.startMouseY;
+    const clamped = clampCropPos(
+      dragRef.current.startCropX + dx,
+      dragRef.current.startCropY + dy,
+      cropScaleRef.current,
+      cropModal.naturalW,
+      cropModal.naturalH,
+    );
+    cropXRef.current = clamped.x;
+    cropYRef.current = clamped.y;
+    setCropX(clamped.x);
+    setCropY(clamped.y);
+  }
+
+  /** Mouse up / leave — end drag. */
+  function handleCropMouseUp(): void {
+    dragRef.current = null;
+    setIsDragging(false);
+  }
+
+  /** Returns Euclidean distance between two touch points. */
+  function getTouchDist(touches: React.TouchList): number {
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY,
+    );
+  }
+
+  /** Touch start — begin single-finger drag or two-finger pinch. */
+  function handleCropTouchStart(e: React.TouchEvent): void {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      dragRef.current = {
+        startMouseX: e.touches[0].clientX, startMouseY: e.touches[0].clientY,
+        startCropX: cropXRef.current, startCropY: cropYRef.current,
+      };
+      setIsDragging(true);
+    } else if (e.touches.length === 2) {
+      // Switch from drag to pinch.
+      dragRef.current = null;
+      setIsDragging(false);
+      pinchRef.current = {
+        startDist: getTouchDist(e.touches),
+        startScale: cropScaleRef.current,
+        startCropX: cropXRef.current,
+        startCropY: cropYRef.current,
+      };
+    }
+  }
+
+  /** Touch move — update drag or pinch. */
+  function handleCropTouchMove(e: React.TouchEvent): void {
+    e.preventDefault();
+    if (!cropModal) return;
+    const { naturalW, naturalH } = cropModal;
+
+    if (e.touches.length === 1 && dragRef.current) {
+      const dx = e.touches[0].clientX - dragRef.current.startMouseX;
+      const dy = e.touches[0].clientY - dragRef.current.startMouseY;
+      const clamped = clampCropPos(
+        dragRef.current.startCropX + dx,
+        dragRef.current.startCropY + dy,
+        cropScaleRef.current,
+        naturalW,
+        naturalH,
+      );
+      cropXRef.current = clamped.x;
+      cropYRef.current = clamped.y;
+      setCropX(clamped.x);
+      setCropY(clamped.y);
+    } else if (e.touches.length === 2 && pinchRef.current) {
+      const { startDist, startScale, startCropX, startCropY } = pinchRef.current;
+      const minS = getCropMinScale(naturalW, naturalH);
+      const newScale = Math.max(minS, Math.min(4, startScale * (getTouchDist(e.touches) / startDist)));
+      const clamped = clampCropPos(startCropX, startCropY, newScale, naturalW, naturalH);
+      cropScaleRef.current = newScale;
+      cropXRef.current = clamped.x;
+      cropYRef.current = clamped.y;
+      setCropScale(newScale);
+      setCropX(clamped.x);
+      setCropY(clamped.y);
+    }
+  }
+
+  /** Touch end — stop drag / pinch. */
+  function handleCropTouchEnd(): void {
+    dragRef.current = null;
+    pinchRef.current = null;
+    setIsDragging(false);
+  }
+
+  /** Cancel: revoke the object URL and close the modal. */
+  function handleCropCancel(): void {
+    if (cropModal) URL.revokeObjectURL(cropModal.src);
+    setCropModal(null);
+    setIsDragging(false);
+    dragRef.current = null;
+    pinchRef.current = null;
+  }
+
+  /**
+   * Apply: uses Canvas API to crop the image to the visible circle area,
+   * converts to JPEG blob (quality 0.9), and uploads via POST /api/upload/staff-photo.
+   * Uses ref values for position/scale to guarantee latest values at call time.
+   */
+  async function handleCropApply(): Promise<void> {
+    if (!cropModal) return;
+    setCropUploading(true);
+
+    try {
+      const { src, naturalW, naturalH, barberId } = cropModal;
+
+      // Create output canvas and clip to circle.
+      const canvas = document.createElement('canvas');
+      canvas.width = CROP_OUTPUT_SIZE;
+      canvas.height = CROP_OUTPUT_SIZE;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D context unavailable');
+
+      ctx.beginPath();
+      ctx.arc(CROP_OUTPUT_SIZE / 2, CROP_OUTPUT_SIZE / 2, CROP_OUTPUT_SIZE / 2, 0, Math.PI * 2);
+      ctx.clip();
+
+      // Load the source image (same object URL — already decoded in browser).
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Image re-load failed'));
+        img.src = src;
+      });
+
+      // Compute which rectangle in original image pixels the circle shows.
+      // The circle center sits at viewport center = (0, 0) in our coord system.
+      // Image center is offset by (cropX, cropY) from viewport center.
+      // In original image pixels: circle center is at
+      //   (naturalW/2 - posX/scale,  naturalH/2 - posY/scale)
+      // and circle radius is CIRCLE_RADIUS/scale original pixels.
+      const scale = cropScaleRef.current;
+      const posX  = cropXRef.current;
+      const posY  = cropYRef.current;
+      const srcRadius  = CIRCLE_RADIUS / scale;
+      const srcCenterX = naturalW / 2 - posX / scale;
+      const srcCenterY = naturalH / 2 - posY / scale;
+
+      ctx.drawImage(
+        img,
+        srcCenterX - srcRadius, srcCenterY - srcRadius, // source x, y
+        srcRadius * 2,          srcRadius * 2,           // source w, h
+        0, 0,                                            // dest x, y
+        CROP_OUTPUT_SIZE,       CROP_OUTPUT_SIZE,        // dest w, h
+      );
+
+      // Export as JPEG blob at 90 % quality.
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('canvas.toBlob returned null'))),
+          'image/jpeg',
+          0.9,
+        );
+      });
+
+      // Upload.
+      const formData = new FormData();
+      formData.append('file', blob, 'photo.jpg');
+
+      const res = await fetch('/api/upload/staff-photo', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to upload photo. Please try again.');
+        return;
+      }
+
+      const { url } = (await res.json()) as { url: string };
+
+      // Persist the new photo_url to the database immediately via PUT /api/barbers/[id].
+      // This is done here directly rather than via the debounce scheduler because
+      // photo_url changes come from a discrete action (crop + upload), not continuous
+      // text edits. The debounce scheduler skips photo_url for this reason.
+      const saveRes = await fetch(`/api/barbers/${barberId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_url: url }),
+      });
+
+      console.log('[handleCropApply] PUT /api/barbers/%s — status: %d', barberId, saveRes.status);
+
+      if (!saveRes.ok) {
+        const errData = (await saveRes.json()) as { error?: string };
+        alert(errData.error ?? 'Photo uploaded but failed to save. Please try again.');
+        return;
+      }
+
+      // Update local state only after DB confirm — keeps UI in sync with reality.
+      updateBarberField(barberId, 'photo_url', url);
+      URL.revokeObjectURL(src);
+      setCropModal(null);
+    } catch (err) {
+      console.error('[CropModal] handleCropApply error:', err);
+      alert('Something went wrong while cropping. Please try again.');
+    } finally {
+      setCropUploading(false);
+    }
+  }
+
+  /**
+   * Non-passive wheel listener — attached when the crop modal is open.
+   * React's synthetic onWheel is passive and cannot call preventDefault,
+   * so we use a native listener here.
+   */
+  useEffect(() => {
+    if (!cropModal) return;
+
+    function onWheel(e: WheelEvent): void {
+      e.preventDefault();
+      const { naturalW, naturalH } = cropModal!;
+      const minS = Math.max((CIRCLE_RADIUS * 2) / naturalW, (CIRCLE_RADIUS * 2) / naturalH);
+      // Scroll down = zoom out, scroll up = zoom in, ~8 % per tick.
+      const factor = e.deltaY > 0 ? 0.92 : 1.08;
+      const newScale = Math.max(minS, Math.min(4, cropScaleRef.current * factor));
+      const clamped = {
+        x: Math.max(
+          -(Math.max(0, (naturalW * newScale) / 2 - CIRCLE_RADIUS)),
+          Math.min(Math.max(0, (naturalW * newScale) / 2 - CIRCLE_RADIUS), cropXRef.current),
+        ),
+        y: Math.max(
+          -(Math.max(0, (naturalH * newScale) / 2 - CIRCLE_RADIUS)),
+          Math.min(Math.max(0, (naturalH * newScale) / 2 - CIRCLE_RADIUS), cropYRef.current),
+        ),
+      };
+      cropScaleRef.current = newScale;
+      cropXRef.current = clamped.x;
+      cropYRef.current = clamped.y;
+      setCropScale(newScale);
+      setCropX(clamped.x);
+      setCropY(clamped.y);
+    }
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, [cropModal]);
+
+  // Keep refs in sync with state so handlers always read the latest values.
+  useEffect(() => { cropXRef.current = cropX; },     [cropX]);
+  useEffect(() => { cropYRef.current = cropY; },     [cropY]);
+  useEffect(() => { cropScaleRef.current = cropScale; }, [cropScale]);
+
+  /**
+   * Saves a staff member's profile + full weekly availability.
+   * Calls PUT /api/barbers/[id] then POST /api/staff-availability.
+   *
+   * @param barberId - UUID of the barber to save.
+   */
+  async function handleSaveBarber(barberId: string): Promise<void> {
+    const form = barberForms[barberId];
+    if (!form) return;
+
+    // Silently skip if the name was cleared — don't alert during auto-save.
+    const trimmedName = form.name.trim();
+    if (!trimmedName) return;
+
+    setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'saving' }));
+    let savedOk = false;
+
+    try {
+      // 1. Save profile fields (name, bio, photo_url).
+      const profileRes = await fetch(`/api/barbers/${barberId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          bio: form.bio.trim() || null,
+          photo_url: form.photo_url.trim() || null,
+        }),
+      });
+
+      if (!profileRes.ok) {
+        const data = (await profileRes.json()) as { error?: string };
+        alert(data.error ?? 'Failed to save staff member. Please try again.');
+        return;
+      }
+
+      const { barber } = (await profileRes.json()) as { barber: Barber };
+      setBarbers((prev) =>
+        prev.map((b) => (b.id === barberId ? barber : b)).sort((a, b) => a.name.localeCompare(b.name))
+      );
+
+      // 2. Save all 7 days of availability — use time_slots (primary).
+      const days = Object.entries(form.availability).map(([dowStr, day]) => ({
+        day_of_week: parseInt(dowStr, 10),
+        is_available: day.is_available,
+        time_slots: day.is_available ? day.time_slots : [],
+      }));
+
+      const availRes = await fetch('/api/staff-availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barber_id: barberId, days }),
+      });
+
+      if (!availRes.ok) {
+        const data = (await availRes.json()) as { error?: string };
+        alert(data.error ?? 'Failed to save availability. Please try again.');
+        return;
+      }
+
+      const { availability } = (await availRes.json()) as { availability: StaffAvailability[] };
+      // Merge the upserted records into local state.
+      setStaffAvailability((prev) => [
+        ...prev.filter((a) => a.barber_id !== barberId),
+        ...availability,
+      ]);
+      savedOk = true;
+    } catch {
+      alert('Something went wrong. Please try again.');
+    } finally {
+      if (savedOk) {
+        setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'saved' }));
+        setTimeout(() => {
+          setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'idle' }));
+        }, 2000);
+      } else {
+        setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'idle' }));
+      }
+    }
+  }
+
+  /**
+   * Adds a new staff member via POST /api/barbers.
+   *
+   * @param e - Form submit event.
+   */
+  async function handleAddBarber(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    setAddBarberError('');
+
+    const trimmedName = addBarberName.trim();
+    if (!trimmedName) { setAddBarberError('Name is required.'); return; }
+    if (trimmedName.length > 50) { setAddBarberError('Name must be 50 characters or fewer.'); return; }
+
+    setAddingBarber(true);
+
+    try {
+      const res = await fetch('/api/barbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setAddBarberError(data.error ?? 'Failed to add staff member. Please try again.');
+        return;
+      }
+
+      const { barber } = (await res.json()) as { barber: Barber };
+      setBarbers((prev) => [...prev, barber].sort((a, b) => a.name.localeCompare(b.name)));
+      setBarberForms((prev) => ({
+        ...prev,
+        [barber.id]: buildBarberForm(barber, staffAvailability),
+      }));
+      setStaffServices((prev) => ({ ...prev, [barber.id]: [] }));
+      setAddBarberName('');
+    } catch {
+      setAddBarberError('Something went wrong. Please try again.');
+    } finally {
+      setAddingBarber(false);
+    }
+  }
+
+  /**
+   * Removes a staff member via DELETE /api/barbers/[id].
+   *
+   * @param barberId   - UUID of the barber.
+   * @param barberName - Used in the confirmation prompt.
+   */
+  async function handleDeleteBarber(barberId: string, barberName: string): Promise<void> {
+    if (!window.confirm(`Remove "${barberName}" from your team? All their services and availability will also be removed. This cannot be undone.`)) return;
+
+    setDeletingBarberId(barberId);
+
+    try {
+      const res = await fetch(`/api/barbers/${barberId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to remove staff member. Please try again.');
+        return;
+      }
+      setBarbers((prev) => prev.filter((b) => b.id !== barberId));
+      setBarberForms((prev) => {
+        const next = { ...prev };
+        delete next[barberId];
+        return next;
+      });
+      setStaffServices((prev) => {
+        const next = { ...prev };
+        delete next[barberId];
+        return next;
+      });
+      setStaffAvailability((prev) => prev.filter((a) => a.barber_id !== barberId));
+    } catch {
+      alert('Something went wrong. Please try again.');
+    } finally {
+      setDeletingBarberId(null);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Per-staff service handlers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Adds a new staff service for a specific barber via POST /api/staff-services.
+   *
+   * @param barberId - UUID of the barber.
+   */
+  async function handleAddStaffService(barberId: string): Promise<void> {
+    const form = addServiceForms[barberId];
+    if (!form) return;
+
+    const trimmedName = form.name.trim();
+    if (!trimmedName) {
+      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Service name is required.' }));
+      return;
+    }
+
+    const durationNum = form.duration ? parseInt(form.duration, 10) : null;
+    if (form.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
+      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Duration must be a positive number of minutes.' }));
+      return;
+    }
+
+    const priceNum = form.price ? parseFloat(form.price) : null;
+    if (form.price && (isNaN(priceNum!) || priceNum! < 0)) {
+      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Price must be a non-negative number.' }));
+      return;
+    }
+
+    setSavingAddServiceId(barberId);
+    setAddServiceErrors((prev) => ({ ...prev, [barberId]: '' }));
+
+    try {
+      const res = await fetch('/api/staff-services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barber_id: barberId,
+          name: trimmedName,
+          duration_minutes: durationNum,
+          price: priceNum,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setAddServiceErrors((prev) => ({ ...prev, [barberId]: data.error ?? 'Failed to add service. Please try again.' }));
+        return;
+      }
+
+      const { staffService: service } = (await res.json()) as { staffService: StaffService };
+      setStaffServices((prev) => ({
+        ...prev,
+        [barberId]: [...(prev[barberId] ?? []), service].sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+      setAddingServiceForId(null);
+      setAddServiceForms((prev) => ({ ...prev, [barberId]: { name: '', duration: '', price: '' } }));
+    } catch {
+      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Something went wrong. Please try again.' }));
+    } finally {
+      setSavingAddServiceId(null);
+    }
+  }
+
+  /**
+   * Saves inline edits for a staff service via PUT /api/staff-services/[id].
+   *
+   * @param serviceId - UUID of the staff service being edited.
+   * @param barberId  - UUID of the owning barber (to update local state).
+   */
+  async function handleSaveStaffServiceEdit(serviceId: string, barberId: string): Promise<void> {
+    const form = staffServiceEditForms[serviceId];
+    if (!form) return;
+
+    const trimmedName = form.name.trim();
+    if (!trimmedName) { alert('Service name is required.'); return; }
+
+    const durationNum = form.duration ? parseInt(form.duration, 10) : null;
+    if (form.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
+      alert('Duration must be a positive number of minutes.'); return;
+    }
+
+    const priceNum = form.price ? parseFloat(form.price) : null;
+    if (form.price && (isNaN(priceNum!) || priceNum! < 0)) {
+      alert('Price must be a non-negative number.'); return;
+    }
+
+    setSavingStaffServiceId(serviceId);
+
+    try {
+      const res = await fetch(`/api/staff-services/${serviceId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName, duration_minutes: durationNum, price: priceNum }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to save. Please try again.');
+        return;
+      }
+
+      const { service } = (await res.json()) as { service: StaffService };
+      setStaffServices((prev) => ({
+        ...prev,
+        [barberId]: (prev[barberId] ?? [])
+          .map((s) => (s.id === serviceId ? service : s))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+      setEditingStaffServiceId(null);
+    } catch {
+      alert('Something went wrong. Please try again.');
+    } finally {
+      setSavingStaffServiceId(null);
+    }
+  }
+
+  /**
+   * Toggles the active flag on a staff service via PUT /api/staff-services/[id].
+   *
+   * @param serviceId - UUID of the staff service.
+   * @param barberId  - UUID of the owning barber.
+   * @param active    - New active state.
+   */
+  async function handleToggleStaffService(serviceId: string, barberId: string, active: boolean): Promise<void> {
+    try {
+      const res = await fetch(`/api/staff-services/${serviceId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to update. Please try again.');
+        return;
+      }
+
+      const { service } = (await res.json()) as { service: StaffService };
+      setStaffServices((prev) => ({
+        ...prev,
+        [barberId]: (prev[barberId] ?? []).map((s) => (s.id === serviceId ? service : s)),
+      }));
+    } catch {
+      alert('Something went wrong. Please try again.');
+    }
+  }
+
+  /**
+   * Deletes a staff service via DELETE /api/staff-services/[id].
+   *
+   * @param serviceId   - UUID of the staff service.
+   * @param barberId    - UUID of the owning barber.
+   * @param serviceName - Used in the confirmation prompt.
+   */
+  async function handleDeleteStaffService(serviceId: string, barberId: string, serviceName: string): Promise<void> {
+    if (!window.confirm(`Remove "${serviceName}"? This cannot be undone.`)) return;
+
+    setDeletingStaffServiceId(serviceId);
+
+    try {
+      const res = await fetch(`/api/staff-services/${serviceId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        alert(data.error ?? 'Failed to remove. Please try again.');
+        return;
+      }
+      setStaffServices((prev) => ({
+        ...prev,
+        [barberId]: (prev[barberId] ?? []).filter((s) => s.id !== serviceId),
+      }));
+    } catch {
+      alert('Something went wrong. Please try again.');
+    } finally {
+      setDeletingStaffServiceId(null);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Loading / error states
+  // -------------------------------------------------------------------------
+
+  if (loadState === 'loading') {
+    return (
+      <div className="p-8 lg:p-12 flex items-center justify-center min-h-64">
+        <p className="text-sm text-[#C8C8C8]">Loading booking settings…</p>
+      </div>
+    );
+  }
+
+  if (loadState === 'error') {
+    return (
+      <div className="p-8 lg:p-12">
+        <div className="max-w-3xl bg-red-50 border border-red-100 rounded-2xl p-6">
+          <p className="text-sm text-red-700 font-medium">Failed to load booking settings.</p>
+          <p className="text-sm text-red-600 mt-1">
+            Please refresh the page. If the problem persists, contact support.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Keep latest function versions in refs for debounce timers.
+  // This prevents stale-closure bugs when boolean state (toggles) changes
+  // and the timeout fires after a single-event onChange.
+  // -------------------------------------------------------------------------
+  doSaveBookingPageRef.current  = doSaveBookingPage;
+  handleSaveBarberRef.current   = handleSaveBarber;
+
+  // -------------------------------------------------------------------------
+  // Derived values
+  // -------------------------------------------------------------------------
+
+  const bookingUrl = typeof window !== 'undefined' && bookingPage
+    ? `${window.location.origin}/book/${bookingPage.slug}`
+    : bookingPage ? `https://noshowly.com/book/${bookingPage.slug}` : null;
+
+  /** Whether at least one barber has at least one service. */
+  const hasAnyService = Object.values(staffServices).some((svcs) => svcs.length > 0);
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
+  return (
+    <>
+    <div className="p-8 lg:p-12">
+      <div className="max-w-3xl space-y-12">
+
+        {/* Page heading */}
+        <div>
+          <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">Online Booking</h1>
+          <p className="text-sm text-[#C8C8C8] mt-1.5">
+            Set up your public booking page, staff, and availability.
+          </p>
+        </div>
+
+        {/* ==================================================================
+            SECTION 1: Booking page settings
+        ================================================================== */}
+        <section>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Booking page</h2>
+            {bookingPage && (
+              <span className={`text-xs font-medium transition-colors ${
+                bookingSaveStatus === 'saving' ? 'text-[#C8C8C8]' :
+                bookingSaveStatus === 'saved'  ? 'text-emerald-600' : 'invisible'
+              }`}>
+                {bookingSaveStatus === 'saving' ? 'Saving…' : 'Saved'}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Clients book directly at your unique link. You control when it goes live.
+          </p>
+
+          <SectionCard>
+            <div className="p-6 space-y-5">
+
+              {/* Live/Offline badge + toggle */}
+              {bookingPage && (
+                <div className="flex items-center justify-between py-1">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block h-2 w-2 rounded-full ${bookingPage.is_active ? 'bg-emerald-500' : 'bg-[#C8C8C8]'}`} />
+                      <span className="text-sm font-medium text-[#1A1A1A]">
+                        {bookingPage.is_active ? 'Live' : 'Offline'}
+                      </span>
+                    </div>
+                    {bookingUrl && (
+                      <p className="text-xs text-[#C8C8C8] font-mono">{bookingUrl}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {bookingPage.is_active && bookingUrl && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyLink()}
+                          className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                        >
+                          {copied ? 'Copied!' : 'Copy link'}
+                        </button>
+                        <a
+                          href={bookingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                        >
+                          Open ↗
+                        </a>
+                      </>
+                    )}
+                    <Toggle
+                      checked={bookingPage.is_active}
+                      onChange={(v) => void handleBookingToggle(v)}
+                      label={bookingPage.is_active ? 'Take booking page offline' : 'Go live'}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ---- CREATE FLOW: no booking page yet ---- */}
+              {!bookingPage && (
+                <form onSubmit={(e) => void handleBookingSave(e)} noValidate className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="booking-slug" className="text-sm font-medium text-[#1A1A1A]">
+                      Choose your booking URL
+                    </Label>
+                    <div className="flex items-center rounded-lg border border-[#C8C8C8] overflow-hidden focus-within:border-[#1A1A1A] transition-colors">
+                      <span className="px-3 text-sm text-[#C8C8C8] bg-[#F4F4F5] border-r border-[#C8C8C8] h-10 flex items-center shrink-0">
+                        /book/
+                      </span>
+                      <input
+                        id="booking-slug"
+                        type="text"
+                        value={bookingSlug}
+                        onChange={(e) => { setBookingSlug(e.target.value); if (bookingError) setBookingError(''); }}
+                        placeholder="your-business-name"
+                        maxLength={50}
+                        disabled={bookingSaveStatus === 'saving'}
+                        className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-white placeholder:text-[#C8C8C8] disabled:opacity-50"
+                      />
+                    </div>
+                    <p className="text-xs text-[#C8C8C8]">Lowercase letters, digits, and hyphens only. 3–50 characters. This cannot be changed later.</p>
+                  </div>
+
+                  {bookingError && (
+                    <div role="alert" className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+                      {bookingError}
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={bookingSaveStatus === 'saving'}
+                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium px-5 py-2.5 h-auto"
+                  >
+                    {bookingSaveStatus === 'saving' ? 'Creating…' : 'Create booking page'}
+                  </Button>
+                </form>
+              )}
+
+              {/* ---- EDIT FLOW: booking page exists — auto-saved on every change ---- */}
+              {bookingPage && (
+                <div className="space-y-4">
+
+                  {/* Read-only URL display */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="booking-slug" className="text-sm font-medium text-[#1A1A1A]">
+                      Booking page URL
+                    </Label>
+                    <div className="flex items-center rounded-lg border border-[#C8C8C8]/50 bg-[#F4F4F5] overflow-hidden">
+                      <span className="px-3 text-sm text-[#C8C8C8] bg-[#F4F4F5] border-r border-[#C8C8C8] h-10 flex items-center shrink-0">
+                        /book/
+                      </span>
+                      <input
+                        id="booking-slug"
+                        type="text"
+                        value={bookingSlug}
+                        readOnly
+                        disabled
+                        className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-transparent disabled:opacity-60 disabled:cursor-default"
+                      />
+                    </div>
+                    <p className="text-xs text-[#C8C8C8]">Your booking URL is permanent and cannot be changed.</p>
+                  </div>
+
+                  {/* Headline + Description with live preview */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+
+                    {/* Left: form fields */}
+                    <div className="space-y-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="booking-page-title" className="text-sm font-medium text-[#1A1A1A]">
+                          Headline
+                        </Label>
+                        <Input
+                          id="booking-page-title"
+                          type="text"
+                          value={customPageTitle}
+                          onChange={(e) => { setCustomPageTitle(e.target.value); scheduleBookingSave(); }}
+                          placeholder="e.g. Book your appointment at Elena's Salon"
+                          maxLength={100}
+                          disabled={bookingSaveStatus === 'saving'}
+                          className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                        />
+                        <p className="text-xs text-[#C8C8C8]">The first thing clients see. Leave blank to use your business name.</p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="booking-custom-intro" className="text-sm font-medium text-[#1A1A1A]">
+                          Description
+                        </Label>
+                        <textarea
+                          id="booking-custom-intro"
+                          value={customIntro}
+                          onChange={(e) => { setCustomIntro(e.target.value); scheduleBookingSave(); }}
+                          placeholder="e.g. We offer haircuts, coloring and more. Book your slot online in seconds."
+                          maxLength={800}
+                          rows={3}
+                          disabled={bookingSaveStatus === 'saving'}
+                          className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] outline-none focus:border-[#1A1A1A] disabled:opacity-50 resize-none transition-colors"
+                        />
+                        <p className="text-xs text-[#C8C8C8]">A short description shown below the headline. Leave blank to skip.</p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="booking-description" className="text-sm font-medium text-[#1A1A1A]">
+                          Link preview description (optional)
+                        </Label>
+                        <textarea
+                          id="booking-description"
+                          value={bookingDescription}
+                          onChange={(e) => { setBookingDescription(e.target.value); scheduleBookingSave(); }}
+                          placeholder="e.g. Book your appointment online. We confirm within 24 hours."
+                          maxLength={500}
+                          rows={2}
+                          disabled={bookingSaveStatus === 'saving'}
+                          className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] outline-none focus:border-[#1A1A1A] disabled:opacity-50 resize-none transition-colors"
+                        />
+                        <p className="text-xs text-[#C8C8C8]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
+                      </div>
+                    </div>
+
+                    {/* Right: live preview */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Preview</p>
+                      <div className="bg-[#1A1A1A] rounded-2xl p-10 flex flex-col items-center justify-center text-center min-h-[220px] space-y-4">
+                        <h3 className="font-heading text-4xl font-bold text-white leading-tight">
+                          {customPageTitle.trim() || (
+                            <span className="text-white/30 italic">Your headline</span>
+                          )}
+                        </h3>
+                        {customIntro.trim() ? (
+                          <p className="text-sm text-white/60 leading-relaxed max-w-xs">{customIntro.trim()}</p>
+                        ) : (
+                          <p className="text-sm text-white/20 italic">Description will appear here</p>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Required client information */}
+                  <div className="space-y-3">
+                    <div className="pt-4 border-t border-[#C8C8C8]/30">
+                      <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Required client information</h2>
+                      <p className="text-xs text-[#C8C8C8] mt-0.5">Turn off fields you do not need. At least one must be required.</p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-[#1A1A1A]">Require phone number</p>
+                        <p className="text-xs text-[#C8C8C8] mt-0.5">Needed for SMS reminders.</p>
+                      </div>
+                      <Toggle
+                        checked={requirePhone}
+                        onChange={(v) => { setRequirePhone(v); setRequireFieldsError(''); scheduleBookingSave(); }}
+                        label="Require phone number"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-[#1A1A1A]">Require email address</p>
+                        <p className="text-xs text-[#C8C8C8] mt-0.5">Needed for email reminders.</p>
+                      </div>
+                      <Toggle
+                        checked={requireEmail}
+                        onChange={(v) => { setRequireEmail(v); setRequireFieldsError(''); scheduleBookingSave(); }}
+                        label="Require email address"
+                      />
+                    </div>
+                    {requireFieldsError && (
+                      <p className="text-xs text-red-600">{requireFieldsError}</p>
+                    )}
+                  </div>
+
+                  {/* No preference toggles */}
+                  <div className="space-y-3 pt-1">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[#1A1A1A]">Allow &quot;No preference&quot; for staff</p>
+                        <p className="text-xs text-[#C8C8C8] mt-0.5">Clients can skip choosing a specific team member.</p>
+                      </div>
+                      <Toggle
+                        checked={allowNoPreferenceStaff}
+                        onChange={(v) => { setAllowNoPreferenceStaff(v); scheduleBookingSave(); }}
+                        label="Allow no preference for staff"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[#1A1A1A]">Allow &quot;No preference&quot; for service</p>
+                        <p className="text-xs text-[#C8C8C8] mt-0.5">Clients can skip choosing a specific service.</p>
+                      </div>
+                      <Toggle
+                        checked={allowNoPreferenceService}
+                        onChange={(v) => { setAllowNoPreferenceService(v); scheduleBookingSave(); }}
+                        label="Allow no preference for service"
+                      />
+                    </div>
+                  </div>
+
+                  {bookingError && (
+                    <div role="alert" className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+                      {bookingError}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          </SectionCard>
+        </section>
+
+        {/* ==================================================================
+            SECTION 2: Staff
+        ================================================================== */}
+        <section>
+          <h2 className="text-base font-semibold text-[#1A1A1A] mb-1">Staff</h2>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Add your team members. For each person, set the services they offer and
+            their working hours so clients only see available slots.
+          </p>
+
+          <div className="space-y-4">
+
+            {barbers.length === 0 && (
+              <SectionCard>
+                <div className="px-6 py-10 text-center">
+                  <p className="text-sm text-[#C8C8C8]">No staff members yet. Add your first staff member below.</p>
+                </div>
+              </SectionCard>
+            )}
+
+            {barbers.map((barber) => {
+              const form = barberForms[barber.id];
+              if (!form) return null;
+              const isSaving = barberSaveStatuses[barber.id] === 'saving';
+              const barberSaveStatus = barberSaveStatuses[barber.id] ?? 'idle';
+              const isDeleting = deletingBarberId === barber.id;
+              const isRemovingPhoto = removingPhotoForId === barber.id;
+              const initials = barber.name.slice(0, 2).toUpperCase();
+              const services = staffServices[barber.id] ?? [];
+              const isAddingService = addingServiceForId === barber.id;
+              const addForm = addServiceForms[barber.id] ?? { name: '', duration: '', price: '' };
+              const addError = addServiceErrors[barber.id] ?? '';
+              const isSavingAdd = savingAddServiceId === barber.id;
+
+              return (
+                <SectionCard key={barber.id}>
+                  <div className="p-6 space-y-6">
+
+                    {/* Header: name + save status + remove */}
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-sm font-semibold text-[#1A1A1A] truncate">{barber.name}</p>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`text-xs font-medium transition-colors ${
+                          barberSaveStatus === 'saving' ? 'text-[#C8C8C8]' :
+                          barberSaveStatus === 'saved'  ? 'text-emerald-600' : 'invisible'
+                        }`}>
+                          {barberSaveStatus === 'saving' ? 'Saving…' : 'Saved'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteBarber(barber.id, barber.name)}
+                          disabled={isDeleting}
+                          className="text-xs text-[#C8C8C8] hover:text-red-600 disabled:opacity-40 transition-colors"
+                        >
+                          {isDeleting ? 'Removing…' : 'Remove'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Photo upload section — clicking the circle/link opens the crop modal */}
+                    <div className="flex flex-col items-start gap-2">
+                      {/* Clickable 80px circle with camera overlay on hover */}
+                      <button
+                        type="button"
+                        onClick={() => photoInputRefs.current[barber.id]?.click()}
+                        disabled={isRemovingPhoto || isSaving}
+                        className="group relative w-20 h-20 rounded-full overflow-hidden shrink-0 border border-[#C8C8C8]/30 bg-[#F4F4F5] flex items-center justify-center disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A] focus-visible:ring-offset-2"
+                        aria-label="Upload photo"
+                      >
+                        {/* Photo or initials */}
+                        {form.photo_url ? (
+                          <img
+                            src={form.photo_url}
+                            alt={barber.name}
+                            className="w-full h-full object-cover object-center"
+                          />
+                        ) : (
+                          <span className="text-lg font-semibold text-[#1A1A1A] select-none">
+                            {initials}
+                          </span>
+                        )}
+                        {/* Camera icon overlay — appears on hover */}
+                        <span className="absolute bottom-0 right-0 w-6 h-6 bg-[#1A1A1A] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+                          <Camera size={12} className="text-white" />
+                        </span>
+                      </button>
+
+                      {/* Text links below circle */}
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => photoInputRefs.current[barber.id]?.click()}
+                          disabled={isRemovingPhoto || isSaving}
+                          className="text-xs text-[#1A1A1A] underline underline-offset-2 hover:text-[#2D2D2D] disabled:opacity-40 transition-colors"
+                        >
+                          Change photo
+                        </button>
+                        {form.photo_url && (
+                          <>
+                            <span className="text-[#C8C8C8] text-xs">·</span>
+                            <button
+                              type="button"
+                              onClick={() => void handleRemovePhoto(barber.id)}
+                              disabled={isRemovingPhoto || isSaving}
+                              className="text-xs text-[#C8C8C8] hover:text-red-600 disabled:opacity-40 transition-colors"
+                            >
+                              {isRemovingPhoto ? 'Removing…' : 'Remove photo'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Hidden file input */}
+                      <input
+                        ref={(el) => { photoInputRefs.current[barber.id] = el; }}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="sr-only"
+                        onChange={(e) => void handlePhotoUpload(barber.id, e)}
+                      />
+                    </div>
+
+                    {/* Profile fields */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Name</Label>
+                        <Input
+                          value={form.name}
+                          onChange={(e) => updateBarberField(barber.id, 'name', e.target.value)}
+                          maxLength={50}
+                          disabled={isSaving}
+                          className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-sm text-[#1A1A1A]"
+                        />
+                      </div>
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <Label className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Bio (optional)</Label>
+                        <Input
+                          value={form.bio}
+                          onChange={(e) => updateBarberField(barber.id, 'bio', e.target.value)}
+                          placeholder="Short description shown on the booking page"
+                          maxLength={300}
+                          disabled={isSaving}
+                          className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Per-staff services */}
+                    <div>
+                      <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest mb-3">Services</p>
+
+                      {services.length > 0 && (
+                        <ul className="divide-y divide-[#C8C8C8]/20 mb-2">
+                          {services.filter((svc): svc is NonNullable<typeof svc> => svc != null).map((svc) => (
+                            <li key={svc.id} className="py-2.5">
+                              {editingStaffServiceId === svc.id ? (
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="col-span-1 space-y-1">
+                                      <Label className="text-xs text-[#C8C8C8]">Name</Label>
+                                      <Input
+                                        value={staffServiceEditForms[svc.id]?.name ?? ''}
+                                        onChange={(e) =>
+                                          setStaffServiceEditForms((prev) => ({
+                                            ...prev,
+                                            [svc.id]: { ...prev[svc.id], name: e.target.value },
+                                          }))
+                                        }
+                                        maxLength={50}
+                                        className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-[#C8C8C8]">Min</Label>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        value={staffServiceEditForms[svc.id]?.duration ?? ''}
+                                        onChange={(e) =>
+                                          setStaffServiceEditForms((prev) => ({
+                                            ...prev,
+                                            [svc.id]: { ...prev[svc.id], duration: e.target.value },
+                                          }))
+                                        }
+                                        placeholder="30"
+                                        className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-[#C8C8C8]">Price</Label>
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        step={0.01}
+                                        value={staffServiceEditForms[svc.id]?.price ?? ''}
+                                        onChange={(e) =>
+                                          setStaffServiceEditForms((prev) => ({
+                                            ...prev,
+                                            [svc.id]: { ...prev[svc.id], price: e.target.value },
+                                          }))
+                                        }
+                                        placeholder="25.00"
+                                        className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      disabled={savingStaffServiceId === svc.id}
+                                      onClick={() => void handleSaveStaffServiceEdit(svc.id, barber.id)}
+                                      className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-xs px-3 py-1.5 h-auto"
+                                    >
+                                      {savingStaffServiceId === svc.id ? 'Saving…' : 'Save'}
+                                    </Button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingStaffServiceId(null)}
+                                      className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#C8C8C8]'}`}>{svc.name}</p>
+                                    {(svc.duration_minutes || svc.price != null) && (
+                                      <p className="text-xs text-[#C8C8C8] mt-0.5">
+                                        {[
+                                          svc.duration_minutes ? `${svc.duration_minutes} min` : null,
+                                          svc.price != null ? `$${svc.price.toFixed(2)}` : null,
+                                        ].filter(Boolean).join(' · ')}
+                                      </p>
+                                    )}
+                                    {/* Checkbox: controls whether service appears on the booking page */}
+                                    <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer select-none w-fit">
+                                      <input
+                                        type="checkbox"
+                                        checked={svc.active}
+                                        onChange={(e) => void handleToggleStaffService(svc.id, barber.id, e.target.checked)}
+                                        className="h-3.5 w-3.5 rounded border-[#C8C8C8] accent-[#1A1A1A] cursor-pointer"
+                                      />
+                                      <span className="text-xs text-[#C8C8C8]">Available on booking page</span>
+                                    </label>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingStaffServiceId(svc.id);
+                                        setStaffServiceEditForms((prev) => ({
+                                          ...prev,
+                                          [svc.id]: {
+                                            name: svc.name,
+                                            duration: svc.duration_minutes?.toString() ?? '',
+                                            price: svc.price?.toString() ?? '',
+                                          },
+                                        }));
+                                      }}
+                                      className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleDeleteStaffService(svc.id, barber.id, svc.name)}
+                                      disabled={deletingStaffServiceId === svc.id}
+                                      className="text-xs text-[#C8C8C8] hover:text-red-600 disabled:opacity-40 transition-colors"
+                                    >
+                                      {deletingStaffServiceId === svc.id ? 'Removing…' : 'Remove'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {/* Add service form / button */}
+                      {isAddingService ? (
+                        <div className="space-y-2 pt-1">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="col-span-1 space-y-1">
+                              <Label className="text-xs text-[#C8C8C8]">Name *</Label>
+                              <Input
+                                type="text"
+                                value={addForm.name}
+                                onChange={(e) => {
+                                  setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, name: e.target.value } }));
+                                  if (addError) setAddServiceErrors((prev) => ({ ...prev, [barber.id]: '' }));
+                                }}
+                                placeholder="e.g. Haircut"
+                                maxLength={50}
+                                disabled={isSavingAdd}
+                                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-[#C8C8C8]">Min</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={addForm.duration}
+                                onChange={(e) => setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, duration: e.target.value } }))}
+                                placeholder="30"
+                                disabled={isSavingAdd}
+                                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-[#C8C8C8]">Price</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={addForm.price}
+                                onChange={(e) => setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, price: e.target.value } }))}
+                                placeholder="25.00"
+                                disabled={isSavingAdd}
+                                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                              />
+                            </div>
+                          </div>
+                          {addError && <p className="text-xs text-red-600">{addError}</p>}
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              disabled={isSavingAdd}
+                              onClick={() => void handleAddStaffService(barber.id)}
+                              className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-xs px-3 py-1.5 h-auto"
+                            >
+                              {isSavingAdd ? 'Adding…' : 'Add'}
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddingServiceForId(null);
+                                setAddServiceErrors((prev) => ({ ...prev, [barber.id]: '' }));
+                              }}
+                              className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddingServiceForId(barber.id);
+                            setAddServiceForms((prev) => ({ ...prev, [barber.id]: { name: '', duration: '', price: '' } }));
+                          }}
+                          className="text-xs font-medium text-[#1A1A1A] hover:text-[#2D2D2D] transition-colors"
+                        >
+                          + Add service
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Weekly availability */}
+                    <div>
+                      <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest mb-3">
+                        Weekly availability
+                      </p>
+                      <div className="space-y-2">
+                        {WEEK_DAYS.map(({ label, value: dow }) => {
+                          const day = form.availability[dow] ?? makeDefaultDayState(dow);
+                          return (
+                            <div
+                              key={dow}
+                              className={`rounded-xl border px-4 py-3 transition-colors ${
+                                day.is_available ? 'border-[#C8C8C8]/40 bg-white' : 'border-[#C8C8C8]/20 bg-[#F9F9F9]'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                {/* Day label + toggle */}
+                                <div className="flex items-center gap-2 w-20 shrink-0 pt-0.5">
+                                  <SmallToggle
+                                    checked={day.is_available}
+                                    onChange={(v) => setDayAvailable(barber.id, dow, v)}
+                                    label={`${label} availability`}
+                                  />
+                                  <span className={`text-xs font-medium w-8 ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#C8C8C8]'}`}>
+                                    {label}
+                                  </span>
+                                </div>
+
+                                {day.is_available ? (
+                                  <div className="flex-1 space-y-1.5">
+                                    {day.time_slots.map((slot, slotIndex) => (
+                                      <div key={slotIndex} className="flex items-center gap-2 flex-wrap">
+                                        <input
+                                          type="time"
+                                          value={slot.start}
+                                          onChange={(e) => updateSlot(barber.id, dow, slotIndex, 'start', e.target.value)}
+                                          disabled={isSaving}
+                                          className="h-8 rounded-lg border border-[#C8C8C8] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-50 transition-colors"
+                                        />
+                                        <span className="text-xs text-[#C8C8C8]">to</span>
+                                        <input
+                                          type="time"
+                                          value={slot.end}
+                                          onChange={(e) => updateSlot(barber.id, dow, slotIndex, 'end', e.target.value)}
+                                          disabled={isSaving}
+                                          className="h-8 rounded-lg border border-[#C8C8C8] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-50 transition-colors"
+                                        />
+                                        {/* Remove slot button — hidden for the last slot */}
+                                        {day.time_slots.length > 1 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => removeSlot(barber.id, dow, slotIndex)}
+                                            className="text-xs text-[#C8C8C8] hover:text-red-500 transition-colors"
+                                          >
+                                            ×
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {/* Add break button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => addSlot(barber.id, dow)}
+                                      className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors mt-0.5"
+                                    >
+                                      + Add break
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-[#C8C8C8] pt-0.5">Not available</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                  </div>
+                </SectionCard>
+              );
+            })}
+
+            {/* Add staff member form */}
+            <SectionCard>
+              <form onSubmit={(e) => void handleAddBarber(e)} noValidate className="px-6 py-5">
+                <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest mb-3">
+                  Add staff member
+                </p>
+                <div className="flex gap-3">
+                  <Input
+                    type="text"
+                    value={addBarberName}
+                    onChange={(e) => { setAddBarberName(e.target.value); if (addBarberError) setAddBarberError(''); }}
+                    placeholder="First name, e.g. John"
+                    maxLength={50}
+                    disabled={addingBarber}
+                    className="flex-1 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={addingBarber}
+                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium px-4 shrink-0"
+                  >
+                    {addingBarber ? 'Adding…' : 'Add'}
+                  </Button>
+                </div>
+                {addBarberError && (
+                  <p className="mt-2 text-sm text-red-600">{addBarberError}</p>
+                )}
+              </form>
+            </SectionCard>
+
+          </div>
+        </section>
+
+        {/* ==================================================================
+            SECTION 3: Publish
+        ================================================================== */}
+        <section>
+          <h2 className="text-base font-semibold text-[#1A1A1A] mb-1">Publish</h2>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Make your booking page live so clients can start booking online.
+          </p>
+
+          <SectionCard>
+            <div className="p-6 space-y-4">
+
+              {bookingPage?.is_active ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    <p className="text-sm font-medium text-[#1A1A1A]">
+                      Your booking page is live
+                    </p>
+                  </div>
+                  {bookingUrl && (
+                    <p className="text-sm text-[#C8C8C8]">
+                      Share this link with your clients:{' '}
+                      <a
+                        href={bookingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-[#1A1A1A] hover:underline"
+                      >
+                        {bookingUrl}
+                      </a>
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    onClick={() => void handleBookingToggle(false)}
+                    variant="outline"
+                    className="border-[#C8C8C8] text-[#1A1A1A] hover:border-[#1A1A1A]/40 text-sm"
+                  >
+                    Take offline
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {!bookingPage && (
+                    <p className="text-sm text-amber-600">
+                      You need to save a booking page URL before you can go live.
+                    </p>
+                  )}
+                  {!hasAnyService && (
+                    <p className="text-sm text-amber-600">
+                      Add at least one service to a staff member before going live.
+                    </p>
+                  )}
+
+                  <Button
+                    type="button"
+                    disabled={!bookingPage || !hasAnyService}
+                    onClick={() => void handleBookingToggle(true)}
+                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium px-8 py-3 h-auto disabled:opacity-40"
+                  >
+                    Publish booking page
+                  </Button>
+
+                  {bookingPage && hasAnyService && (
+                    <p className="text-xs text-[#C8C8C8]">
+                      Your page will be visible at{' '}
+                      <span className="font-mono">/book/{bookingPage.slug}</span>.
+                      You can take it offline at any time.
+                    </p>
+                  )}
+                </>
+              )}
+
+            </div>
+          </SectionCard>
+        </section>
+
+      </div>
+    </div>
+
+    {/* ── Instagram-style crop modal ─────────────────────────────────────────
+        Full-screen dark overlay. User drags / scrolls / pinches to reposition
+        the image inside a fixed circular crop window. "Apply" crops via Canvas
+        and uploads the result. "Cancel" discards the selection.
+    ──────────────────────────────────────────────────────────────────────── */}
+    {cropModal && (
+      <div
+        className="fixed inset-0 z-50 bg-black flex flex-col overflow-hidden"
+        style={{ userSelect: 'none', touchAction: 'none' }}
+        onMouseMove={handleCropMouseMove}
+        onMouseUp={handleCropMouseUp}
+        onMouseLeave={handleCropMouseUp}
+      >
+        {/* ── Image layer ─────────────────────────────────────────────────── */}
+        <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={cropModal.src}
+            alt="Crop preview"
+            draggable={false}
+            onMouseDown={handleCropMouseDown}
+            onTouchStart={handleCropTouchStart}
+            onTouchMove={handleCropTouchMove}
+            onTouchEnd={handleCropTouchEnd}
+            style={{
+              width: cropModal.naturalW,
+              height: cropModal.naturalH,
+              maxWidth: 'none',
+              transform: `translate(${cropX}px, ${cropY}px) scale(${cropScale})`,
+              transformOrigin: 'center',
+              cursor: isDragging ? 'grabbing' : 'grab',
+              touchAction: 'none',
+            }}
+          />
+        </div>
+
+        {/* ── Circle crop overlay ──────────────────────────────────────────
+            A transparent circle sits in the center; box-shadow darkens the
+            area outside it (classic Instagram technique).
+        ───────────────────────────────────────────────────────────────── */}
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            width:  CIRCLE_RADIUS * 2,
+            height: CIRCLE_RADIUS * 2,
+            borderRadius: '50%',
+            top:  '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.65)',
+            border: '2px solid rgba(255,255,255,0.35)',
+          }}
+        />
+
+        {/* ── Upload spinner — shown over everything while uploading ───────── */}
+        {cropUploading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 pointer-events-none">
+            <div
+              className="rounded-full border-2 border-white border-t-transparent animate-spin"
+              style={{ width: CIRCLE_RADIUS * 2, height: CIRCLE_RADIUS * 2 }}
+            />
+          </div>
+        )}
+
+        {/* ── Top hint ────────────────────────────────────────────────────── */}
+        <div className="absolute top-6 left-0 right-0 flex justify-center pointer-events-none">
+          <p className="font-body text-white/50 text-xs tracking-wide">
+            Drag to reposition · scroll or pinch to zoom
+          </p>
+        </div>
+
+        {/* ── Bottom action row ────────────────────────────────────────────── */}
+        <div className="absolute bottom-8 left-0 right-0 flex items-center justify-between px-8">
+          <button
+            type="button"
+            onClick={handleCropCancel}
+            disabled={cropUploading}
+            className="font-body text-white text-sm font-medium disabled:opacity-40 hover:text-white/70 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleCropApply()}
+            disabled={cropUploading}
+            className="font-body bg-white text-[#1A1A1A] text-sm font-semibold px-6 py-2.5 rounded-lg disabled:opacity-40 hover:bg-white/90 transition-colors"
+          >
+            {cropUploading ? 'Uploading…' : 'Apply'}
+          </button>
+        </div>
+      </div>
+    )}
+    </>
+  );
+}

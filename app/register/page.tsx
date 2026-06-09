@@ -1,29 +1,14 @@
 /**
  * app/register/page.tsx
  *
- * Registration page for NoShowly salon owners.
+ * Premium registration page for Noshowly salon owners.
  *
- * Only salon owners register — end clients (haircut customers) never have accounts.
- * New accounts receive a 14-day free trial with no credit card required.
- *
- * Registration flow:
- *  1. User fills in salon name, email, password, and confirm password.
- *  2. Client-side validation runs (fast feedback before any network call).
- *  3. `supabase.auth.signUp()` creates the auth user and sets the session cookie.
- *  4. POST /api/auth/register creates the `users` and `salons` DB records.
- *  5. On success: redirect to /dashboard.
- *  6. If Supabase requires email confirmation (project setting): show "check email" screen.
+ * Only business owners register — end clients never have accounts.
  *
  * Security:
- *  - Inputs are validated client-side AND server-side (in the API route).
- *  - Raw Supabase error messages are never surfaced to the user — they may reveal
- *    implementation details. The only exception is the "already registered" case,
- *    which is safe and helpful to surface.
- *  - The form is disabled while submitting to prevent duplicate submissions.
- *  - If the API route fails after signUp, the orphaned auth user is signed out so
- *    the owner can retry cleanly.
- *  - Password inputs use autoComplete="new-password" to prevent password managers
- *    from auto-filling with saved credentials.
+ *  - Inputs validated client-side AND server-side (in the API route).
+ *  - Raw Supabase error messages never surfaced to the user.
+ *  - Form disabled while submitting to prevent duplicate submissions.
  */
 
 'use client';
@@ -31,11 +16,12 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
+import { motion, AnimatePresence } from 'framer-motion';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 /** Shape of the registration form's local state. */
 interface RegisterFormState {
@@ -45,15 +31,8 @@ interface RegisterFormState {
   confirmPassword: string;
 }
 
-/**
- * Possible UI states for the form.
- * 'success' is used for the email-confirmation-required interstitial screen.
- */
+/** Possible UI states for the form. */
 type FormStatus = 'idle' | 'loading' | 'error' | 'success';
-
-// ---------------------------------------------------------------------------
-// Page component
-// ---------------------------------------------------------------------------
 
 /**
  * RegisterPage renders the sign-up form for new salon owners.
@@ -73,20 +52,14 @@ export default function RegisterPage() {
   const [status, setStatus] = useState<FormStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
   /**
-   * Updates a single form field while keeping the rest intact.
-   * Also clears any displayed error so the user gets a clean slate as they type.
+   * Updates a single form field while clearing any displayed error.
    *
    * @param field - The field name to update.
-   * @param value - The new value for the field.
+   * @param value - The new value.
    */
   function handleChange(field: keyof RegisterFormState, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
-    // Clear error banner as soon as user starts correcting their input
     if (status === 'error') {
       setStatus('idle');
       setErrorMessage('');
@@ -95,11 +68,6 @@ export default function RegisterPage() {
 
   /**
    * Validates all form fields before making any network calls.
-   * Returns a human-readable error string on the first failing rule, or null
-   * if all fields are valid.
-   *
-   * Validation is intentionally permissive on the client: the API route and
-   * Supabase also validate, so this layer is only for fast user feedback.
    *
    * @param fields - The current form state to validate.
    * @returns A user-facing error string, or null if all inputs are valid.
@@ -107,50 +75,27 @@ export default function RegisterPage() {
   function validate(fields: RegisterFormState): string | null {
     const { salonName, email, password, confirmPassword } = fields;
 
-    // Salon name
-    if (!salonName.trim()) return 'Salon name is required.';
-    if (salonName.trim().length > 100) {
-      return 'Salon name must be 100 characters or fewer.';
-    }
-
-    // Email — basic shape check; Supabase enforces the real validation server-side
+    if (!salonName.trim()) return 'Business name is required.';
+    if (salonName.trim().length > 100) return 'Business name must be 100 characters or fewer.';
     if (!email.trim()) return 'Email is required.';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return 'Please enter a valid email address.';
     }
-
-    // Password
     if (!password) return 'Password is required.';
-    if (password.length < 8) {
-      return 'Password must be at least 8 characters.';
-    }
-
-    // Confirm password
-    if (password !== confirmPassword) {
-      return 'Passwords do not match.';
-    }
+    if (password.length < 8) return 'Password must be at least 8 characters.';
+    if (password !== confirmPassword) return 'Passwords do not match.';
 
     return null;
   }
 
-  // ---------------------------------------------------------------------------
-  // Submit handler
-  // ---------------------------------------------------------------------------
-
   /**
-   * Handles form submission:
-   *  1. Validates inputs locally.
-   *  2. Calls Supabase signUp (creates the auth user).
-   *  3. If a session is returned, calls /api/auth/register to create DB records.
-   *  4. Redirects to /dashboard on full success.
-   *  5. Shows "check email" screen if Supabase requires email confirmation.
+   * Handles form submission: validates, creates auth user, creates DB records.
    *
-   * @param e - The form submit event (prevented to avoid page reload).
+   * @param e - The form submit event.
    */
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    // Client-side validation — fail fast before hitting the network
     const validationError = validate(form);
     if (validationError) {
       setStatus('error');
@@ -162,27 +107,16 @@ export default function RegisterPage() {
     setErrorMessage('');
 
     try {
-      // ------------------------------------------------------------------
-      // Step 1: Create the Supabase auth user.
-      // This sets the session cookie on success (if email confirmation is off).
-      // ------------------------------------------------------------------
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: form.email.trim().toLowerCase(),
         password: form.password,
         options: {
-          // Store the salon name in user metadata so the auth callback route can
-          // read it and create the `users`/`salons` DB records after email confirmation.
           data: { salon_name: form.salonName.trim() },
-          // After the user clicks the confirmation link, Supabase will redirect here.
-          // The callback route exchanges the code and creates the DB records.
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
       if (signUpError) {
-        // Security: do NOT surface raw Supabase error messages — they may leak
-        // information about our auth implementation.
-        // The "already registered" case is safe and useful to tell the user.
         const message = signUpError.message.toLowerCase();
         const alreadyRegistered =
           message.includes('already registered') ||
@@ -198,21 +132,11 @@ export default function RegisterPage() {
         return;
       }
 
-      // ------------------------------------------------------------------
-      // Step 2: Handle email confirmation requirement.
-      // If the Supabase project has "Confirm email" enabled, signUp returns
-      // no session until the user clicks their confirmation link.
-      // ------------------------------------------------------------------
       if (!signUpData.session) {
-        // Show the "check your inbox" interstitial — no further action needed here.
         setStatus('success');
         return;
       }
 
-      // ------------------------------------------------------------------
-      // Step 3: Create the `users` and `salons` DB records via API route.
-      // The session cookie was just set by signUp — the route will read it.
-      // ------------------------------------------------------------------
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -220,8 +144,6 @@ export default function RegisterPage() {
       });
 
       if (!res.ok) {
-        // The DB record creation failed. Sign out the orphaned auth user so
-        // the owner can attempt registration again from a clean state.
         await supabase.auth.signOut();
         setStatus('error');
         setErrorMessage(
@@ -231,105 +153,97 @@ export default function RegisterPage() {
         return;
       }
 
-      // ------------------------------------------------------------------
-      // Step 4: All done — redirect to the dashboard.
-      // middleware.ts will verify the session on every /dashboard/* request.
-      // ------------------------------------------------------------------
       router.push('/dashboard');
-      router.refresh(); // Flush server-component cache so layout reads new session
+      router.refresh();
     } catch {
-      // Network error or unexpected exception — don't crash, show safe message
       setStatus('error');
-      setErrorMessage(
-        'Something went wrong. Please check your connection and try again.'
-      );
+      setErrorMessage('Something went wrong. Please check your connection and try again.');
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Email-confirmation-required screen
-  // ---------------------------------------------------------------------------
-
+  // Email confirmation screen
   if (status === 'success') {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="w-full max-w-md">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center">
-
-            {/* Checkmark icon */}
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
+      <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9] px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+          className="w-full max-w-md"
+        >
+          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm text-center">
+            <div className="w-12 h-12 bg-[#1A1A1A]/5 rounded-full flex items-center justify-center mx-auto mb-5">
               <svg
-                className="w-6 h-6 text-green-600"
+                className="w-6 h-6 text-[#1A1A1A]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
                 aria-hidden="true"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 13l4 4L19 7"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Check your email</h2>
-            <p className="text-sm text-gray-500 mb-1">
-              We sent a confirmation link to:
-            </p>
-            <p className="text-sm font-medium text-gray-800 mb-4">{form.email}</p>
-            <p className="text-sm text-gray-500">
+            <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-2">
+              Check your email
+            </h2>
+            <p className="text-sm text-[#C8C8C8] mb-1">We sent a confirmation link to:</p>
+            <p className="text-sm font-semibold text-[#1A1A1A] mb-4">{form.email}</p>
+            <p className="text-sm text-[#C8C8C8]">
               Click the link in the email to activate your account and get started.
             </p>
-
           </div>
-
-          <p className="mt-6 text-center text-sm text-gray-500">
+          <p className="mt-6 text-center text-sm text-[#C8C8C8]">
             Wrong email?{' '}
             <button
               type="button"
               onClick={() => setStatus('idle')}
-              className="font-medium text-black underline underline-offset-4 hover:text-gray-700"
+              className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
             >
               Go back
             </button>
           </p>
-        </div>
+        </motion.div>
       </main>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Main registration form
-  // ---------------------------------------------------------------------------
-
   const isLoading = status === 'loading';
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
-      <div className="w-full max-w-md">
-
-        {/* Brand header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Noshowly</h1>
+    <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9] px-4 py-12">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        className="w-full max-w-md"
+      >
+        {/* Logo */}
+        <div className="text-center mb-10">
+          <div className="flex justify-center mb-2">
+            <Image src="/Logo.png" alt="Noshowly" width={200} height={50} className="h-16 w-auto" />
+          </div>
+          <p className="mt-2 text-sm text-[#C8C8C8] font-medium tracking-wide uppercase">
+            Appointment Reminders
+          </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Create your account</h2>
+        <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
+          <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-1">
+            Create your account
+          </h2>
+          <p className="text-sm text-[#C8C8C8] mb-7">
+            Set up your business in minutes
+          </p>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
 
-            {/* Salon name */}
-            <div>
-              <label
-                htmlFor="salonName"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Salon name
-              </label>
-              <input
+            {/* Business name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="salonName" className="text-sm font-medium text-[#1A1A1A]">
+                Business name
+              </Label>
+              <Input
                 id="salonName"
                 type="text"
                 autoComplete="organization"
@@ -337,27 +251,18 @@ export default function RegisterPage() {
                 disabled={isLoading}
                 value={form.salonName}
                 onChange={(e) => handleChange('salonName', e.target.value)}
-                placeholder="e.g. Salon Elena"
+                placeholder="e.g. City Dental Clinic"
                 maxLength={100}
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  placeholder:text-gray-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition
-                "
+                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
               />
             </div>
 
             {/* Email */}
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-sm font-medium text-[#1A1A1A]">
                 Email address
-              </label>
-              <input
+              </Label>
+              <Input
                 id="email"
                 type="email"
                 autoComplete="email"
@@ -366,25 +271,16 @@ export default function RegisterPage() {
                 value={form.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 placeholder="you@example.com"
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  placeholder:text-gray-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition
-                "
+                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
               />
             </div>
 
             {/* Password */}
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm font-medium text-[#1A1A1A]">
                 Password
-              </label>
-              <input
+              </Label>
+              <Input
                 id="password"
                 type="password"
                 autoComplete="new-password"
@@ -393,25 +289,16 @@ export default function RegisterPage() {
                 value={form.password}
                 onChange={(e) => handleChange('password', e.target.value)}
                 placeholder="At least 8 characters"
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  placeholder:text-gray-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition
-                "
+                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A]"
               />
             </div>
 
             {/* Confirm password */}
-            <div>
-              <label
-                htmlFor="confirmPassword"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPassword" className="text-sm font-medium text-[#1A1A1A]">
                 Confirm password
-              </label>
-              <input
+              </Label>
+              <Input
                 id="confirmPassword"
                 type="password"
                 autoComplete="new-password"
@@ -420,52 +307,44 @@ export default function RegisterPage() {
                 value={form.confirmPassword}
                 onChange={(e) => handleChange('confirmPassword', e.target.value)}
                 placeholder="••••••••"
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  placeholder:text-gray-400
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition
-                "
+                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A]"
               />
             </div>
 
-            {/* Error banner */}
-            {status === 'error' && (
-              <div
-                role="alert"
-                className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
-              >
-                {errorMessage}
-              </div>
-            )}
+            {/* Error */}
+            <AnimatePresence>
+              {status === 'error' && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  role="alert"
+                  className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700"
+                >
+                  {errorMessage}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {/* Submit button */}
-            <button
+            {/* Submit */}
+            <Button
               type="submit"
               disabled={isLoading}
-              className="
-                w-full rounded-lg bg-black text-white text-sm font-medium
-                px-4 py-2.5
-                hover:bg-gray-800
-                focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition
-              "
+              className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
             >
-              {isLoading ? 'Creating account…' : 'Start free trial'}
-            </button>
+              {isLoading ? 'Creating account…' : 'Create account'}
+            </Button>
 
           </form>
 
-          {/* Legal note */}
-          <p className="mt-4 text-xs text-gray-400 text-center">
+          {/* Legal */}
+          <p className="mt-5 text-xs text-[#C8C8C8] text-center">
             By creating an account you agree to our{' '}
-            <Link href="/privacy" className="underline underline-offset-2 hover:text-gray-600">
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-[#1A1A1A]">
               Privacy Policy
             </Link>{' '}
             and{' '}
-            <Link href="/terms" className="underline underline-offset-2 hover:text-gray-600">
+            <Link href="/terms" className="underline underline-offset-2 hover:text-[#1A1A1A]">
               Terms of Service
             </Link>
             .
@@ -473,17 +352,16 @@ export default function RegisterPage() {
         </div>
 
         {/* Sign-in link */}
-        <p className="mt-6 text-center text-sm text-gray-500">
+        <p className="mt-7 text-center text-sm text-[#C8C8C8]">
           Already have an account?{' '}
           <Link
             href="/login"
-            className="font-medium text-black underline underline-offset-4 hover:text-gray-700"
+            className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
           >
             Sign in
           </Link>
         </p>
-
-      </div>
+      </motion.div>
     </main>
   );
 }

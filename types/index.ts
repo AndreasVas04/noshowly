@@ -14,10 +14,11 @@
 
 // Import plan types from lib/plans (canonical definition) for use in this file,
 // then re-export them so callers that import from @/types get everything they need.
-// PlanType  = 'trial' | 'solo' | 'salon' | 'studio'  (active plans only)
-// UserPlan  = PlanType | 'cancelled'                  (full DB column set)
-import type { PlanType, UserPlan } from '@/lib/plans';
-export type { PlanType, UserPlan };
+// PlanType  = 'trial' | 'solo-sms' | 'team-sms' | ... (9 paid + trial)
+// PaidPlan  = Exclude<PlanType, 'trial'>               (9 paid plans only)
+// UserPlan  = PlanType | 'cancelled'                   (full DB column set)
+import type { PlanType, PaidPlan, UserPlan } from '@/lib/plans';
+export type { PlanType, PaidPlan, UserPlan };
 
 // ---------------------------------------------------------------------------
 // Enum-like string union types
@@ -55,6 +56,7 @@ export type ServiceType = string;
 /**
  * Row in the `services` table — custom service names defined by each salon.
  * Services appear as a dropdown when the salon owner adds an appointment.
+ * Includes optional duration and price fields for display on the public booking page.
  */
 export type Service = {
   id: string;
@@ -62,6 +64,12 @@ export type Service = {
   salon_id: string;
   /** Display name of the service, e.g. "Haircut", "Beard trim". */
   name: string;
+  /** Optional duration hint in minutes, e.g. 30. Null if not set. */
+  duration_minutes: number | null;
+  /** Optional displayed price. Null means no price shown. */
+  price: number | null;
+  /** Whether the service is visible on the booking page and appointment modal. */
+  active: boolean;
   created_at: string;
 };
 
@@ -70,7 +78,7 @@ export type Service = {
 // ---------------------------------------------------------------------------
 
 /**
- * Row in the `users` table — extends auth.users with NoShowly-specific fields.
+ * Row in the `users` table — extends auth.users with Noshowly-specific fields.
  */
 export type User = {
   /** UUID from auth.users — primary key. */
@@ -82,9 +90,11 @@ export type User = {
   plan: UserPlan;
   /** ISO timestamp when the trial expires. */
   trial_ends_at: string;
-  /** Counter reset monthly; used to enforce plan reminder limits. */
+  /** Monthly SMS reminder counter. Enforced against getPlanSMSLimit(plan). */
   reminders_used_this_month: number;
-  /** ISO timestamp for the next monthly reset of reminders_used_this_month. */
+  /** Monthly email reminder counter. Enforced against getPlanEmailLimit(plan). */
+  email_reminders_used_this_month: number;
+  /** ISO timestamp for the next monthly reset of both reminder counters. */
   reminders_reset_at: string;
   created_at: string;
 }
@@ -102,18 +112,54 @@ export type Salon = {
   phone: string | null;
   /** IANA timezone string, e.g. "America/New_York". */
   timezone: string;
-  /** Name shown in SMS: "Hi, reminder from [sms_sender_name]". */
-  sms_sender_name: string | null;
   /** Opening time in HH:MM 24-hour format, e.g. "09:00". Null if not yet set. */
   opening_time: string | null;
   /** Closing time in HH:MM 24-hour format, e.g. "20:00". Null if not yet set. */
   closing_time: string | null;
+  /**
+   * Custom SMS reminder template. Supports {client_name}, {business_name},
+   * {service}, {time}, {date} placeholders. Null → use application default.
+   */
+  sms_template: string | null;
+  /**
+   * Custom email footer text. Supports {business_name} placeholder.
+   * Null → use application default.
+   */
+  email_footer: string | null;
+  /**
+   * Custom email subject line. Supports {business_name} placeholder.
+   * Null → use application default ("Reminder: Your appointment at {business_name} tomorrow").
+   */
+  email_subject: string | null;
+  /**
+   * Custom email greeting line. Supports {client_name}, {business_name}, {service}, {time}, {date}.
+   * Null → use application default ("Hi {client_name},").
+   */
+  email_greeting: string | null;
+  /**
+   * Custom email body paragraph. Supports {client_name}, {business_name}, {service}, {time}, {date}.
+   * Null → use application default ("This is a reminder for your upcoming appointment.").
+   */
+  email_body: string | null;
+  /**
+   * Custom email closing message shown when confirmation buttons are disabled.
+   * Supports {client_name}, {business_name}, {service}, {time}, {date}.
+   * Null → use application default ("We look forward to seeing you.").
+   */
+  email_closing: string | null;
+  /** ISO 4217 currency code used for price display on the booking page, e.g. 'USD', 'EUR'. */
+  currency: string;
+  /** Whether SMS reminders include a YES/NO confirmation request. Default true. */
+  sms_confirmation_enabled: boolean;
+  /** Whether email reminders include YES/NO confirmation buttons. Default true. */
+  email_confirmation_enabled: boolean;
   created_at: string;
 }
 
 /**
  * Row in the `barbers` table.
  * Barbers are display labels (dropdown items) — they do NOT have login accounts.
+ * Includes optional photo and bio fields for display on the public booking page.
  */
 export type Barber = {
   id: string;
@@ -121,6 +167,12 @@ export type Barber = {
   salon_id: string;
   /** First name or display name, e.g. "John". */
   name: string;
+  /** Optional profile photo URL (e.g. a Supabase Storage public URL). Null if not set. */
+  photo_url: string | null;
+  /** Optional short bio shown on the public booking page. Null if not set. */
+  bio: string | null;
+  /** Whether the staff member is visible on the booking page and appointment modal. */
+  active: boolean;
   created_at: string;
 }
 
@@ -184,6 +236,87 @@ export type Reminder = {
   created_at: string;
 }
 
+/** A single time slot: start and end in HH:MM 24-hour format. */
+export type TimeSlot = { start: string; end: string };
+
+/**
+ * Row in the `staff_availability` table.
+ * One row per barber per day of week. day_of_week follows JavaScript's Date.getDay()
+ * convention: 0 = Sunday, 1 = Monday, …, 6 = Saturday.
+ *
+ * time_slots (JSONB, primary) stores an array of { start, end } objects for unlimited breaks.
+ * start_time_1/end_time_1/start_time_2/end_time_2 retained for backwards compatibility.
+ */
+export type StaffAvailability = {
+  id: string;
+  /** FK → barbers.id */
+  barber_id: string;
+  /** 0 = Sunday, 1 = Monday, …, 6 = Saturday. Matches Date.getDay(). */
+  day_of_week: number;
+  /** Whether the staff member works on this day at all. */
+  is_available: boolean;
+  /** Primary: array of time slots, e.g. [{ start: "09:00", end: "13:00" }]. */
+  time_slots: TimeSlot[] | null;
+  /** Legacy: first slot start time, HH:MM. Kept for backwards compatibility. */
+  start_time_1: string | null;
+  /** Legacy: first slot end time, HH:MM. Kept for backwards compatibility. */
+  end_time_1: string | null;
+  /** Legacy: second slot start time. Kept for backwards compatibility. */
+  start_time_2: string | null;
+  /** Legacy: second slot end time. Kept for backwards compatibility. */
+  end_time_2: string | null;
+};
+
+/**
+ * Row in the `staff_services` table — per-staff service definitions.
+ * Used on the public booking page so clients see only the services each staff member offers.
+ * Separate from the global `services` table which is used in the dashboard appointment modal.
+ */
+export type StaffService = {
+  id: string;
+  /** FK → barbers.id */
+  barber_id: string;
+  /** Display name of the service, e.g. "Haircut". */
+  name: string;
+  /** Optional duration in minutes. Null if not set. */
+  duration_minutes: number | null;
+  /** Optional displayed price. Null means no price shown. */
+  price: number | null;
+  /** Whether this service is shown on the booking page. */
+  active: boolean;
+  created_at: string;
+};
+
+/**
+ * Row in the `booking_pages` table — one optional public booking page per salon.
+ * The owner creates and activates this page to allow clients to self-book.
+ * Public URL pattern: /book/[slug]
+ */
+export type BookingPage = {
+  id: string;
+  /** FK → salons.id — one booking page per salon. */
+  salon_id: string;
+  /** URL-friendly slug, e.g. "salon-elena". Must be globally unique. */
+  slug: string;
+  /** Whether the public booking page is live. False by default. */
+  is_active: boolean;
+  /** Optional description shown at the top of the public booking page. */
+  description: string | null;
+  /** Whether clients can select "No preference" for staff on the booking page. */
+  allow_no_preference_staff: boolean;
+  /** Whether clients can select "No preference" for service on the booking page. */
+  allow_no_preference_service: boolean;
+  /** Custom h1 heading shown on the public booking page. Falls back to salon name when null. */
+  custom_title: string | null;
+  /** Optional welcome message shown below the title on the public booking page. */
+  custom_intro: string | null;
+  /** Whether clients must supply a phone number when self-booking. Default true. */
+  require_phone: boolean;
+  /** Whether clients must supply an email address when self-booking. Default true. */
+  require_email: boolean;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Joined / derived shapes used by API responses and frontend components
 // ---------------------------------------------------------------------------
@@ -229,6 +362,8 @@ export type Database = {
           plan?: UserPlan;
           trial_ends_at?: string;
           reminders_used_this_month?: number;
+          /** Defaults to 0 if omitted. */
+          email_reminders_used_this_month?: number;
           reminders_reset_at?: string;
           created_at?: string;
         };
@@ -245,9 +380,20 @@ export type Database = {
           phone?: string | null;
           /** Defaults to 'UTC' if omitted. */
           timezone?: string;
-          sms_sender_name?: string | null;
           opening_time?: string | null;
           closing_time?: string | null;
+          sms_template?: string | null;
+          email_footer?: string | null;
+          email_subject?: string | null;
+          email_greeting?: string | null;
+          email_body?: string | null;
+          email_closing?: string | null;
+          /** ISO 4217 currency code. Defaults to 'USD'. */
+          currency?: string;
+          /** Defaults to true if omitted. */
+          sms_confirmation_enabled?: boolean;
+          /** Defaults to true if omitted. */
+          email_confirmation_enabled?: boolean;
           created_at?: string;
         };
         Update: Partial<Omit<Salon, 'id'>>;
@@ -259,6 +405,10 @@ export type Database = {
           id?: string;
           salon_id: string;
           name: string;
+          photo_url?: string | null;
+          bio?: string | null;
+          /** Defaults to true if omitted. */
+          active?: boolean;
           created_at?: string;
         };
         Update: Partial<Omit<Barber, 'id'>>;
@@ -320,9 +470,64 @@ export type Database = {
           id?: string;
           salon_id: string;
           name: string;
+          duration_minutes?: number | null;
+          price?: number | null;
+          /** Defaults to true if omitted. */
+          active?: boolean;
           created_at?: string;
         };
         Update: Partial<Omit<Service, 'id'>>;
+        Relationships: [];
+      };
+      booking_pages: {
+        Row: BookingPage;
+        Insert: {
+          id?: string;
+          salon_id: string;
+          slug: string;
+          /** Defaults to false if omitted — owner must explicitly activate. */
+          is_active?: boolean;
+          description?: string | null;
+          allow_no_preference_staff?: boolean;
+          allow_no_preference_service?: boolean;
+          custom_title?: string | null;
+          custom_intro?: string | null;
+          require_phone?: boolean;
+          require_email?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Omit<BookingPage, 'id'>>;
+        Relationships: [];
+      };
+      staff_availability: {
+        Row: StaffAvailability;
+        Insert: {
+          id?: string;
+          barber_id: string;
+          /** 0 = Sunday … 6 = Saturday. */
+          day_of_week: number;
+          is_available?: boolean;
+          time_slots?: TimeSlot[] | null;
+          start_time_1?: string | null;
+          end_time_1?: string | null;
+          start_time_2?: string | null;
+          end_time_2?: string | null;
+        };
+        Update: Partial<Omit<StaffAvailability, 'id'>>;
+        Relationships: [];
+      };
+      staff_services: {
+        Row: StaffService;
+        Insert: {
+          id?: string;
+          barber_id: string;
+          name: string;
+          duration_minutes?: number | null;
+          price?: number | null;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Omit<StaffService, 'id'>>;
         Relationships: [];
       };
     };

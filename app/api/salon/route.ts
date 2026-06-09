@@ -2,7 +2,7 @@
  * app/api/salon/route.ts
  *
  * GET /api/salon — fetch the authenticated user's salon details.
- * PUT /api/salon — update salon name, phone, timezone, sms_sender_name,
+ * PUT /api/salon — update salon name, phone, timezone,
  *                  opening_time, and/or closing_time.
  *
  * One salon per user. The salon record is created on registration; this route
@@ -64,12 +64,17 @@ export async function GET(): Promise<Response> {
  *
  * Request body (all fields optional — only supplied fields are updated):
  *  {
- *    name?:            string   — salon display name, 1–100 chars
- *    phone?:           string   — salon contact number, max 20 chars, or null to clear
- *    timezone?:        string   — IANA timezone string, max 60 chars
- *    sms_sender_name?: string   — name shown in SMS messages, max 50 chars, or null to clear
- *    opening_time?:    string   — HH:MM 24-hour format, e.g. "09:00", or null to clear
- *    closing_time?:    string   — HH:MM 24-hour format, e.g. "20:00", or null to clear
+ *    name?:             string  — salon display name, 1–100 chars
+ *    phone?:            string  — salon contact number, max 20 chars, or null to clear
+ *    timezone?:         string  — IANA timezone string, max 60 chars
+ *    opening_time?:     string  — HH:MM 24-hour format, e.g. "09:00", or null to clear
+ *    closing_time?:     string  — HH:MM 24-hour format, e.g. "20:00", or null to clear
+ *    sms_template?:     string  — custom SMS template with {variable} placeholders, max 500 chars, or null to reset to default
+ *    email_footer?:     string  — custom email footer text, max 300 chars, or null to reset to default
+ *    email_subject?:    string  — custom email subject line, max 200 chars, or null to reset to default
+ *    email_greeting?:   string  — custom email greeting line, max 200 chars, or null to reset to default
+ *    email_body?:       string  — custom email body paragraph, max 500 chars, or null to reset to default
+ *    email_closing?:    string  — custom email closing message, max 200 chars, or null to reset to default
  *  }
  *
  * At least one field must be provided.
@@ -105,14 +110,29 @@ export async function PUT(request: Request): Promise<Response> {
 
   const raw = body as Record<string, unknown>;
 
+  // Allowed ISO 4217 currency codes (must stay in sync with the settings UI dropdown).
+  const ALLOWED_CURRENCIES = new Set([
+    'USD','EUR','GBP','AUD','CAD','CHF','JPY','CNY','INR','BRL','MXN',
+    'SGD','HKD','NOK','SEK','DKK','NZD','ZAR','AED','SAR','QAR','KWD',
+    'TRY','PLN','CZK','HUF','RON','BGN','HRK','RSD','CYP',
+  ]);
+
   // Build the update payload — only include fields that were actually supplied.
   const updates: {
     name?: string;
     phone?: string | null;
     timezone?: string;
-    sms_sender_name?: string | null;
     opening_time?: string | null;
     closing_time?: string | null;
+    sms_template?: string | null;
+    email_footer?: string | null;
+    email_subject?: string | null;
+    email_greeting?: string | null;
+    email_body?: string | null;
+    email_closing?: string | null;
+    currency?: string;
+    sms_confirmation_enabled?: boolean;
+    email_confirmation_enabled?: boolean;
   } = {};
 
   // Validate name (if provided)
@@ -170,28 +190,6 @@ export async function PUT(request: Request): Promise<Response> {
     updates.timezone = timezone;
   }
 
-  // Validate sms_sender_name (if provided — null clears the field)
-  if ('sms_sender_name' in raw) {
-    if (raw.sms_sender_name !== null && typeof raw.sms_sender_name !== 'string') {
-      return Response.json(
-        { error: 'sms_sender_name must be a string or null' },
-        { status: 400 }
-      );
-    }
-    if (typeof raw.sms_sender_name === 'string') {
-      const smsName = raw.sms_sender_name.trim();
-      if (smsName.length > 50) {
-        return Response.json(
-          { error: 'SMS sender name must be 50 characters or fewer' },
-          { status: 400 }
-        );
-      }
-      updates.sms_sender_name = smsName || null;
-    } else {
-      updates.sms_sender_name = null;
-    }
-  }
-
   // Validate opening_time (if provided — null clears the field)
   if ('opening_time' in raw) {
     if (raw.opening_time !== null && typeof raw.opening_time !== 'string') {
@@ -222,10 +220,152 @@ export async function PUT(request: Request): Promise<Response> {
     }
   }
 
+  // Validate sms_template (if provided — null resets to application default)
+  if ('sms_template' in raw) {
+    if (raw.sms_template !== null && typeof raw.sms_template !== 'string') {
+      return Response.json({ error: 'sms_template must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.sms_template === 'string') {
+      const tmpl = raw.sms_template.trim();
+      if (tmpl.length > 500) {
+        return Response.json(
+          { error: 'SMS template must be 500 characters or fewer' },
+          { status: 400 }
+        );
+      }
+      updates.sms_template = tmpl || null; // empty string → null (use default)
+    } else {
+      updates.sms_template = null;
+    }
+  }
+
+  // Validate email_footer (if provided — null resets to application default)
+  if ('email_footer' in raw) {
+    if (raw.email_footer !== null && typeof raw.email_footer !== 'string') {
+      return Response.json({ error: 'email_footer must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.email_footer === 'string') {
+      const footer = raw.email_footer.trim();
+      if (footer.length > 300) {
+        return Response.json(
+          { error: 'Email footer must be 300 characters or fewer' },
+          { status: 400 }
+        );
+      }
+      updates.email_footer = footer || null; // empty string → null (use default)
+    } else {
+      updates.email_footer = null;
+    }
+  }
+
+  // Validate email_subject (if provided — null resets to application default)
+  if ('email_subject' in raw) {
+    if (raw.email_subject !== null && typeof raw.email_subject !== 'string') {
+      return Response.json({ error: 'email_subject must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.email_subject === 'string') {
+      const subject = raw.email_subject.trim();
+      if (subject.length > 200) {
+        return Response.json(
+          { error: 'Email subject must be 200 characters or fewer' },
+          { status: 400 }
+        );
+      }
+      updates.email_subject = subject || null;
+    } else {
+      updates.email_subject = null;
+    }
+  }
+
+  // Validate email_greeting (if provided — null resets to application default)
+  if ('email_greeting' in raw) {
+    if (raw.email_greeting !== null && typeof raw.email_greeting !== 'string') {
+      return Response.json({ error: 'email_greeting must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.email_greeting === 'string') {
+      const greeting = raw.email_greeting.trim();
+      if (greeting.length > 200) {
+        return Response.json(
+          { error: 'Email greeting must be 200 characters or fewer' },
+          { status: 400 }
+        );
+      }
+      updates.email_greeting = greeting || null;
+    } else {
+      updates.email_greeting = null;
+    }
+  }
+
+  // Validate email_body (if provided — null resets to application default)
+  if ('email_body' in raw) {
+    if (raw.email_body !== null && typeof raw.email_body !== 'string') {
+      return Response.json({ error: 'email_body must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.email_body === 'string') {
+      const body = raw.email_body.trim();
+      if (body.length > 500) {
+        return Response.json(
+          { error: 'Email body must be 500 characters or fewer' },
+          { status: 400 }
+        );
+      }
+      updates.email_body = body || null;
+    } else {
+      updates.email_body = null;
+    }
+  }
+
+  // Validate email_closing (if provided — null resets to application default)
+  if ('email_closing' in raw) {
+    if (raw.email_closing !== null && typeof raw.email_closing !== 'string') {
+      return Response.json({ error: 'email_closing must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.email_closing === 'string') {
+      const closing = raw.email_closing.trim();
+      if (closing.length > 200) {
+        return Response.json(
+          { error: 'Email closing must be 200 characters or fewer' },
+          { status: 400 }
+        );
+      }
+      updates.email_closing = closing || null;
+    } else {
+      updates.email_closing = null;
+    }
+  }
+
+  // Validate currency (if provided — must be a recognised ISO 4217 code).
+  if ('currency' in raw) {
+    if (typeof raw.currency !== 'string') {
+      return Response.json({ error: 'currency must be a string' }, { status: 400 });
+    }
+    const currency = raw.currency.trim().toUpperCase();
+    if (!ALLOWED_CURRENCIES.has(currency)) {
+      return Response.json({ error: 'Unsupported currency code' }, { status: 400 });
+    }
+    updates.currency = currency;
+  }
+
+  // Validate sms_confirmation_enabled (if provided — must be a boolean).
+  if ('sms_confirmation_enabled' in raw) {
+    if (typeof raw.sms_confirmation_enabled !== 'boolean') {
+      return Response.json({ error: 'sms_confirmation_enabled must be a boolean' }, { status: 400 });
+    }
+    updates.sms_confirmation_enabled = raw.sms_confirmation_enabled;
+  }
+
+  // Validate email_confirmation_enabled (if provided — must be a boolean).
+  if ('email_confirmation_enabled' in raw) {
+    if (typeof raw.email_confirmation_enabled !== 'boolean') {
+      return Response.json({ error: 'email_confirmation_enabled must be a boolean' }, { status: 400 });
+    }
+    updates.email_confirmation_enabled = raw.email_confirmation_enabled;
+  }
+
   // Reject requests that supply no valid fields.
   if (Object.keys(updates).length === 0) {
     return Response.json(
-      { error: 'At least one field (name, phone, timezone, sms_sender_name, opening_time, closing_time) is required' },
+      { error: 'At least one updatable field must be provided' },
       { status: 400 }
     );
   }

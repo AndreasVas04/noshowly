@@ -61,8 +61,8 @@ export default function TermsPage() {
 
         <Section title="What Noshowly is">
           <p>
-            Noshowly is an appointment scheduling and reminder service for hair salons and
-            barbershops. It lets you manage bookings and automatically send SMS and email reminders
+            Noshowly is an appointment scheduling and reminder service for service businesses.
+            It lets you manage bookings and automatically send SMS and email reminders
             to your clients before their appointments.
           </p>
           <p>
@@ -75,15 +75,15 @@ export default function TermsPage() {
           <p>Noshowly offers three paid plans:</p>
           <p>
             <strong className="text-gray-800">Solo</strong> at $29.99 per month, includes 250
-            reminders per month, suitable for one barber.
+            reminders per month, suitable for solo practitioners.
           </p>
           <p>
-            <strong className="text-gray-800">Salon</strong> at $49.99 per month, includes 600
-            reminders per month, suitable for 2 to 4 barbers.
+            <strong className="text-gray-800">Team</strong> at $49.99 per month, includes 600
+            reminders per month, suitable for teams of 2 to 4.
           </p>
           <p>
             <strong className="text-gray-800">Studio</strong> at $89.99 per month, includes 1,200
-            reminders per month, suitable for 5 or more barbers.
+            reminders per month, suitable for 5 or more staff.
           </p>
           <p>
             Annual plans are available with 2 months free. Prices are in USD. We will give you at

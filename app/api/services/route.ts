@@ -74,10 +74,13 @@ export async function GET(): Promise<Response> {
 /**
  * Creates a new service for the authenticated user's salon.
  *
- * Request body: { name: string }
- *
- * Validation rules:
- *  - name is required, 1–50 characters, trimmed.
+ * Request body:
+ *  {
+ *    name:              string           — required, 1–50 chars
+ *    duration_minutes?: number | null   — optional, positive integer in minutes
+ *    price?:            number | null   — optional, non-negative decimal
+ *    active?:           boolean         — optional, defaults to true
+ *  }
  *
  * @returns 201 { service: Service }            — created successfully
  * @returns 400 { error: string }               — validation failure
@@ -97,24 +100,24 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Step 2: Parse and validate the request body.
-  let name: string;
+  let body: unknown;
   try {
-    const body: unknown = await request.json();
-
-    if (
-      typeof body !== 'object' ||
-      body === null ||
-      !('name' in body) ||
-      typeof (body as Record<string, unknown>).name !== 'string'
-    ) {
-      return Response.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    name = ((body as Record<string, string>).name).trim();
+    body = await request.json();
   } catch {
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
+  if (typeof body !== 'object' || body === null) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
+  const raw = body as Record<string, unknown>;
+
+  // Validate name — required
+  if (!('name' in raw) || typeof raw.name !== 'string') {
+    return Response.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+  const name = raw.name.trim();
   if (!name) {
     return Response.json({ error: 'Service name is required' }, { status: 400 });
   }
@@ -123,6 +126,33 @@ export async function POST(request: Request): Promise<Response> {
       { error: 'Service name must be 50 characters or fewer' },
       { status: 400 }
     );
+  }
+
+  // Validate duration_minutes — optional
+  let duration_minutes: number | null = null;
+  if ('duration_minutes' in raw && raw.duration_minutes !== null) {
+    if (typeof raw.duration_minutes !== 'number' || !Number.isInteger(raw.duration_minutes) || raw.duration_minutes <= 0) {
+      return Response.json({ error: 'duration_minutes must be a positive integer' }, { status: 400 });
+    }
+    duration_minutes = raw.duration_minutes;
+  }
+
+  // Validate price — optional
+  let price: number | null = null;
+  if ('price' in raw && raw.price !== null) {
+    if (typeof raw.price !== 'number' || raw.price < 0) {
+      return Response.json({ error: 'price must be a non-negative number' }, { status: 400 });
+    }
+    price = raw.price;
+  }
+
+  // Validate active — optional boolean, defaults to true
+  let active = true;
+  if ('active' in raw) {
+    if (typeof raw.active !== 'boolean') {
+      return Response.json({ error: 'active must be a boolean' }, { status: 400 });
+    }
+    active = raw.active;
   }
 
   // Step 3: Resolve salon for this user.
@@ -139,7 +169,7 @@ export async function POST(request: Request): Promise<Response> {
   // Step 4: Insert the new service.
   const { data: service, error: insertError } = await supabase
     .from('services')
-    .insert({ salon_id: salon.id, name })
+    .insert({ salon_id: salon.id, name, duration_minutes, price, active })
     .select()
     .single();
 

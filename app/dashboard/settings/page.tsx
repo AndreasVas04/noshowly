@@ -3,98 +3,87 @@
  *
  * Dashboard Settings page.
  *
- * Three sections:
- *  1. Salon info — name, phone, timezone, SMS sender name.
- *  2. Business hours — opening and closing time.
- *  3. Team (Barbers) — list existing barbers, add new ones, delete them.
+ * Sections (in order):
+ *  1. Business info — name, phone, timezone, currency. Auto-saves with 800 ms debounce.
+ *  2. Reminder settings — SMS/email confirmation toggles, plan-gated. Auto-saves.
+ *  3. Message templates — SMS template + full email template customisation. Auto-saves.
+ *  4. Business hours — opening and closing time. Auto-saves (skipped on invalid range).
+ *  5. Delete account — typed confirmation.
  *
- * This is a Client Component because it manages local form state and makes
- * fetch() calls to the API routes on change. All data mutations go through
- * API routes — never direct Supabase calls from here (CLAUDE.md rule §11).
+ * Every section saves independently; there are no "Save changes" buttons.
+ * A subtle "Saving…" → "Saved ✓" indicator appears in the top-right of each
+ * section header while the request is in flight / just completed.
  *
- * Data flow:
- *  - On mount: GET /api/salon, GET /api/barbers, GET /api/services populate the form.
- *  - Salon save: PUT /api/salon with the salon info values.
- *  - Hours save: PUT /api/salon with opening_time and closing_time.
- *  - Add barber: POST /api/barbers → prepend to local list.
- *  - Delete barber: DELETE /api/barbers/[id] → remove from local list.
+ * The SMS and email confirmation toggles are plan-gated:
+ *  - SMS: disabled on trial and starter (no SMS on those plans).
+ *  - Email: disabled on trial (email reminders require a paid plan).
  *
- * Security:
- *  - All mutations are authenticated server-side in the API routes.
- *  - This page never constructs or sends salon_id — the server derives it from the session.
+ * Team, Services, and Online Booking are managed in /dashboard/booking.
+ *
+ * Security: all mutations go through API routes — never direct Supabase calls.
+ * Plan data is fetched via the browser Supabase client with RLS (read-only).
  */
 
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
-import type { Salon, Barber, Service } from '@/types';
+import { useState, useEffect, useRef } from 'react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { planAllowsSMS, planAllowsEmail } from '@/lib/plans';
+import type { UserPlan } from '@/lib/plans';
+import type { Salon } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Loading state for the initial data fetch. */
 type LoadState = 'loading' | 'ready' | 'error';
-
-/** Status of an async form submission. */
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 // ---------------------------------------------------------------------------
-// Common UI helpers (inline to avoid creating a separate file for one page)
+// Constants
 // ---------------------------------------------------------------------------
 
-/** Thin label above a form field. */
-function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
-  return (
-    <label htmlFor={htmlFor} className="block text-sm font-medium text-gray-700 mb-1">
-      {children}
-    </label>
-  );
-}
-
-/** Standard text input styled to match the rest of the app. */
-function TextInput({
-  id,
-  value,
-  onChange,
-  placeholder,
-  disabled,
-  maxLength,
-}: {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  maxLength?: number;
-}) {
-  return (
-    <input
-      id={id}
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-      maxLength={maxLength}
-      className="
-        w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-        placeholder:text-gray-400
-        focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-        disabled:bg-gray-50 disabled:text-gray-400
-        transition
-      "
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Common timezones for the dropdown
-// A complete list would be very long; this covers >95% of NoShowly's target markets.
-// ---------------------------------------------------------------------------
+const CURRENCY_OPTIONS = [
+  { code: 'USD', label: '$ USD: US Dollar' },
+  { code: 'EUR', label: '€ EUR: Euro' },
+  { code: 'GBP', label: '£ GBP: British Pound' },
+  { code: 'AUD', label: 'A$ AUD: Australian Dollar' },
+  { code: 'CAD', label: 'C$ CAD: Canadian Dollar' },
+  { code: 'CHF', label: 'Fr CHF: Swiss Franc' },
+  { code: 'JPY', label: '¥ JPY: Japanese Yen' },
+  { code: 'CNY', label: '¥ CNY: Chinese Yuan' },
+  { code: 'INR', label: '₹ INR: Indian Rupee' },
+  { code: 'BRL', label: 'R$ BRL: Brazilian Real' },
+  { code: 'MXN', label: '$ MXN: Mexican Peso' },
+  { code: 'SGD', label: 'S$ SGD: Singapore Dollar' },
+  { code: 'HKD', label: 'HK$ HKD: Hong Kong Dollar' },
+  { code: 'NOK', label: 'kr NOK: Norwegian Krone' },
+  { code: 'SEK', label: 'kr SEK: Swedish Krona' },
+  { code: 'DKK', label: 'kr DKK: Danish Krone' },
+  { code: 'NZD', label: 'NZ$ NZD: New Zealand Dollar' },
+  { code: 'ZAR', label: 'R ZAR: South African Rand' },
+  { code: 'AED', label: 'AED: UAE Dirham' },
+  { code: 'SAR', label: 'SAR: Saudi Riyal' },
+  { code: 'QAR', label: 'QAR: Qatari Riyal' },
+  { code: 'KWD', label: 'KD KWD: Kuwaiti Dinar' },
+  { code: 'TRY', label: '₺ TRY: Turkish Lira' },
+  { code: 'PLN', label: 'zł PLN: Polish Zloty' },
+  { code: 'CZK', label: 'Kč CZK: Czech Koruna' },
+  { code: 'HUF', label: 'Ft HUF: Hungarian Forint' },
+  { code: 'RON', label: 'lei RON: Romanian Leu' },
+  { code: 'BGN', label: 'лв BGN: Bulgarian Lev' },
+  { code: 'ILS', label: '₪ ILS: Israeli Shekel' },
+  { code: 'KRW', label: '₩ KRW: South Korean Won' },
+  { code: 'THB', label: '฿ THB: Thai Baht' },
+  { code: 'MYR', label: 'RM MYR: Malaysian Ringgit' },
+  { code: 'IDR', label: 'Rp IDR: Indonesian Rupiah' },
+  { code: 'PHP', label: '₱ PHP: Philippine Peso' },
+] as const;
 
 const COMMON_TIMEZONES = [
-  // North America
   'America/New_York',
   'America/Chicago',
   'America/Denver',
@@ -106,10 +95,8 @@ const COMMON_TIMEZONES = [
   'America/Vancouver',
   'America/Halifax',
   'America/St_Johns',
-  // UK & Ireland
   'Europe/London',
   'Europe/Dublin',
-  // Western Europe
   'Europe/Paris',
   'Europe/Berlin',
   'Europe/Amsterdam',
@@ -123,7 +110,6 @@ const COMMON_TIMEZONES = [
   'Europe/Oslo',
   'Europe/Copenhagen',
   'Europe/Helsinki',
-  // Eastern Europe
   'Europe/Warsaw',
   'Europe/Prague',
   'Europe/Budapest',
@@ -134,7 +120,6 @@ const COMMON_TIMEZONES = [
   'Europe/Riga',
   'Europe/Tallinn',
   'Europe/Vilnius',
-  // Asia-Pacific
   'Asia/Tokyo',
   'Asia/Singapore',
   'Australia/Sydney',
@@ -144,89 +129,167 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
 ] as const;
 
+/** Default SMS template — matches lib/reminder-templates.ts DEFAULT_SMS_TEMPLATE. */
+const DEFAULT_SMS_TEMPLATE =
+  'Hi {client_name}, reminder from {business_name}: your {service} is tomorrow at {time}. Reply YES to confirm or NO to cancel. See you soon!';
+
+/** Default email footer — matches lib/reminder-templates.ts DEFAULT_EMAIL_FOOTER. */
+const DEFAULT_EMAIL_FOOTER = 'If you have questions, contact {business_name} directly.';
+
+/** Default email template field values (must match getEmailHTML fallbacks). */
+const DEFAULT_EMAIL_SUBJECT  = 'Reminder: Your appointment at {business_name} tomorrow';
+const DEFAULT_EMAIL_GREETING = 'Hi {client_name},';
+const DEFAULT_EMAIL_BODY     = 'This is a reminder for your upcoming appointment.';
+const DEFAULT_EMAIL_CLOSING  = 'We look forward to seeing you.';
+
+/** Template variables supported across SMS and email fields. */
+const TEMPLATE_VARIABLES = [
+  '{client_name}',
+  '{business_name}',
+  '{service}',
+  '{time}',
+  '{date}',
+] as const;
+
+// ---------------------------------------------------------------------------
+// Helper: preview substitution
+// ---------------------------------------------------------------------------
+
+/**
+ * Substitutes {variable} placeholders with sample display values.
+ * Only used for the live settings preview — not the actual send path.
+ *
+ * @param template - String with {variable} placeholders.
+ * @param vars     - Map of variable name → display value.
+ * @returns         Rendered string with known variables replaced.
+ */
+function renderPreview(template: string, vars: Record<string, string>): string {
+  return Object.entries(vars).reduce(
+    (t, [k, v]) => t.split(`{${k}}`).join(v),
+    template
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+/** Label above a form field. */
+function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
+  return (
+    <Label htmlFor={htmlFor} className="text-sm font-medium text-[#1A1A1A]">
+      {children}
+    </Label>
+  );
+}
+
+/**
+ * Subtle save-state indicator shown in the top-right of each section header.
+ * Renders nothing when idle, "Saving…" while in-flight, "Saved ✓" briefly after.
+ */
+function SaveIndicator({ status }: { status: SaveStatus }) {
+  if (status === 'idle')   return null;
+  if (status === 'saving') return <span className="text-xs text-[#C8C8C8]">Saving…</span>;
+  if (status === 'saved')  return <span className="text-xs text-emerald-600 font-medium">Saved ✓</span>;
+  return null; // error shown inline in the section
+}
+
 // ---------------------------------------------------------------------------
 // Settings page
 // ---------------------------------------------------------------------------
 
 /**
- * SettingsPage — main export.
- *
- * Manages two independent sections: salon info and barber list.
- * Each section has its own loading/save state to keep them independent.
+ * SettingsPage renders salon configuration with fully auto-saving sections.
+ * Each section debounces field changes by 800 ms before calling PUT /api/salon.
  *
  * @returns The settings page JSX.
  */
 export default function SettingsPage() {
   // -------------------------------------------------------------------------
-  // Salon form state
+  // Global load state
   // -------------------------------------------------------------------------
   const [loadState, setLoadState] = useState<LoadState>('loading');
-  const [salonName, setSalonName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [timezone, setTimezone] = useState('UTC');
-  const [smsSenderName, setSmsSenderName] = useState('');
-  const [salonSaveStatus, setSalonSaveStatus] = useState<SaveStatus>('idle');
-  const [salonError, setSalonError] = useState('');
 
   // -------------------------------------------------------------------------
-  // Business hours state
+  // Plan — fetched from users table via browser Supabase client (RLS, read-only)
+  // -------------------------------------------------------------------------
+  const [plan, setPlan] = useState<UserPlan>('trial');
+
+  // -------------------------------------------------------------------------
+  // Section 1: Business info
+  // -------------------------------------------------------------------------
+  const [salonName, setSalonName] = useState('');
+  const [phone, setPhone]         = useState('');
+  const [timezone, setTimezone]   = useState('UTC');
+  const [currency, setCurrency]   = useState('USD');
+  const [salonInfoSaveStatus, setSalonInfoSaveStatus] = useState<SaveStatus>('idle');
+  const [salonInfoError, setSalonInfoError]           = useState('');
+  /** Debounce timer for the business info section. */
+  const salonInfoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Section 2: Reminder confirmation toggles (plan-gated)
+  // -------------------------------------------------------------------------
+  const [smsConfirmationEnabled, setSmsConfirmationEnabled]     = useState(true);
+  const [emailConfirmationEnabled, setEmailConfirmationEnabled] = useState(true);
+  const [confirmSaveStatus, setConfirmSaveStatus] = useState<SaveStatus>('idle');
+  const [confirmError, setConfirmError]           = useState('');
+  /** Debounce timer for the reminder settings section. */
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Section 3: Message templates
+  // -------------------------------------------------------------------------
+  const [smsTemplate,    setSmsTemplate]    = useState('');
+  const [emailFooter,    setEmailFooter]    = useState('');
+  const [emailSubject,   setEmailSubject]   = useState('');
+  const [emailGreeting,  setEmailGreeting]  = useState('');
+  const [emailBody,      setEmailBody]      = useState('');
+  const [emailClosing,   setEmailClosing]   = useState('');
+  const [templatesSaveStatus, setTemplatesSaveStatus] = useState<SaveStatus>('idle');
+  const [templatesError, setTemplatesError]           = useState('');
+  /** Debounce timer for the message templates section. */
+  const templatesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Textarea / input refs for cursor-position variable insertion.
+  const smsTextareaRef      = useRef<HTMLTextAreaElement>(null);
+  const emailBodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // -------------------------------------------------------------------------
+  // Section 4: Business hours
   // -------------------------------------------------------------------------
   const [openingTime, setOpeningTime] = useState('09:00');
   const [closingTime, setClosingTime] = useState('20:00');
   const [hoursSaveStatus, setHoursSaveStatus] = useState<SaveStatus>('idle');
-  const [hoursError, setHoursError] = useState('');
+  const [hoursError, setHoursError]           = useState('');
+  /** Debounce timer for the business hours section. */
+  const hoursTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -------------------------------------------------------------------------
-  // Barbers state
+  // Section 5: Account deletion
   // -------------------------------------------------------------------------
-  const [barbers, setBarbers] = useState<Barber[]>([]);
-  const [newBarberName, setNewBarberName] = useState('');
-  const [addingBarber, setAddingBarber] = useState(false);
-  const [addBarberError, setAddBarberError] = useState('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // -------------------------------------------------------------------------
-  // Services state
-  // -------------------------------------------------------------------------
-  const [services, setServices] = useState<Service[]>([]);
-  const [newServiceName, setNewServiceName] = useState('');
-  const [addingService, setAddingService] = useState(false);
-  const [addServiceError, setAddServiceError] = useState('');
-  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
-
-  // -------------------------------------------------------------------------
-  // Account deletion state
-  // -------------------------------------------------------------------------
-  /** Whether the delete confirmation dialog is open. */
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  /** The typed confirmation word — must equal "DELETE" to enable the button. */
+  const [showDeleteDialog, setShowDeleteDialog]   = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  /** True while the deletion API call is in flight. */
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
-  /** Error message from the deletion attempt. */
   const [deleteAccountError, setDeleteAccountError] = useState('');
 
   // -------------------------------------------------------------------------
-  // Initial data load — runs once on mount
+  // Initial data load
   // -------------------------------------------------------------------------
 
   /**
-   * Fetches salon info and barbers in parallel on component mount.
-   * Populates the form fields with the current saved values.
+   * Fetches salon data from the API and the user's plan via the browser
+   * Supabase client (RLS-enforced read, allowed per CLAUDE.md §11).
    */
   useEffect(() => {
     async function loadData() {
       try {
-        const [salonRes, barbersRes, servicesRes] = await Promise.all([
+        // Fetch salon info and plan in parallel.
+        const [salonRes] = await Promise.all([
           fetch('/api/salon'),
-          fetch('/api/barbers'),
-          fetch('/api/services'),
         ]);
 
-        if (!salonRes.ok) {
-          setLoadState('error');
-          return;
-        }
+        if (!salonRes.ok) { setLoadState('error'); return; }
 
         const salonData = (await salonRes.json()) as { salon: Salon };
         const salon = salonData.salon;
@@ -234,18 +297,33 @@ export default function SettingsPage() {
         setSalonName(salon.name ?? '');
         setPhone(salon.phone ?? '');
         setTimezone(salon.timezone ?? 'UTC');
-        setSmsSenderName(salon.sms_sender_name ?? '');
+        setCurrency(salon.currency ?? 'USD');
+        setSmsConfirmationEnabled(salon.sms_confirmation_enabled ?? true);
+        setEmailConfirmationEnabled(salon.email_confirmation_enabled ?? true);
+        setSmsTemplate(salon.sms_template ?? '');
+        setEmailFooter(salon.email_footer ?? '');
+        setEmailSubject(salon.email_subject ?? '');
+        setEmailGreeting(salon.email_greeting ?? '');
+        setEmailBody(salon.email_body ?? '');
+        setEmailClosing(salon.email_closing ?? '');
         setOpeningTime(salon.opening_time ?? '09:00');
         setClosingTime(salon.closing_time ?? '20:00');
 
-        if (barbersRes.ok) {
-          const barbersData = (await barbersRes.json()) as { barbers: Barber[] };
-          setBarbers(barbersData.barbers ?? []);
-        }
-
-        if (servicesRes.ok) {
-          const servicesData = (await servicesRes.json()) as { services: Service[] };
-          setServices(servicesData.services ?? []);
+        // Fetch the user's plan from users table via browser Supabase client.
+        // RLS ensures only the authenticated user's own row is accessible.
+        try {
+          const supabase = createBrowserSupabaseClient();
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (authUser) {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('plan')
+              .eq('id', authUser.id)
+              .single();
+            if (userData?.plan) setPlan(userData.plan as UserPlan);
+          }
+        } catch {
+          // Plan fetch failed — keep default 'trial' (most restrictive; safe fallback).
         }
 
         setLoadState('ready');
@@ -258,31 +336,36 @@ export default function SettingsPage() {
   }, []);
 
   // -------------------------------------------------------------------------
-  // Salon save handler
+  // Section 1 auto-save: business info
   // -------------------------------------------------------------------------
 
   /**
-   * Submits the salon info form via PUT /api/salon.
-   * Shows a brief "Saved!" confirmation before resetting to idle.
+   * Executes the PUT /api/salon request for the business info section.
+   * Captures field values from the closure at schedule time (no stale-closure
+   * risk because `scheduleSalonInfoSave` is recreated on every render).
    *
-   * @param e - Form submit event.
+   * @param name     - Current business name value.
+   * @param ph       - Current phone value.
+   * @param tz       - Current timezone value.
+   * @param cur      - Current currency value.
    */
-  async function handleSalonSave(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSalonError('');
-
-    // Client-side validation before hitting the API
-    const trimmedName = salonName.trim();
+  async function doSalonInfoSave(
+    name: string, ph: string, tz: string, cur: string
+  ): Promise<void> {
+    const trimmedName = name.trim();
     if (!trimmedName) {
-      setSalonError('Salon name is required.');
+      setSalonInfoError('Business name is required.');
+      setSalonInfoSaveStatus('error');
       return;
     }
     if (trimmedName.length > 100) {
-      setSalonError('Salon name must be 100 characters or fewer.');
+      setSalonInfoError('Business name must be 100 characters or fewer.');
+      setSalonInfoSaveStatus('error');
       return;
     }
 
-    setSalonSaveStatus('saving');
+    setSalonInfoError('');
+    setSalonInfoSaveStatus('saving');
 
     try {
       const res = await fetch('/api/salon', {
@@ -290,57 +373,192 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: trimmedName,
-          phone: phone.trim() || null,
-          timezone,
-          sms_sender_name: smsSenderName.trim() || null,
+          phone: ph.trim() || null,
+          timezone: tz,
+          currency: cur,
         }),
       });
 
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
-        setSalonError(data.error ?? 'Failed to save. Please try again.');
-        setSalonSaveStatus('error');
+        setSalonInfoError(data.error ?? 'Failed to save. Please try again.');
+        setSalonInfoSaveStatus('error');
         return;
       }
 
-      // Update local form state with the saved values from the server response
-      const { salon } = (await res.json()) as { salon: Salon };
-      setSalonName(salon.name ?? '');
-      setPhone(salon.phone ?? '');
-      setTimezone(salon.timezone ?? 'UTC');
-      setSmsSenderName(salon.sms_sender_name ?? '');
-      setOpeningTime(salon.opening_time ?? '09:00');
-      setClosingTime(salon.closing_time ?? '20:00');
-
-      setSalonSaveStatus('saved');
-      // Reset the "Saved!" indicator after 2 seconds
-      setTimeout(() => setSalonSaveStatus('idle'), 2000);
+      setSalonInfoSaveStatus('saved');
+      setTimeout(() => setSalonInfoSaveStatus('idle'), 2000);
     } catch {
-      setSalonError('Something went wrong. Please check your connection and try again.');
-      setSalonSaveStatus('error');
+      setSalonInfoError('Something went wrong. Please check your connection.');
+      setSalonInfoSaveStatus('error');
     }
   }
 
+  /**
+   * Schedules a debounced save for the business info section.
+   * Clears any pending timer before scheduling a new one.
+   *
+   * @param name - Latest business name value.
+   * @param ph   - Latest phone value.
+   * @param tz   - Latest timezone value.
+   * @param cur  - Latest currency value.
+   */
+  function scheduleSalonInfoSave(
+    name: string, ph: string, tz: string, cur: string
+  ): void {
+    if (salonInfoTimerRef.current !== null) clearTimeout(salonInfoTimerRef.current);
+    setSalonInfoSaveStatus('idle');
+    salonInfoTimerRef.current = setTimeout(() => {
+      void doSalonInfoSave(name, ph, tz, cur);
+    }, 800);
+  }
+
   // -------------------------------------------------------------------------
-  // Business hours save handler
+  // Section 2 auto-save: reminder confirmation toggles
   // -------------------------------------------------------------------------
 
   /**
-   * Submits the business hours form via PUT /api/salon.
-   * Validates that closing time is after opening time before saving.
+   * Executes the PUT /api/salon request for the confirmation toggle section.
    *
-   * @param e - Form submit event.
+   * @param smsEnabled   - Current SMS confirmation toggle value.
+   * @param emailEnabled - Current email confirmation toggle value.
    */
-  async function handleHoursSave(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setHoursError('');
+  async function doConfirmationSave(
+    smsEnabled: boolean, emailEnabled: boolean
+  ): Promise<void> {
+    setConfirmError('');
+    setConfirmSaveStatus('saving');
 
-    // Client-side validation: closing time must be after opening time.
-    if (openingTime && closingTime && openingTime >= closingTime) {
+    try {
+      const res = await fetch('/api/salon', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sms_confirmation_enabled: smsEnabled,
+          email_confirmation_enabled: emailEnabled,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setConfirmError(data.error ?? 'Failed to save. Please try again.');
+        setConfirmSaveStatus('error');
+        return;
+      }
+
+      setConfirmSaveStatus('saved');
+      setTimeout(() => setConfirmSaveStatus('idle'), 2000);
+    } catch {
+      setConfirmError('Something went wrong. Please check your connection.');
+      setConfirmSaveStatus('error');
+    }
+  }
+
+  /**
+   * Schedules a debounced save for the confirmation toggles section.
+   *
+   * @param smsEnabled   - Latest SMS confirmation toggle value.
+   * @param emailEnabled - Latest email confirmation toggle value.
+   */
+  function scheduleConfirmationSave(smsEnabled: boolean, emailEnabled: boolean): void {
+    if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
+    setConfirmSaveStatus('idle');
+    confirmTimerRef.current = setTimeout(() => {
+      void doConfirmationSave(smsEnabled, emailEnabled);
+    }, 800);
+  }
+
+  // -------------------------------------------------------------------------
+  // Section 3 auto-save: message templates
+  // -------------------------------------------------------------------------
+
+  /**
+   * Executes the PUT /api/salon request for all message template fields.
+   *
+   * @param smsTmpl    - Current SMS template value.
+   * @param footer     - Current email footer value.
+   * @param subject    - Current email subject value.
+   * @param greeting   - Current email greeting value.
+   * @param body       - Current email body value.
+   * @param closing    - Current email closing value.
+   */
+  async function doTemplatesSave(
+    smsTmpl: string,
+    footer: string,
+    subject: string,
+    greeting: string,
+    body: string,
+    closing: string,
+  ): Promise<void> {
+    setTemplatesError('');
+    setTemplatesSaveStatus('saving');
+
+    try {
+      const res = await fetch('/api/salon', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sms_template:    smsTmpl.trim()   || null,
+          email_footer:    footer.trim()    || null,
+          email_subject:   subject.trim()   || null,
+          email_greeting:  greeting.trim()  || null,
+          email_body:      body.trim()      || null,
+          email_closing:   closing.trim()   || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setTemplatesError(data.error ?? 'Failed to save. Please try again.');
+        setTemplatesSaveStatus('error');
+        return;
+      }
+
+      setTemplatesSaveStatus('saved');
+      setTimeout(() => setTemplatesSaveStatus('idle'), 2000);
+    } catch {
+      setTemplatesError('Something went wrong. Please check your connection.');
+      setTemplatesSaveStatus('error');
+    }
+  }
+
+  /**
+   * Schedules a debounced save for the message templates section.
+   */
+  function scheduleTemplatesSave(
+    smsTmpl: string,
+    footer: string,
+    subject: string,
+    greeting: string,
+    body: string,
+    closing: string,
+  ): void {
+    if (templatesTimerRef.current !== null) clearTimeout(templatesTimerRef.current);
+    setTemplatesSaveStatus('idle');
+    templatesTimerRef.current = setTimeout(() => {
+      void doTemplatesSave(smsTmpl, footer, subject, greeting, body, closing);
+    }, 800);
+  }
+
+  // -------------------------------------------------------------------------
+  // Section 4 auto-save: business hours
+  // -------------------------------------------------------------------------
+
+  /**
+   * Executes the PUT /api/salon request for business hours.
+   * Silently skips the save when the time range is invalid.
+   *
+   * @param open  - Current opening time value (HH:MM or empty).
+   * @param close - Current closing time value (HH:MM or empty).
+   */
+  async function doHoursSave(open: string, close: string): Promise<void> {
+    // Validate before saving — skip silently if the range is invalid.
+    if (open && close && open >= close) {
       setHoursError('Closing time must be after opening time.');
       return;
     }
 
+    setHoursError('');
     setHoursSaveStatus('saving');
 
     try {
@@ -348,8 +566,8 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          opening_time: openingTime || null,
-          closing_time: closingTime || null,
+          opening_time: open || null,
+          closing_time: close || null,
         }),
       });
 
@@ -360,202 +578,37 @@ export default function SettingsPage() {
         return;
       }
 
-      const { salon } = (await res.json()) as { salon: Salon };
-      setOpeningTime(salon.opening_time ?? '09:00');
-      setClosingTime(salon.closing_time ?? '20:00');
-
       setHoursSaveStatus('saved');
       setTimeout(() => setHoursSaveStatus('idle'), 2000);
     } catch {
-      setHoursError('Something went wrong. Please check your connection and try again.');
+      setHoursError('Something went wrong. Please check your connection.');
       setHoursSaveStatus('error');
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Add barber handler
-  // -------------------------------------------------------------------------
-
   /**
-   * Adds a new barber via POST /api/barbers.
-   * Prepends the new barber to the local list on success.
+   * Schedules a debounced save for the business hours section.
    *
-   * @param e - Form submit event.
+   * @param open  - Latest opening time value.
+   * @param close - Latest closing time value.
    */
-  async function handleAddBarber(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setAddBarberError('');
-
-    const trimmedName = newBarberName.trim();
-    if (!trimmedName) {
-      setAddBarberError('Name is required.');
-      return;
-    }
-    if (trimmedName.length > 50) {
-      setAddBarberError('Name must be 50 characters or fewer.');
-      return;
-    }
-
-    setAddingBarber(true);
-
-    try {
-      const res = await fetch('/api/barbers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        setAddBarberError(data.error ?? 'Failed to add staff. Please try again.');
-        return;
-      }
-
-      const { barber } = (await res.json()) as { barber: Barber };
-      // Append then re-sort alphabetically to match server order
-      setBarbers((prev) =>
-        [...prev, barber].sort((a, b) => a.name.localeCompare(b.name))
-      );
-      setNewBarberName(''); // Clear input on success
-    } catch {
-      setAddBarberError('Something went wrong. Please try again.');
-    } finally {
-      setAddingBarber(false);
-    }
+  function scheduleHoursSave(open: string, close: string): void {
+    if (hoursTimerRef.current !== null) clearTimeout(hoursTimerRef.current);
+    setHoursSaveStatus('idle');
+    setHoursError('');
+    hoursTimerRef.current = setTimeout(() => {
+      void doHoursSave(open, close);
+    }, 800);
   }
 
   // -------------------------------------------------------------------------
-  // Delete barber handler
+  // Account deletion
   // -------------------------------------------------------------------------
 
   /**
-   * Deletes a barber via DELETE /api/barbers/[id].
-   * Removes the barber from the local list optimistically on success.
-   *
-   * @param barberId - The UUID of the barber to delete.
-   * @param barberName - Used in the confirmation prompt.
-   */
-  async function handleDeleteBarber(barberId: string, barberName: string) {
-    // Confirm before deleting — destructive action
-    if (!window.confirm(`Remove "${barberName}" from your team? This cannot be undone.`)) {
-      return;
-    }
-
-    setDeletingId(barberId);
-
-    try {
-      const res = await fetch(`/api/barbers/${barberId}`, { method: 'DELETE' });
-
-      if (!res.ok) {
-        // If delete failed, leave the list unchanged — don't optimistically remove
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to remove staff. Please try again.');
-        return;
-      }
-
-      // Remove from local list
-      setBarbers((prev) => prev.filter((b) => b.id !== barberId));
-    } catch {
-      alert('Something went wrong. Please check your connection and try again.');
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Add service handler
-  // -------------------------------------------------------------------------
-
-  /**
-   * Adds a new service via POST /api/services.
-   * Appends the new service to the local list on success.
-   *
-   * @param e - Form submit event.
-   */
-  async function handleAddService(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setAddServiceError('');
-
-    const trimmedName = newServiceName.trim();
-    if (!trimmedName) {
-      setAddServiceError('Name is required.');
-      return;
-    }
-    if (trimmedName.length > 50) {
-      setAddServiceError('Name must be 50 characters or fewer.');
-      return;
-    }
-
-    setAddingService(true);
-
-    try {
-      const res = await fetch('/api/services', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        setAddServiceError(data.error ?? 'Failed to add service. Please try again.');
-        return;
-      }
-
-      const { service } = (await res.json()) as { service: Service };
-      setServices((prev) =>
-        [...prev, service].sort((a, b) => a.name.localeCompare(b.name))
-      );
-      setNewServiceName('');
-    } catch {
-      setAddServiceError('Something went wrong. Please try again.');
-    } finally {
-      setAddingService(false);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Delete service handler
-  // -------------------------------------------------------------------------
-
-  /**
-   * Deletes a service via DELETE /api/services/[id].
-   * Removes the service from the local list on success.
-   *
-   * @param serviceId   - The UUID of the service to delete.
-   * @param serviceName - Used in the confirmation prompt.
-   */
-  async function handleDeleteService(serviceId: string, serviceName: string) {
-    if (!window.confirm(`Remove "${serviceName}"? This cannot be undone.`)) {
-      return;
-    }
-
-    setDeletingServiceId(serviceId);
-
-    try {
-      const res = await fetch(`/api/services/${serviceId}`, { method: 'DELETE' });
-
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to remove service. Please try again.');
-        return;
-      }
-
-      setServices((prev) => prev.filter((s) => s.id !== serviceId));
-    } catch {
-      alert('Something went wrong. Please check your connection and try again.');
-    } finally {
-      setDeletingServiceId(null);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Account deletion handler
-  // -------------------------------------------------------------------------
-
-  /**
-   * Calls DELETE /api/account to permanently remove the account and all data.
-   * Only runs when the user has typed "DELETE" exactly to confirm.
-   * Redirects to /register after successful deletion.
+   * Permanently deletes the account via DELETE /api/account.
+   * Only runs when the user has typed "DELETE" exactly.
+   * Redirects to /register after success.
    */
   async function handleDeleteAccount(): Promise<void> {
     if (deleteConfirmText !== 'DELETE') return;
@@ -572,31 +625,62 @@ export default function SettingsPage() {
         return;
       }
 
-      // Redirect to registration page — session is now invalid.
       window.location.href = '/register';
     } catch {
-      setDeleteAccountError('Something went wrong. Please check your connection and try again.');
+      setDeleteAccountError('Something went wrong. Please check your connection.');
     } finally {
       setIsDeletingAccount(false);
     }
   }
 
   // -------------------------------------------------------------------------
-  // Render — loading / error states
+  // Variable insertion helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Inserts a template variable at the current cursor position in a textarea or
+   * input element. Falls back to appending if the element has no selection.
+   * Uses requestAnimationFrame to restore cursor position after React re-renders.
+   *
+   * @param elRef    - Ref to the target textarea or input.
+   * @param variable - The variable string to insert, e.g. "{client_name}".
+   * @param current  - Current field value (used as fallback for insertion position).
+   * @param setter   - State setter for the field.
+   */
+  function insertAtCursor(
+    elRef: { current: HTMLTextAreaElement | HTMLInputElement | null },
+    variable: string,
+    current: string,
+    setter: (fn: (prev: string) => string) => void,
+  ): void {
+    const el    = elRef.current;
+    const pos   = el?.selectionStart ?? current.length;
+    const end   = el?.selectionEnd   ?? pos;
+    setter((prev) => prev.slice(0, pos) + variable + prev.slice(end));
+    requestAnimationFrame(() => {
+      if (el) {
+        el.focus();
+        el.setSelectionRange(pos + variable.length, pos + variable.length);
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Loading / error states
   // -------------------------------------------------------------------------
 
   if (loadState === 'loading') {
     return (
-      <div className="p-6 lg:p-10 flex items-center justify-center min-h-64">
-        <p className="text-sm text-gray-400">Loading settings…</p>
+      <div className="p-8 lg:p-12 flex items-center justify-center min-h-64">
+        <p className="text-sm text-[#C8C8C8]">Loading settings…</p>
       </div>
     );
   }
 
   if (loadState === 'error') {
     return (
-      <div className="p-6 lg:p-10">
-        <div className="max-w-2xl bg-red-50 border border-red-200 rounded-2xl p-6">
+      <div className="p-8 lg:p-12">
+        <div className="max-w-2xl bg-red-50 border border-red-100 rounded-2xl p-6">
           <p className="text-sm text-red-700 font-medium">Failed to load settings.</p>
           <p className="text-sm text-red-600 mt-1">
             Please refresh the page. If the problem persists, contact support.
@@ -607,481 +691,617 @@ export default function SettingsPage() {
   }
 
   // -------------------------------------------------------------------------
-  // Render — main settings UI
+  // Derived values for the live preview (recomputed on every render)
   // -------------------------------------------------------------------------
 
-  const isSalonSaving = salonSaveStatus === 'saving';
+  /** Sample values used in the reminder preview. */
+  const PREVIEW_VARS = {
+    client_name:   'John',
+    business_name: salonName.trim() || 'Your Business',
+    service:       'Haircut',
+    time:          '10:30 AM',
+    date:          'Tomorrow',
+  };
+
+  const previewBusiness = PREVIEW_VARS.business_name;
+
+  // SMS preview
+  const activeTemplate = smsTemplate.trim() || DEFAULT_SMS_TEMPLATE;
+  const previewSMSText = renderPreview(activeTemplate, PREVIEW_VARS);
+
+  // Email preview (live — updates as the owner types)
+  const activeEmailSubject  = emailSubject.trim()  || DEFAULT_EMAIL_SUBJECT;
+  const activeEmailGreeting = emailGreeting.trim() || DEFAULT_EMAIL_GREETING;
+  const activeEmailBody     = emailBody.trim()     || DEFAULT_EMAIL_BODY;
+  const activeEmailFooter   = emailFooter.trim()   || DEFAULT_EMAIL_FOOTER;
+  const activeEmailClosing  = emailClosing.trim()  || DEFAULT_EMAIL_CLOSING;
+
+  const previewEmailSubjectText  = renderPreview(activeEmailSubject,  PREVIEW_VARS);
+  const previewEmailGreetingText = renderPreview(activeEmailGreeting, PREVIEW_VARS);
+  const previewEmailBodyText     = renderPreview(activeEmailBody,     PREVIEW_VARS);
+  const previewEmailFooterText   = renderPreview(activeEmailFooter,   { business_name: previewBusiness });
+  const previewEmailClosingText  = renderPreview(activeEmailClosing,  PREVIEW_VARS);
+
+  // Plan-gated feature availability.
+  const smsAllowed   = planAllowsSMS(plan);
+  const emailAllowed = planAllowsEmail(plan);
+
+  // -------------------------------------------------------------------------
+  // Main render
+  // -------------------------------------------------------------------------
 
   return (
-    <div className="p-6 lg:p-10">
-      <div className="max-w-2xl space-y-10">
+    <div className="p-8 lg:p-12">
+      <div className="max-w-2xl space-y-12">
 
         {/* Page heading */}
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage your salon info, hours, and team.</p>
+          <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">Settings</h1>
+          <p className="text-sm text-[#C8C8C8] mt-1.5">
+            Manage your business info, reminder templates and hours.
+          </p>
         </div>
 
-        {/* ==================================================================
-            SECTION 1: Salon Info
-        ================================================================== */}
+        {/* ================================================================
+            SECTION 1: Business info
+            Auto-saves 800 ms after any field change.
+        ================================================================ */}
         <section>
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Salon info</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Business info</h2>
+            <SaveIndicator status={salonInfoSaveStatus} />
+          </div>
 
-          <form onSubmit={handleSalonSave} noValidate className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5">
 
-            {/* Salon name */}
-            <div>
-              <FieldLabel htmlFor="salon-name">Salon name</FieldLabel>
-              <TextInput
+            {/* Business name */}
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor="salon-name">Business name</FieldLabel>
+              <Input
                 id="salon-name"
+                type="text"
                 value={salonName}
-                onChange={setSalonName}
-                placeholder="e.g. Salon Elena"
-                disabled={isSalonSaving}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSalonName(v);
+                  scheduleSalonInfoSave(v, phone, timezone, currency);
+                }}
+                placeholder="e.g. City Dental Clinic"
                 maxLength={100}
+                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
               />
-              <p className="mt-1 text-xs text-gray-400">
-                This is the name your clients see in reminder messages.
-              </p>
+              <p className="text-xs text-[#C8C8C8]">This is the name your clients see in reminder messages.</p>
             </div>
 
             {/* Phone */}
-            <div>
-              <FieldLabel htmlFor="salon-phone">Salon phone (optional)</FieldLabel>
-              <TextInput
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor="salon-phone">Business phone (optional)</FieldLabel>
+              <Input
                 id="salon-phone"
+                type="text"
                 value={phone}
-                onChange={setPhone}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPhone(v);
+                  scheduleSalonInfoSave(salonName, v, timezone, currency);
+                }}
                 placeholder="e.g. +1 555 000 0000"
-                disabled={isSalonSaving}
                 maxLength={20}
+                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
               />
-              <p className="mt-1 text-xs text-gray-400">
-                Your salon&apos;s contact number — not used for sending reminders.
-              </p>
+              <p className="text-xs text-[#C8C8C8]">Your business contact number. Not used for sending reminders.</p>
             </div>
 
             {/* Timezone */}
-            <div>
+            <div className="space-y-1.5">
               <FieldLabel htmlFor="salon-timezone">Timezone</FieldLabel>
               <select
                 id="salon-timezone"
                 value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                disabled={isSalonSaving}
-                className="
-                  w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                  focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                  disabled:bg-gray-50 disabled:text-gray-400
-                  transition bg-white
-                "
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTimezone(v);
+                  scheduleSalonInfoSave(salonName, phone, v, currency);
+                }}
+                className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1A1A1A] transition-colors"
               >
                 {COMMON_TIMEZONES.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz.replace(/_/g, ' ')}
-                  </option>
+                  <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-gray-400">
-                All appointment times are shown in this timezone.
-              </p>
+              <p className="text-xs text-[#C8C8C8]">All appointment times are shown in this timezone.</p>
             </div>
 
-            {/* SMS sender name */}
-            <div>
-              <FieldLabel htmlFor="sms-sender-name">SMS sender name (optional)</FieldLabel>
-              <TextInput
-                id="sms-sender-name"
-                value={smsSenderName}
-                onChange={setSmsSenderName}
-                placeholder="e.g. Salon Elena"
-                disabled={isSalonSaving}
-                maxLength={50}
-              />
-              <p className="mt-1 text-xs text-gray-400">
-                Shown in SMS messages: &quot;Hi, reminder from [name]…&quot;
-                Defaults to your salon name if left blank.
-              </p>
-            </div>
-
-            {/* Error */}
-            {salonError && (
-              <div
-                role="alert"
-                className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
+            {/* Currency */}
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor="salon-currency">Price currency</FieldLabel>
+              <select
+                id="salon-currency"
+                value={currency}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCurrency(v);
+                  scheduleSalonInfoSave(salonName, phone, timezone, v);
+                }}
+                className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1A1A1A] transition-colors"
               >
-                {salonError}
-              </div>
-            )}
-
-            {/* Save button */}
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                type="submit"
-                disabled={isSalonSaving}
-                className="
-                  rounded-lg bg-black text-white text-sm font-medium
-                  px-5 py-2.5
-                  hover:bg-gray-800
-                  focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  transition
-                "
-              >
-                {isSalonSaving ? 'Saving…' : 'Save changes'}
-              </button>
-
-              {/* Inline "Saved!" confirmation — appears briefly after a successful save */}
-              {salonSaveStatus === 'saved' && (
-                <span className="text-sm text-green-600 font-medium">Saved!</span>
-              )}
+                {CURRENCY_OPTIONS.map((opt) => (
+                  <option key={opt.code} value={opt.code}>{opt.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-[#C8C8C8]">Used for displaying service prices on your booking page.</p>
             </div>
 
-          </form>
+          </div>
+
+          {salonInfoError && (
+            <div role="alert" className="mt-3 rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+              {salonInfoError}
+            </div>
+          )}
         </section>
 
-        {/* ==================================================================
+        {/* ================================================================
             SECTION 2: Business hours
-        ================================================================== */}
+            Auto-saves 800 ms after any field change (skipped on invalid range).
+        ================================================================ */}
         <section>
-          <h2 className="text-base font-semibold text-gray-900 mb-1">Business hours</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Used as the suggested time range when booking appointments.
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Business hours</h2>
+            <SaveIndicator status={hoursSaveStatus} />
+          </div>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Used as the default time range for the booking page and appointment modal.
           </p>
 
-          <form onSubmit={handleHoursSave} noValidate className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5">
 
             <div className="grid grid-cols-2 gap-5">
-              {/* Opening time */}
-              <div>
+              <div className="space-y-1.5">
                 <FieldLabel htmlFor="opening-time">Opening time</FieldLabel>
                 <input
                   id="opening-time"
                   type="time"
                   value={openingTime}
                   onChange={(e) => {
-                    setOpeningTime(e.target.value);
-                    if (hoursError) setHoursError('');
+                    const v = e.target.value;
+                    setOpeningTime(v);
+                    scheduleHoursSave(v, closingTime);
                   }}
-                  disabled={hoursSaveStatus === 'saving'}
-                  className="
-                    w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                    focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                    disabled:bg-gray-50 disabled:text-gray-400
-                    transition
-                  "
+                  className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
                 />
               </div>
-
-              {/* Closing time */}
-              <div>
+              <div className="space-y-1.5">
                 <FieldLabel htmlFor="closing-time">Closing time</FieldLabel>
                 <input
                   id="closing-time"
                   type="time"
                   value={closingTime}
                   onChange={(e) => {
-                    setClosingTime(e.target.value);
-                    if (hoursError) setHoursError('');
+                    const v = e.target.value;
+                    setClosingTime(v);
+                    scheduleHoursSave(openingTime, v);
                   }}
-                  disabled={hoursSaveStatus === 'saving'}
-                  className="
-                    w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                    focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                    disabled:bg-gray-50 disabled:text-gray-400
-                    transition
-                  "
+                  className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
                 />
               </div>
             </div>
 
-            {/* Error */}
             {hoursError && (
-              <div
-                role="alert"
-                className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
-              >
+              <div role="alert" className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
                 {hoursError}
               </div>
             )}
 
-            {/* Save button */}
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                type="submit"
-                disabled={hoursSaveStatus === 'saving'}
-                className="
-                  rounded-lg bg-black text-white text-sm font-medium
-                  px-5 py-2.5
-                  hover:bg-gray-800
-                  focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  transition
-                "
-              >
-                {hoursSaveStatus === 'saving' ? 'Saving…' : 'Save changes'}
-              </button>
+          </div>
+        </section>
 
-              {hoursSaveStatus === 'saved' && (
-                <span className="text-sm text-green-600 font-medium">Saved!</span>
-              )}
+        {/* ================================================================
+            SECTION 3: Reminder settings
+            Plan-gated: SMS disabled on trial/starter; email disabled on trial.
+            Auto-saves 800 ms after any toggle change.
+        ================================================================ */}
+        <section>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Reminder settings</h2>
+            <SaveIndicator status={confirmSaveStatus} />
+          </div>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Control whether clients are asked to confirm or cancel their appointment.
+          </p>
+
+          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5">
+
+            {/* SMS confirmation toggle */}
+            <div className="flex items-start gap-4">
+              <label
+                className={`relative inline-flex items-center mt-0.5 shrink-0 ${
+                  smsAllowed ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={smsConfirmationEnabled}
+                  onChange={(e) => {
+                    if (!smsAllowed) return;
+                    const v = e.target.checked;
+                    setSmsConfirmationEnabled(v);
+                    scheduleConfirmationSave(v, emailConfirmationEnabled);
+                  }}
+                  disabled={!smsAllowed || confirmSaveStatus === 'saving'}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1A1A1A] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
+              </label>
+              <div>
+                <p className="text-sm font-medium text-[#1A1A1A]">Request SMS confirmation (YES/NO)</p>
+                {smsAllowed ? (
+                  <p className="text-xs text-[#C8C8C8] mt-0.5">
+                    When off, SMS reminders are sent without asking for a reply.
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    SMS reminders are not included in your current plan. Upgrade to Professional or Business to enable SMS.
+                  </p>
+                )}
+              </div>
             </div>
 
-          </form>
+            {/* Email confirmation toggle */}
+            <div className="flex items-start gap-4">
+              <label
+                className={`relative inline-flex items-center mt-0.5 shrink-0 ${
+                  emailAllowed ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={emailConfirmationEnabled}
+                  onChange={(e) => {
+                    if (!emailAllowed) return;
+                    const v = e.target.checked;
+                    setEmailConfirmationEnabled(v);
+                    scheduleConfirmationSave(smsConfirmationEnabled, v);
+                  }}
+                  disabled={!emailAllowed || confirmSaveStatus === 'saving'}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1A1A1A] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
+              </label>
+              <div>
+                <p className="text-sm font-medium text-[#1A1A1A]">Request email confirmation (YES/NO)</p>
+                {emailAllowed ? (
+                  <p className="text-xs text-[#C8C8C8] mt-0.5">
+                    When off, email reminders are sent without YES/NO buttons.
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Upgrade to any paid plan to enable email reminders.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {confirmError && (
+              <div role="alert" className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+                {confirmError}
+              </div>
+            )}
+
+          </div>
         </section>
 
-        {/* ==================================================================
-            SECTION 3: Team (Barbers)
-        ================================================================== */}
+        {/* ================================================================
+            SECTION 3: Message templates
+            Includes live reminder preview and full SMS + email customisation.
+            Auto-saves 800 ms after any field change.
+        ================================================================ */}
         <section>
-          <h2 className="text-base font-semibold text-gray-900 mb-1">Team</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Staff appear as a dropdown when you add an appointment.
-            They do not have login access.
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Message templates</h2>
+            <SaveIndicator status={templatesSaveStatus} />
+          </div>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Customise the reminder text sent to your clients. Leave blank to use the default.
           </p>
 
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          {/* ---- Live reminder preview ---- */}
+          <div className="mb-6">
+            <p className="text-sm text-[#C8C8C8] mb-3">
+              Preview (updates as you type)
+            </p>
 
-            {/* Barber list */}
-            {barbers.length === 0 ? (
-              <div className="px-6 py-8 text-center">
-                <p className="text-sm text-gray-400">No staff added yet.</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Add your first staff member below.
-                </p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {barbers.map((barber) => (
-                  <li
-                    key={barber.id}
-                    className="flex items-center justify-between px-6 py-4"
-                  >
-                    {/* Barber name + initials avatar */}
-                    <div className="flex items-center gap-3">
-                      {/* Initials circle */}
-                      <div className="
-                        w-8 h-8 rounded-full bg-gray-100
-                        flex items-center justify-center
-                        text-xs font-semibold text-gray-600 shrink-0
-                      ">
-                        {barber.name.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">
-                        {barber.name}
-                      </span>
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+
+              {/* SMS preview */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">SMS · 24h before</p>
+                <div className="bg-[#1A1A1A] rounded-2xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-medium text-white/30 uppercase tracking-widest">Message</span>
+                    <div className="flex gap-1">
+                      <div className="w-1 h-1 rounded-full bg-white/20" />
+                      <div className="w-1 h-1 rounded-full bg-white/20" />
+                      <div className="w-1 h-1 rounded-full bg-white/20" />
                     </div>
-
-                    {/* Delete button */}
-                    <button
-                      onClick={() => handleDeleteBarber(barber.id, barber.name)}
-                      disabled={deletingId === barber.id}
-                      aria-label={`Remove ${barber.name}`}
-                      className="
-                        text-sm text-gray-400 hover:text-red-600
-                        disabled:opacity-40 disabled:cursor-not-allowed
-                        transition-colors
-                      "
-                    >
-                      {deletingId === barber.id ? 'Removing…' : 'Remove'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {/* Divider */}
-            <div className="border-t border-gray-100" />
-
-            {/* Add barber form */}
-            <form onSubmit={handleAddBarber} noValidate className="px-6 py-4">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-                Add staff
-              </p>
-
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={newBarberName}
-                  onChange={(e) => {
-                    setNewBarberName(e.target.value);
-                    if (addBarberError) setAddBarberError('');
-                  }}
-                  placeholder="First name, e.g. John"
-                  maxLength={50}
-                  disabled={addingBarber}
-                  className="
-                    flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                    placeholder:text-gray-400
-                    focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                    disabled:bg-gray-50 disabled:text-gray-400
-                    transition
-                  "
-                />
-                <button
-                  type="submit"
-                  disabled={addingBarber}
-                  className="
-                    rounded-lg bg-black text-white text-sm font-medium
-                    px-4 py-2.5 shrink-0
-                    hover:bg-gray-800
-                    focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    transition
-                  "
-                >
-                  {addingBarber ? 'Adding…' : 'Add'}
-                </button>
+                  </div>
+                  <div className="bg-white/10 rounded-xl rounded-tl-sm px-4 py-3">
+                    <p className="text-sm text-white leading-relaxed">{previewSMSText}</p>
+                  </div>
+                  <p className="text-[10px] text-white/25 text-right">Delivered</p>
+                </div>
               </div>
 
-              {/* Add barber error */}
-              {addBarberError && (
-                <p className="mt-2 text-sm text-red-600">{addBarberError}</p>
-              )}
-            </form>
+              {/* Email preview */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Email · 48h before</p>
+                <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 overflow-hidden">
+                  {/* Email header */}
+                  <div className="bg-[#1A1A1A]/3 border-b border-[#C8C8C8]/30 px-4 py-3 space-y-1">
+                    <div className="flex gap-2 text-xs">
+                      <span className="text-[#C8C8C8] shrink-0">From:</span>
+                      <span className="text-[#1A1A1A] font-medium truncate">reminders@noshowly.com</span>
+                    </div>
+                    <div className="flex gap-2 text-xs">
+                      <span className="text-[#C8C8C8] shrink-0">Subject:</span>
+                      <span className="text-[#1A1A1A] font-medium truncate">{previewEmailSubjectText}</span>
+                    </div>
+                  </div>
+                  {/* Email body */}
+                  <div className="px-4 py-4 space-y-3">
+                    <p className="font-heading text-base font-semibold text-[#1A1A1A]">{previewBusiness}</p>
+                    <p className="text-xs text-[#1A1A1A]">{previewEmailGreetingText}</p>
+                    <p className="text-xs text-[#C8C8C8] leading-relaxed">{previewEmailBodyText}</p>
+                    <div className="bg-[#1A1A1A]/4 rounded-lg px-3 py-2.5 space-y-0.5">
+                      <p className="text-xs text-[#C8C8C8]">Haircut &middot; Tomorrow at 10:30 AM</p>
+                    </div>
+                    {emailConfirmationEnabled && emailAllowed ? (
+                      <div className="flex gap-2">
+                        <span className="inline-block bg-[#1A1A1A] text-white text-xs font-medium px-4 py-1.5 rounded-lg">YES</span>
+                        <span className="inline-block border border-[#C8C8C8] text-[#1A1A1A] text-xs font-medium px-4 py-1.5 rounded-lg">NO</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[#C8C8C8] italic">{previewEmailClosingText}</p>
+                    )}
+                    <p className="text-xs text-[#C8C8C8] border-t border-[#C8C8C8]/20 pt-3">{previewEmailFooterText}</p>
+                  </div>
+                </div>
+              </div>
 
+            </div>
           </div>
-        </section>
 
-        {/* ==================================================================
-            SECTION 4: Services
-        ================================================================== */}
-        <section>
-          <h2 className="text-base font-semibold text-gray-900 mb-1">Services</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Services appear as a dropdown when you add an appointment.
-            If none are added, you can type the service name freely.
-          </p>
+          {/* ---- Template fields ---- */}
+          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-8">
 
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            {/* SMS template */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#C8C8C8] uppercase tracking-widest mb-2">SMS</p>
+              <FieldLabel htmlFor="sms-template">SMS template</FieldLabel>
+              <textarea
+                id="sms-template"
+                ref={smsTextareaRef}
+                value={smsTemplate}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSmsTemplate(v);
+                  scheduleTemplatesSave(v, emailFooter, emailSubject, emailGreeting, emailBody, emailClosing);
+                }}
+                placeholder={DEFAULT_SMS_TEMPLATE}
+                rows={3}
+                maxLength={500}
+                className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8]/70 outline-none focus:border-[#1A1A1A] resize-none transition-colors"
+              />
 
-            {/* Service list */}
-            {services.length === 0 ? (
-              <div className="px-6 py-8 text-center">
-                <p className="text-sm text-gray-400">No services added yet.</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Add your first service below.
+              {/* Variable chips for SMS */}
+              <div className="flex flex-wrap gap-1.5">
+                {TEMPLATE_VARIABLES.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => {
+                      insertAtCursor(smsTextareaRef, v, smsTemplate, setSmsTemplate);
+                      scheduleTemplatesSave(
+                        smsTextareaRef.current?.value ?? smsTemplate,
+                        emailFooter, emailSubject, emailGreeting, emailBody, emailClosing
+                      );
+                    }}
+                    className="inline-block font-mono text-[11px] bg-[#1A1A1A]/5 hover:bg-[#1A1A1A]/10 active:bg-[#1A1A1A]/15 text-[#1A1A1A] px-2 py-1 rounded-md transition-colors"
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              {/* Character counter */}
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs text-[#C8C8C8]">
+                  Actual message length depends on variable values. A single SMS segment is 160 chars.
+                </p>
+                <p className={`text-xs font-medium tabular-nums shrink-0 ${
+                  activeTemplate.length > 160 ? 'text-red-500' : 'text-[#C8C8C8]'
+                }`}>
+                  {activeTemplate.length}/160
                 </p>
               </div>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {services.map((service) => (
-                  <li
-                    key={service.id}
-                    className="flex items-center justify-between px-6 py-4"
-                  >
-                    <span className="text-sm font-medium text-gray-900">
-                      {service.name}
-                    </span>
+            </div>
 
-                    <button
-                      onClick={() => handleDeleteService(service.id, service.name)}
-                      disabled={deletingServiceId === service.id}
-                      aria-label={`Remove ${service.name}`}
-                      className="
-                        text-sm text-gray-400 hover:text-red-600
-                        disabled:opacity-40 disabled:cursor-not-allowed
-                        transition-colors
-                      "
-                    >
-                      {deletingServiceId === service.id ? 'Removing…' : 'Remove'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="border-t border-[#C8C8C8]/30" />
 
-            {/* Divider */}
-            <div className="border-t border-gray-100" />
+            {/* Email template fields */}
+            <div className="space-y-5">
+              <p className="text-xs font-semibold text-[#C8C8C8] uppercase tracking-widest">Email</p>
 
-            {/* Add service form */}
-            <form onSubmit={handleAddService} noValidate className="px-6 py-4">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-                Add service
-              </p>
-
-              <div className="flex gap-3">
-                <input
+              {/* Email subject */}
+              <div className="space-y-1.5">
+                <FieldLabel htmlFor="email-subject">Email subject</FieldLabel>
+                <Input
+                  id="email-subject"
                   type="text"
-                  value={newServiceName}
+                  value={emailSubject}
                   onChange={(e) => {
-                    setNewServiceName(e.target.value);
-                    if (addServiceError) setAddServiceError('');
+                    const v = e.target.value;
+                    setEmailSubject(v);
+                    scheduleTemplatesSave(smsTemplate, emailFooter, v, emailGreeting, emailBody, emailClosing);
                   }}
-                  placeholder="e.g. Haircut, Beard trim"
-                  maxLength={50}
-                  disabled={addingService}
-                  className="
-                    flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                    placeholder:text-gray-400
-                    focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent
-                    disabled:bg-gray-50 disabled:text-gray-400
-                    transition
-                  "
+                  placeholder={DEFAULT_EMAIL_SUBJECT}
+                  maxLength={200}
+                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
                 />
-                <button
-                  type="submit"
-                  disabled={addingService}
-                  className="
-                    rounded-lg bg-black text-white text-sm font-medium
-                    px-4 py-2.5 shrink-0
-                    hover:bg-gray-800
-                    focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    transition
-                  "
-                >
-                  {addingService ? 'Adding…' : 'Add'}
-                </button>
+                <p className="text-xs text-[#C8C8C8]">
+                  Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}to insert your business name.
+                </p>
               </div>
 
-              {addServiceError && (
-                <p className="mt-2 text-sm text-red-600">{addServiceError}</p>
-              )}
-            </form>
+              {/* Email greeting */}
+              <div className="space-y-1.5">
+                <FieldLabel htmlFor="email-greeting">Email greeting</FieldLabel>
+                <Input
+                  id="email-greeting"
+                  type="text"
+                  value={emailGreeting}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEmailGreeting(v);
+                    scheduleTemplatesSave(smsTemplate, emailFooter, emailSubject, v, emailBody, emailClosing);
+                  }}
+                  placeholder={DEFAULT_EMAIL_GREETING}
+                  maxLength={200}
+                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                />
+                <p className="text-xs text-[#C8C8C8]">
+                  Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{client_name}'}</span>{' '}to personalise the greeting.
+                </p>
+              </div>
+
+              {/* Email body */}
+              <div className="space-y-2">
+                <FieldLabel htmlFor="email-body">Email body message</FieldLabel>
+                <textarea
+                  id="email-body"
+                  ref={emailBodyTextareaRef}
+                  value={emailBody}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEmailBody(v);
+                    scheduleTemplatesSave(smsTemplate, emailFooter, emailSubject, emailGreeting, v, emailClosing);
+                  }}
+                  placeholder={DEFAULT_EMAIL_BODY}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8]/70 outline-none focus:border-[#1A1A1A] resize-none transition-colors"
+                />
+
+                {/* Variable chips for email body */}
+                <div className="flex flex-wrap gap-1.5">
+                  {TEMPLATE_VARIABLES.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => {
+                        insertAtCursor(emailBodyTextareaRef, v, emailBody, setEmailBody);
+                        scheduleTemplatesSave(
+                          smsTemplate, emailFooter, emailSubject, emailGreeting,
+                          emailBodyTextareaRef.current?.value ?? emailBody,
+                          emailClosing
+                        );
+                      }}
+                      className="inline-block font-mono text-[11px] bg-[#1A1A1A]/5 hover:bg-[#1A1A1A]/10 active:bg-[#1A1A1A]/15 text-[#1A1A1A] px-2 py-1 rounded-md transition-colors"
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Email closing */}
+              <div className="space-y-1.5">
+                <FieldLabel htmlFor="email-closing">Email closing message</FieldLabel>
+                <Input
+                  id="email-closing"
+                  type="text"
+                  value={emailClosing}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEmailClosing(v);
+                    scheduleTemplatesSave(smsTemplate, emailFooter, emailSubject, emailGreeting, emailBody, v);
+                  }}
+                  placeholder={DEFAULT_EMAIL_CLOSING}
+                  maxLength={200}
+                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                />
+                <p className="text-xs text-[#C8C8C8]">
+                  Shown at the bottom of the email when confirmation buttons are disabled.
+                </p>
+              </div>
+
+              {/* Email footer */}
+              <div className="space-y-1.5">
+                <FieldLabel htmlFor="email-footer">Email footer</FieldLabel>
+                <Input
+                  id="email-footer"
+                  type="text"
+                  value={emailFooter}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEmailFooter(v);
+                    scheduleTemplatesSave(smsTemplate, v, emailSubject, emailGreeting, emailBody, emailClosing);
+                  }}
+                  placeholder={DEFAULT_EMAIL_FOOTER}
+                  maxLength={300}
+                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                />
+                <p className="text-xs text-[#C8C8C8]">
+                  Small text at the very bottom of reminder emails. Use{' '}
+                  <span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}
+                  to insert your business name.
+                </p>
+              </div>
+
+            </div>
 
           </div>
+
+          {templatesError && (
+            <div role="alert" className="mt-3 rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+              {templatesError}
+            </div>
+          )}
         </section>
 
-        {/* ==================================================================
+        {/* ================================================================
             SECTION 5: Delete account
-        ================================================================== */}
+        ================================================================ */}
         <section>
-          <h2 className="text-base font-semibold text-red-700 mb-1">Delete account</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Permanently deletes your salon, all appointments, all clients, and all reminders.
+          <h2 className="text-base font-semibold text-red-600 mb-1">Delete account</h2>
+          <p className="text-sm text-[#C8C8C8] mb-4">
+            Permanently deletes your business data, all appointments, all clients, and all reminders.
             This cannot be undone.
           </p>
 
-          <div className="bg-white rounded-2xl border border-red-200 p-6">
+          <div className="bg-white rounded-2xl border border-red-100 p-6">
 
             {!showDeleteDialog ? (
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => {
                   setShowDeleteDialog(true);
                   setDeleteConfirmText('');
                   setDeleteAccountError('');
                 }}
-                className="
-                  rounded-lg bg-white border border-red-500 text-red-600 text-sm font-medium
-                  px-5 py-2.5
-                  hover:bg-red-50
-                  focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2
-                  transition
-                "
+                className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 text-sm"
               >
                 Delete my account
-              </button>
+              </Button>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-gray-700">
-                  This will permanently delete your salon, all appointments, all clients, and all reminders.
+                <p className="text-sm text-[#1A1A1A]">
+                  This will permanently delete your business data, all appointments, all clients, and all reminders.
                   This cannot be undone. Type <strong>DELETE</strong> to confirm.
                 </p>
 
-                <input
+                <Input
                   type="text"
                   value={deleteConfirmText}
                   onChange={(e) => {
@@ -1090,60 +1310,37 @@ export default function SettingsPage() {
                   }}
                   placeholder="Type DELETE to confirm"
                   disabled={isDeletingAccount}
-                  className="
-                    w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900
-                    placeholder:text-gray-400
-                    focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent
-                    disabled:bg-gray-50 disabled:text-gray-400
-                    transition
-                  "
+                  className="border-[#C8C8C8] focus-visible:border-red-400 focus-visible:ring-0 text-[#1A1A1A]"
                 />
 
                 {deleteAccountError && (
-                  <div
-                    role="alert"
-                    className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"
-                  >
+                  <div role="alert" className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
                     {deleteAccountError}
                   </div>
                 )}
 
                 <div className="flex items-center gap-3">
-                  <button
+                  <Button
                     type="button"
                     onClick={handleDeleteAccount}
                     disabled={deleteConfirmText !== 'DELETE' || isDeletingAccount}
-                    className="
-                      rounded-lg bg-red-600 text-white text-sm font-medium
-                      px-5 py-2.5
-                      hover:bg-red-700
-                      focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2
-                      disabled:opacity-40 disabled:cursor-not-allowed
-                      transition
-                    "
+                    className="bg-red-600 hover:bg-red-700 text-white text-sm disabled:opacity-40"
                   >
                     {isDeletingAccount ? 'Deleting…' : 'Yes, delete everything'}
-                  </button>
-
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => {
                       setShowDeleteDialog(false);
                       setDeleteConfirmText('');
                       setDeleteAccountError('');
                     }}
                     disabled={isDeletingAccount}
-                    className="
-                      rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700
-                      px-5 py-2.5
-                      hover:bg-gray-50
-                      focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2
-                      disabled:opacity-40 disabled:cursor-not-allowed
-                      transition
-                    "
+                    className="border-[#C8C8C8] text-[#1A1A1A] text-sm"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

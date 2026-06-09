@@ -132,9 +132,27 @@ interface WeekCardProps {
 }
 
 /**
+ * Returns Tailwind border and background classes for a pill colored by status.
+ * confirmed = dark green, scheduled (pending) = amber, cancelled = red/strikethrough.
+ *
+ * @param status - Appointment lifecycle status.
+ * @returns       Tailwind class string.
+ */
+function pillClasses(status: AppointmentWithDetails['status']): string {
+  switch (status) {
+    case 'confirmed':
+      return 'border-emerald-200 bg-emerald-50';
+    case 'cancelled':
+      return 'border-red-200/60 bg-red-50/50 opacity-50';
+    default: // 'scheduled' — shown as pending
+      return 'border-amber-200 bg-amber-50';
+  }
+}
+
+/**
  * Compact appointment card for the week grid.
- * Shows time (bold, 24h), client name, and service if set.
- * Cancelled appointments are dimmed with a strikethrough on the name.
+ * Color-coded by status: confirmed=green, pending=amber, cancelled=red/dim.
+ * Cancelled appointments also have a strikethrough on the client name.
  *
  * @param props.apt     - The appointment data.
  * @param props.onClick - Opens the edit modal for this appointment.
@@ -156,27 +174,27 @@ function WeekCard({ apt, onClick }: WeekCardProps) {
           onClick();
         }
       }}
-      className={`
-        bg-white rounded-lg border px-2 py-1.5 space-y-0.5
-        hover:border-indigo-300 hover:bg-indigo-50/40 transition-colors
-        cursor-pointer
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
-        ${isCancelled ? 'opacity-50 border-dashed border-gray-200' : 'border-gray-200'}
-      `}
+      className={[
+        'rounded-lg border px-2 py-1.5 space-y-0.5',
+        'hover:brightness-95 transition-all cursor-pointer',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30',
+        isCancelled ? 'border-dashed' : '',
+        pillClasses(apt.status),
+      ].join(' ')}
     >
       {/* Time */}
-      <p className="text-xs font-bold text-gray-900 tabular-nums leading-none">
+      <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none">
         {formatTime(apt.datetime)}
       </p>
 
       {/* Client name */}
-      <p className={`text-xs font-semibold text-gray-800 truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
+      <p className={`text-xs font-semibold text-[#1A1A1A] truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
         {apt.client_name ?? 'Unknown'}
       </p>
 
       {/* Service — only if set */}
       {apt.service_type && (
-        <p className="text-xs text-gray-500 truncate leading-snug">
+        <p className="text-xs text-[#2D2D2D]/60 truncate leading-snug">
           {apt.service_type}
         </p>
       )}
@@ -220,22 +238,22 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: Day
     <div
       className={`
         flex flex-col flex-1 min-w-[115px] rounded-xl overflow-hidden border
-        ${todayColumn ? 'border-indigo-300' : 'border-gray-200'}
+        ${todayColumn ? 'border-[#1A1A1A]/40' : 'border-[#C8C8C8]/40'}
       `}
     >
       {/* Column header */}
       <div
         className={`
           px-2 py-2.5 text-center border-b shrink-0
-          ${todayColumn ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100'}
+          ${todayColumn ? 'bg-[#1A1A1A]/5 border-[#1A1A1A]/10' : 'bg-white border-[#C8C8C8]/30'}
         `}
       >
         <p className={`text-xs font-semibold uppercase tracking-wide leading-none
-          ${todayColumn ? 'text-indigo-500' : 'text-gray-400'}`}>
+          ${todayColumn ? 'text-[#1A1A1A]' : 'text-[#C8C8C8]'}`}>
           {format(day, 'EEE')}
         </p>
         <p className={`text-sm font-bold mt-0.5 leading-none
-          ${todayColumn ? 'text-indigo-600' : 'text-gray-900'}`}>
+          ${todayColumn ? 'text-[#1A1A1A]' : 'text-[#2D2D2D]'}`}>
           {format(day, 'd')}
         </p>
       </div>
@@ -246,10 +264,10 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: Day
         tabIndex={-1}
         aria-label={`Add appointment on ${format(day, 'EEEE, MMMM d')}`}
         onClick={onColumnClick}
-        className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-gray-50 cursor-pointer"
+        className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#F9F9F9] cursor-pointer"
       >
         {appointments.length === 0 && (
-          <p className="text-xs text-gray-300 p-1 select-none">—</p>
+          <p className="text-xs text-[#C8C8C8]/60 p-1 select-none">—</p>
         )}
 
         {appointments.map((apt) => (
@@ -559,10 +577,10 @@ export default function WeekView() {
             onClick={handlePrevWeek}
             aria-label="Previous week"
             className="
-              p-2 rounded-lg border border-gray-200 shrink-0
-              text-gray-500 hover:text-gray-900 hover:bg-gray-50
+              p-2 rounded-lg border border-[#C8C8C8]/60 shrink-0
+              text-[#C8C8C8] hover:text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
               transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
             "
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -571,7 +589,7 @@ export default function WeekView() {
           </button>
 
           {/* Week date range */}
-          <span className="text-base font-semibold text-gray-900 whitespace-nowrap">
+          <span className="text-base font-semibold text-[#1A1A1A] whitespace-nowrap">
             {weekLabel}
           </span>
 
@@ -580,10 +598,10 @@ export default function WeekView() {
             onClick={handleNextWeek}
             aria-label="Next week"
             className="
-              p-2 rounded-lg border border-gray-200 shrink-0
-              text-gray-500 hover:text-gray-900 hover:bg-gray-50
+              p-2 rounded-lg border border-[#C8C8C8]/60 shrink-0
+              text-[#C8C8C8] hover:text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
               transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
             "
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -596,10 +614,10 @@ export default function WeekView() {
             <button
               onClick={handleThisWeek}
               className="
-                text-sm font-medium text-indigo-600 hover:text-indigo-700 shrink-0
-                px-2.5 py-1.5 rounded-lg hover:bg-indigo-50
+                text-sm font-medium text-[#1A1A1A] shrink-0
+                px-2.5 py-1.5 rounded-lg border border-[#C8C8C8]/60 hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
                 transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
               "
             >
               Today
@@ -613,9 +631,9 @@ export default function WeekView() {
           onClick={handleHeaderAddClick}
           className="
             flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold shrink-0
-            bg-indigo-600 text-white hover:bg-indigo-700
+            bg-[#1A1A1A] text-white hover:bg-[#2D2D2D]
             transition-colors
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/40
           "
         >
           <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -639,11 +657,11 @@ export default function WeekView() {
               type="button"
               onClick={() => setSelectedBarberId(b.id)}
               className={`
-                px-3 py-1.5 rounded-full text-sm font-medium transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30
                 ${selectedBarberId === b.id
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-[#1A1A1A] text-white'
+                  : 'border border-[#C8C8C8] text-[#2D2D2D] hover:bg-gray-50'
                 }
               `}
             >
@@ -657,11 +675,11 @@ export default function WeekView() {
               type="button"
               onClick={() => setSelectedBarberId('unassigned')}
               className={`
-                px-3 py-1.5 rounded-full text-sm font-medium transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                px-3 py-1.5 rounded-full text-xs font-medium transition-colors
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30
                 ${selectedBarberId === 'unassigned'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-[#1A1A1A] text-white'
+                  : 'border border-[#C8C8C8] text-[#2D2D2D] hover:bg-gray-50'
                 }
               `}
             >
@@ -688,12 +706,12 @@ export default function WeekView() {
               className={`
                 flex flex-col items-center justify-center
                 flex-1 min-w-[42px] px-1 py-2 rounded-xl text-center transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30
                 ${isSelected
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'bg-[#1A1A1A] text-white shadow-sm'
                   : isCurrentDay
-                    ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100'
-                    : 'text-gray-600 hover:bg-gray-100'
+                    ? 'border border-[#1A1A1A]/30 text-[#1A1A1A] hover:bg-[#1A1A1A]/5'
+                    : 'text-[#C8C8C8] hover:bg-[#1A1A1A]/5'
                 }
               `}
             >
@@ -716,15 +734,15 @@ export default function WeekView() {
           {Array.from({ length: 7 }).map((_, i) => (
             <div
               key={i}
-              className="flex-1 min-w-[115px] rounded-xl border border-gray-200 overflow-hidden animate-pulse"
+              className="flex-1 min-w-[115px] rounded-xl border border-[#C8C8C8]/40 overflow-hidden animate-pulse"
             >
-              <div className="px-2 py-2.5 bg-white border-b border-gray-100 text-center">
-                <div className="h-3 bg-gray-200 rounded mx-auto w-8 mb-1" />
-                <div className="h-4 bg-gray-200 rounded mx-auto w-6" />
+              <div className="px-2 py-2.5 bg-white border-b border-[#C8C8C8]/30 text-center">
+                <div className="h-3 bg-[#C8C8C8]/30 rounded mx-auto w-8 mb-1" />
+                <div className="h-4 bg-[#C8C8C8]/30 rounded mx-auto w-6" />
               </div>
-              <div className="p-1.5 space-y-1.5 min-h-[220px] bg-gray-50">
-                <div className="h-14 bg-gray-200 rounded-lg" />
-                <div className="h-10 bg-gray-200 rounded-lg" />
+              <div className="p-1.5 space-y-1.5 min-h-[220px] bg-[#F9F9F9]">
+                <div className="h-14 bg-[#C8C8C8]/20 rounded-lg" />
+                <div className="h-10 bg-[#C8C8C8]/20 rounded-lg" />
               </div>
             </div>
           ))}
@@ -735,12 +753,12 @@ export default function WeekView() {
       {isLoading && (
         <div className="lg:hidden space-y-3">
           {[1, 2, 3].map((n) => (
-            <div key={n} className="bg-white rounded-xl border border-gray-200 px-4 py-3 animate-pulse">
+            <div key={n} className="bg-white rounded-xl border border-[#C8C8C8]/40 px-4 py-3 animate-pulse">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-4 bg-gray-200 rounded" />
+                <div className="w-10 h-4 bg-[#C8C8C8]/30 rounded" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-gray-200 rounded w-1/3" />
-                  <div className="h-3 bg-gray-100 rounded w-1/4" />
+                  <div className="h-4 bg-[#C8C8C8]/30 rounded w-1/3" />
+                  <div className="h-3 bg-[#C8C8C8]/20 rounded w-1/4" />
                 </div>
               </div>
             </div>
@@ -794,7 +812,7 @@ export default function WeekView() {
 
             if (dayApts.length === 0) {
               return (
-                <p className="text-sm text-gray-400 py-4">No appointments this day</p>
+                <p className="text-sm text-[#C8C8C8] py-4">No appointments this day</p>
               );
             }
 
@@ -805,23 +823,23 @@ export default function WeekView() {
                 onClick={() => handleAppointmentClick(apt)}
                 className={`
                   w-full text-left
-                  bg-white rounded-xl border border-gray-200
+                  bg-white rounded-xl border border-[#C8C8C8]/40
                   px-4 py-3
                   flex items-center justify-between gap-4
-                  hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+                  hover:border-[#1A1A1A]/20 hover:shadow-sm transition-colors
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
                   ${apt.status === 'cancelled' ? 'opacity-40' : ''}
                 `}
               >
-                <div className="w-12 shrink-0 text-sm font-bold text-gray-700 tabular-nums">
+                <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums">
                   {formatTime(apt.datetime)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold text-gray-900 truncate ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
+                  <p className={`text-sm font-semibold text-[#1A1A1A] truncate ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
                     {apt.client_name ?? 'Unknown client'}
                   </p>
                   {apt.service_type && (
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{apt.service_type}</p>
+                    <p className="text-xs text-[#C8C8C8] mt-0.5 truncate">{apt.service_type}</p>
                   )}
                 </div>
               </button>
@@ -833,10 +851,10 @@ export default function WeekView() {
             type="button"
             onClick={() => handleColumnClick(selectedDay)}
             className="
-              w-full mt-2 py-2.5 rounded-xl border border-dashed border-gray-300
-              text-sm text-gray-400 hover:border-indigo-300 hover:text-indigo-500
+              w-full mt-2 py-2.5 rounded-xl border border-dashed border-[#C8C8C8]/60
+              text-sm text-[#C8C8C8] hover:border-[#1A1A1A]/30 hover:text-[#1A1A1A]
               transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
             "
           >
             + Add for {format(selectedDay, 'EEE d')}

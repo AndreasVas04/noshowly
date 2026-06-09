@@ -33,6 +33,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types';
 import { stripe } from '@/lib/stripe';
 import type Stripe from 'stripe';
+import type { PaidPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Service role client — needed to update users.plan without RLS restriction.
@@ -93,16 +94,30 @@ function markEventProcessed(eventId: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Maps a Stripe price ID to the corresponding NoShowly plan name.
- * Returns null for unrecognized price IDs (e.g. annual billing variants).
+ * Maps a Stripe price ID to the corresponding Noshowly plan name.
+ * Returns null for unrecognized price IDs (e.g. annual billing variants or
+ * price IDs not yet configured via env vars).
+ *
+ * Env var convention:
+ *  - STRIPE_STARTER_PRICE_ID      → 'starter'
+ *  - STRIPE_PROFESSIONAL_PRICE_ID → 'professional'
+ *  - STRIPE_BUSINESS_PRICE_ID     → 'business'
  *
  * @param priceId - The Stripe price ID from the subscription object.
- * @returns NoShowly plan name or null if unrecognized.
+ * @returns Noshowly PaidPlan name, or null if unrecognized.
  */
-function priceIdToPlan(priceId: string): 'solo' | 'salon' | 'studio' | null {
-  if (priceId === process.env.STRIPE_SOLO_PRICE_ID)   return 'solo';
-  if (priceId === process.env.STRIPE_SALON_PRICE_ID)  return 'salon';
-  if (priceId === process.env.STRIPE_STUDIO_PRICE_ID) return 'studio';
+function priceIdToPlan(priceId: string): PaidPlan | null {
+  // Build a lookup table from env vars to plan names at call time.
+  // Any env var not set is undefined — those entries are skipped.
+  const lookup: Array<[string | undefined, PaidPlan]> = [
+    [process.env.STRIPE_STARTER_PRICE_ID,      'starter'],
+    [process.env.STRIPE_PROFESSIONAL_PRICE_ID, 'professional'],
+    [process.env.STRIPE_BUSINESS_PRICE_ID,     'business'],
+  ];
+
+  for (const [envPriceId, plan] of lookup) {
+    if (envPriceId && envPriceId === priceId) return plan;
+  }
   return null;
 }
 
@@ -236,7 +251,7 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 
 /**
  * Handles subscription.created and subscription.updated events.
- * Maps the Stripe price ID to a NoShowly plan and updates the user record.
+ * Maps the Stripe price ID to a Noshowly PaidPlan and updates the user record.
  *
  * @param sub - Typed Stripe Subscription object from the verified webhook payload.
  */

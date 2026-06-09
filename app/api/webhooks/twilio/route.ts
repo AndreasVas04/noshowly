@@ -137,7 +137,7 @@ export async function POST(request: Request): Promise<Response> {
   // Find the earliest upcoming scheduled appointment for any of these clients.
   const { data: appointments, error: apptsError } = await adminSupabase
     .from('appointments')
-    .select('id, datetime, salon_id, salons(name, sms_sender_name, timezone, user_id)')
+    .select('id, datetime, salon_id, salons(name, timezone, user_id)')
     .in('client_id', clientIds)
     .eq('status', 'scheduled')
     .gt('datetime', nowISO)
@@ -158,7 +158,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const appointment = appointments[0] as typeof appointments[0] & {
-    salons: { name: string; sms_sender_name: string | null; timezone: string; user_id: string } | null;
+    salons: { name: string; timezone: string; user_id: string } | null;
   };
 
   // Step 5: Update the appointment status.
@@ -204,11 +204,8 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 6: Reply with a TwiML auto-response.
-  // Prefer the SMS-specific sender name; fall back to the salon's display name.
-  const salonDisplayName =
-    (appointment.salons as { sms_sender_name: string | null } | null)?.sms_sender_name ?? salonName;
-
+  // Step 6: Reply with a TwiML auto-response using the salon's display name.
+  const salonDisplayName = salonName;
   const timezone = (appointment.salons as { timezone: string } | null)?.timezone ?? 'UTC';
   const timeStr  = formatTime(appointment.datetime, timezone);
 
