@@ -3,23 +3,22 @@
  *
  * Handles the password reset flow — second half (setting the new password).
  *
- * Two flows are supported because Supabase project settings control which one
- * is used:
+ * Supabase is configured to use the PKCE flow, so the reset link arrives as:
+ *   https://noshowly.com/auth/reset-password?code=<one-time-code>
  *
- *   Hash flow (implicit):  /auth/reset-password#access_token=xxx&refresh_token=xxx&type=recovery
- *     → parse window.location.hash, call setSession({ access_token, refresh_token })
+ * On mount we read the ?code param via useSearchParams and call
+ * exchangeCodeForSession(code), which exchanges the one-time code for a live
+ * session. Once the session is established we show the new-password form.
+ * Submitting calls updateUser({ password }) and redirects to /dashboard.
  *
- *   PKCE flow:             /auth/reset-password?code=xxx
- *     → read ?code query param, call exchangeCodeForSession(code)
- *
- * Debug logging is intentionally left in so that the exact URL, tokens, and
- * Supabase responses can be inspected in the browser console.
+ * "Back to sign in" calls signOut() first so the established recovery session
+ * does not cause the middleware to redirect /login to /dashboard.
  */
 
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, FormEvent, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
@@ -28,146 +27,75 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/** Possible states for the initial token verification step. */
+/** Possible states for the initial code-exchange step. */
 type ExchangeStatus = 'loading' | 'ready' | 'error';
 
 /** Possible states for the password update form. */
 type FormStatus = 'idle' | 'submitting' | 'error' | 'success';
 
 /**
- * ResetPasswordPage detects which reset flow Supabase used, establishes a
- * session from the token, then lets the user set a new password.
+ * Inner component that reads ?code and drives the reset flow.
+ * Must be wrapped in Suspense because useSearchParams() suspends on the client.
  *
- * @returns The reset password page JSX.
+ * @returns The reset password UI.
  */
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createBrowserSupabaseClient();
 
-  const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus>('loading');
-  const [exchangeError, setExchangeError] = useState<string>('');
+  const code = searchParams.get('code');
 
-  const [password, setPassword] = useState('');
+  const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus>('loading');
+  const [exchangeError, setExchangeError]   = useState<string>('');
+
+  const [password,        setPassword]        = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [fieldError, setFieldError] = useState<string>('');
-  const [formStatus, setFormStatus] = useState<FormStatus>('idle');
-  const [formError, setFormError] = useState<string>('');
+  const [showPassword,    setShowPassword]    = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
+  const [fieldError,      setFieldError]      = useState<string>('');
+  const [formStatus,      setFormStatus]      = useState<FormStatus>('idle');
+  const [formError,       setFormError]       = useState<string>('');
 
   /**
-   * On mount, determine which Supabase reset flow is in use and attempt to
-   * establish a session. Logs everything to the browser console for debugging.
-   *
-   * Priority:
-   *   1. Hash fragment contains access_token → implicit/hash flow → setSession()
-   *   2. Query string contains code= → PKCE flow → exchangeCodeForSession()
-   *   3. Neither → show error
+   * Exchanges the one-time PKCE code for a Supabase session on mount.
+   * The code comes from the ?code= query param that Supabase appends to the
+   * redirectTo URL when the user clicks the password reset email link.
    */
   useEffect(() => {
-    async function processToken() {
-      // -----------------------------------------------------------------------
-      // Log the raw URL so we can see exactly what Supabase sent.
-      // -----------------------------------------------------------------------
-      console.log('[reset-password] href  :', window.location.href);
-      console.log('[reset-password] hash  :', window.location.hash);
-      console.log('[reset-password] search:', window.location.search);
-
-      const hashRaw   = window.location.hash.substring(1);   // strip leading '#'
-      const hashParams  = new URLSearchParams(hashRaw);
-      const searchParams = new URLSearchParams(window.location.search);
-
-      console.log('[reset-password] hash params:', Object.fromEntries(hashParams.entries()));
-      console.log('[reset-password] search params:', Object.fromEntries(searchParams.entries()));
-
-      const accessToken  = hashParams.get('access_token');
-      const refreshToken = hashParams.get('refresh_token');
-      const hashType     = hashParams.get('type');
-      const code         = searchParams.get('code');
-
-      console.log('[reset-password] flow detection →', {
-        hasHashAccessToken: !!accessToken,
-        hasHashRefreshToken: !!refreshToken,
-        hashType,
-        hasCode: !!code,
-      });
-
-      // -----------------------------------------------------------------------
-      // FLOW 1 — Hash fragment with access_token (implicit / hash flow)
-      // -----------------------------------------------------------------------
-      if (accessToken && refreshToken) {
-        console.log('[reset-password] using hash flow → calling setSession()');
-
-        if (hashType !== 'recovery') {
-          console.warn('[reset-password] hash type is not "recovery":', hashType);
-          setExchangeError(
-            'This link is not a password reset link. Please request a new password reset email.'
-          );
-          setExchangeStatus('error');
-          return;
-        }
-
-        const { data, error } = await supabase.auth.setSession({
-          access_token:  accessToken,
-          refresh_token: refreshToken,
-        });
-
-        console.log('[reset-password] setSession result →', { data, error });
-
-        if (error) {
-          setExchangeError(
-            'This reset link has expired or has already been used. Please request a new one.'
-          );
-          setExchangeStatus('error');
-          return;
-        }
-
-        setExchangeStatus('ready');
+    async function exchange() {
+      if (!code) {
+        setExchangeError(
+          'No reset code found. Please use the link from your password reset email.'
+        );
+        setExchangeStatus('error');
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // FLOW 2 — Query param ?code= (PKCE flow)
-      // -----------------------------------------------------------------------
-      if (code) {
-        console.log('[reset-password] using PKCE flow → calling exchangeCodeForSession()');
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-
-        console.log('[reset-password] exchangeCodeForSession result →', { data, error });
-
-        if (error) {
-          setExchangeError(
-            'This reset link has expired or has already been used. Please request a new one.'
-          );
-          setExchangeStatus('error');
-          return;
-        }
-
-        setExchangeStatus('ready');
+      if (error) {
+        console.error('[reset-password] exchangeCodeForSession failed:', error.message);
+        setExchangeError(
+          'This reset link has expired or has already been used. Please request a new one.'
+        );
+        setExchangeStatus('error');
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // FLOW 3 — Nothing found
-      // -----------------------------------------------------------------------
-      console.warn('[reset-password] no token found in hash or query string');
-      setExchangeError(
-        'No reset token found. Please use the link from your password reset email.'
-      );
-      setExchangeStatus('error');
+      setExchangeStatus('ready');
     }
 
-    processToken();
+    exchange();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
-   * Validates the two password fields before submission.
+   * Validates the two password fields.
    *
-   * @param pw - The new password value.
-   * @param confirm - The confirm password value.
-   * @returns A human-readable error string, or null if inputs are valid.
+   * @param pw - The new password.
+   * @param confirm - The confirmation value.
+   * @returns A human-readable error string, or null if valid.
    */
   function validate(pw: string, confirm: string): string | null {
     if (!pw) return 'Please enter a new password.';
@@ -178,7 +106,7 @@ export default function ResetPasswordPage() {
   }
 
   /**
-   * Submits the new password and redirects to /dashboard on success.
+   * Submits the new password via updateUser, then redirects to /dashboard.
    *
    * @param e - The form submit event.
    */
@@ -196,11 +124,10 @@ export default function ResetPasswordPage() {
     setFormError('');
 
     try {
-      console.log('[reset-password] calling updateUser()');
-      const { data, error } = await supabase.auth.updateUser({ password });
-      console.log('[reset-password] updateUser result →', { data, error });
+      const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
+        console.error('[reset-password] updateUser failed:', error.message);
         setFormStatus('error');
         setFormError(
           'Could not update your password. Please try again or request a new reset link.'
@@ -210,18 +137,16 @@ export default function ResetPasswordPage() {
 
       setFormStatus('success');
       setTimeout(() => router.push('/dashboard'), 1200);
-    } catch (err) {
-      console.error('[reset-password] unexpected error in handleSubmit:', err);
+    } catch {
       setFormStatus('error');
       setFormError('Something went wrong. Please check your connection and try again.');
     }
   }
 
   /**
-   * Signs the user out before navigating to /login.
-   *
-   * setSession() / exchangeCodeForSession() establish a real Supabase session.
-   * Without signing out, the middleware redirects /login to /dashboard.
+   * Signs the user out then navigates to /login.
+   * exchangeCodeForSession establishes a real session, so without signing out
+   * the middleware would redirect /login to /dashboard.
    */
   async function handleBackToSignIn() {
     await supabase.auth.signOut();
@@ -251,7 +176,7 @@ export default function ResetPasswordPage() {
         <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
 
           {/* ------------------------------------------------------------
-              LOADING — parsing URL and calling Supabase
+              LOADING — exchangeCodeForSession in flight
           ------------------------------------------------------------ */}
           {exchangeStatus === 'loading' && (
             <div className="text-center py-6">
@@ -261,7 +186,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              ERROR — bad hash, wrong type, expired, or no token at all
+              ERROR — no code, expired, or already used
           ------------------------------------------------------------ */}
           {exchangeStatus === 'error' && (
             <div className="text-center py-4">
@@ -296,7 +221,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              SUCCESS — password updated, redirecting
+              SUCCESS — password updated
           ------------------------------------------------------------ */}
           {formStatus === 'success' && (
             <div className="text-center py-4">
@@ -319,7 +244,7 @@ export default function ResetPasswordPage() {
           )}
 
           {/* ------------------------------------------------------------
-              FORM — shown after session is established
+              FORM — shown after exchangeCodeForSession succeeds
           ------------------------------------------------------------ */}
           {exchangeStatus === 'ready' && formStatus !== 'success' && (
             <>
@@ -359,11 +284,10 @@ export default function ResetPasswordPage() {
                       tabIndex={-1}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
                     >
-                      {showPassword ? (
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      ) : (
-                        <EyeOff className="h-4 w-4" aria-hidden="true" />
-                      )}
+                      {showPassword
+                        ? <Eye    className="h-4 w-4" aria-hidden="true" />
+                        : <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      }
                     </button>
                   </div>
                 </div>
@@ -395,11 +319,10 @@ export default function ResetPasswordPage() {
                       tabIndex={-1}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
                     >
-                      {showConfirm ? (
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      ) : (
-                        <EyeOff className="h-4 w-4" aria-hidden="true" />
-                      )}
+                      {showConfirm
+                        ? <Eye    className="h-4 w-4" aria-hidden="true" />
+                        : <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      }
                     </button>
                   </div>
                 </div>
@@ -447,5 +370,25 @@ export default function ResetPasswordPage() {
         )}
       </motion.div>
     </main>
+  );
+}
+
+/**
+ * ResetPasswordPage wraps the inner component in Suspense, which Next.js
+ * requires whenever a client component calls useSearchParams().
+ *
+ * @returns The suspense-wrapped reset password page.
+ */
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9]">
+          <div className="w-8 h-8 border-2 border-[#1A1A1A]/20 border-t-[#1A1A1A] rounded-full animate-spin" />
+        </main>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

@@ -176,12 +176,8 @@ export default function LoginPage() {
     setResetError('');
 
     try {
-      const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password`;
-      console.log('[login/reset] sending password reset email to:', email);
-      console.log('[login/reset] redirectTo:', redirectTo);
-
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo,
+        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password`,
       });
 
       if (error) {
