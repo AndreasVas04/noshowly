@@ -177,7 +177,9 @@ export default function LoginPage() {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password`,
+        // Redirect to the server-side callback which exchanges the PKCE code
+        // using the cookie-stored verifier, then forwards to reset-password.
+        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback?next=/auth/reset-password`,
       });
 
       if (error) {

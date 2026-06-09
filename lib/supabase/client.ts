@@ -54,16 +54,6 @@ if (!SUPABASE_ANON_KEY) {
 export function createBrowserSupabaseClient() {
   return createBrowserClient<Database>(
     SUPABASE_URL as string,
-    SUPABASE_ANON_KEY as string,
-    {
-      auth: {
-        // Use implicit (hash-based) flow instead of PKCE.
-        // PKCE requires the code verifier to be in the same browser storage
-        // where the request was initiated — it breaks when the reset email is
-        // opened in a different browser or a private tab. The implicit flow
-        // puts the tokens directly in the URL hash, which works everywhere.
-        flowType: 'implicit',
-      },
-    }
+    SUPABASE_ANON_KEY as string
   );
 }

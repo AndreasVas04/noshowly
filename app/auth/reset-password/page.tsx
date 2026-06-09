@@ -1,24 +1,21 @@
 /**
  * app/auth/reset-password/page.tsx
  *
- * Password reset — step 2: set a new password.
+ * Password reset step 2 — set a new password.
  *
- * Root cause of "No reset token found":
- *   The Supabase browser client's initialize() calls _getSessionFromUrl()
- *   asynchronously on startup. When it detects a recovery hash it processes
- *   the tokens and then calls history.replaceState to strip the hash from the
- *   URL — all before our useEffect runs. By the time we read
- *   window.location.hash it is already empty.
+ * By the time the user reaches this page the PKCE code exchange has already
+ * happened server-side in app/api/auth/callback/route.ts and the session is
+ * stored in cookies. This page only needs to:
  *
- * Fix: capture the hash at module evaluation time (the top-level IIFE below).
- *   Module-level code runs synchronously when the JS bundle is parsed, which
- *   is before React rendering, before Supabase async code, and before any
- *   event listeners fire. We write the raw hash to sessionStorage immediately
- *   so it survives even after the URL is mutated.
+ *   1. Check that an active session exists (getSession).
+ *   2. If yes — show the new-password form.
+ *   3. On submit — call updateUser({ password }).
+ *   4. On success — redirect to /dashboard.
+ *   5. If no session (link expired, already used, or ?error=1 from the callback)
+ *      — show an error with a link back to /login.
  *
- * The useEffect then waits 500 ms (to clear hydration) and reads from:
- *   1. window.location.hash     — still present if Supabase hasn't cleared it
- *   2. sessionStorage           — fallback if Supabase already cleared the URL
+ * "Back to sign in" signs the user out first so the active session does not
+ * cause the middleware to redirect /login → /dashboard.
  */
 
 'use client';
@@ -33,35 +30,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-// ---------------------------------------------------------------------------
-// Module-level hash capture
-//
-// This IIFE runs the moment the JS bundle is evaluated — earlier than any
-// React lifecycle, earlier than Supabase's async initialize(), and earlier
-// than any event listener. Saving to sessionStorage lets the component
-// retrieve the hash even after history.replaceState has cleared the URL.
-// ---------------------------------------------------------------------------
-if (typeof window !== 'undefined') {
-  const earlyHash = window.location.hash;
-  console.log('[reset-password] module-level capture — hash:', earlyHash);
-  if (earlyHash) {
-    try {
-      sessionStorage.setItem('noshowly_reset_hash', earlyHash);
-    } catch {
-      // sessionStorage unavailable (some private-mode browsers)
-    }
-  }
-}
-
-/** Possible states for the initial token verification step. */
+/** Possible states for the session verification step. */
 type ExchangeStatus = 'loading' | 'ready' | 'error';
 
 /** Possible states for the password update form. */
 type FormStatus = 'idle' | 'submitting' | 'error' | 'success';
 
 /**
- * ResetPasswordPage captures the Supabase recovery hash, establishes a
- * session via setSession(), then lets the user set a new password.
+ * ResetPasswordPage checks for an active session (established by the
+ * server-side callback route) and renders the new-password form.
  *
  * @returns The reset password page JSX.
  */
@@ -80,125 +57,38 @@ export default function ResetPasswordPage() {
   const [formStatus,      setFormStatus]      = useState<FormStatus>('idle');
   const [formError,       setFormError]       = useState<string>('');
 
+  /**
+   * On mount, check whether the server-side callback successfully established
+   * a session. If the callback set ?error=1 in the URL, or if there is no
+   * session in cookies, show an error immediately.
+   */
   useEffect(() => {
-    // Also try to save the hash via the load event in case we got here before
-    // the window load event fired.
-    function saveHashOnLoad() {
-      const h = window.location.hash;
-      if (h) {
-        try { sessionStorage.setItem('noshowly_reset_hash', h); } catch { /* ignore */ }
-      }
-    }
-
-    if (document.readyState === 'complete') {
-      saveHashOnLoad();
-    } else {
-      window.addEventListener('load', saveHashOnLoad, { once: true });
-    }
-
-    // Wait 500 ms to ensure Next.js hydration and any Supabase async init are
-    // complete before we read the token.
-    const timer = setTimeout(() => { void processToken(); }, 500);
-
-    async function processToken() {
-      // ------------------------------------------------------------------
-      // Diagnostic logging — paste this into the bug report
-      // ------------------------------------------------------------------
-      console.log('[reset-password] window.location.href   :', window.location.href);
-      console.log('[reset-password] window.location.hash   :', window.location.hash);
-      console.log('[reset-password] window.location.search :', window.location.search);
-
-      let storedHash = '';
-      try { storedHash = sessionStorage.getItem('noshowly_reset_hash') ?? ''; } catch { /* ignore */ }
-      console.log('[reset-password] sessionStorage hash     :', storedHash);
-
-      // ------------------------------------------------------------------
-      // Determine which hash to use
-      // ------------------------------------------------------------------
-      const liveHash = window.location.hash;
-      const rawHash  = liveHash || storedHash;
-      console.log('[reset-password] using hash              :', rawHash);
-
-      // ------------------------------------------------------------------
-      // Attempt 1 — implicit flow: hash contains access_token
-      // ------------------------------------------------------------------
-      if (rawHash) {
-        const stripped = rawHash.startsWith('#') ? rawHash.substring(1) : rawHash;
-        const params   = new URLSearchParams(stripped);
-
-        const accessToken  = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-        const type         = params.get('type');
-
-        console.log('[reset-password] hash params:', {
-          hasAccessToken:  !!accessToken,
-          hasRefreshToken: !!refreshToken,
-          type,
-        });
-
-        if (accessToken && refreshToken) {
-          if (type !== 'recovery') {
-            console.warn('[reset-password] hash type is not recovery:', type);
-            setExchangeError('This link is not a password reset link. Please request a new one.');
-            setExchangeStatus('error');
-            return;
-          }
-
-          console.log('[reset-password] calling setSession()');
-          const { data, error } = await supabase.auth.setSession({
-            access_token:  accessToken,
-            refresh_token: refreshToken,
-          });
-          console.log('[reset-password] setSession result:', { session: !!data.session, error });
-
-          // Clear sessionStorage after a successful (or failed) use so a
-          // stale hash cannot be replayed on a future visit.
-          try { sessionStorage.removeItem('noshowly_reset_hash'); } catch { /* ignore */ }
-
-          if (error) {
-            setExchangeError('This reset link has expired or has already been used. Please request a new one.');
-            setExchangeStatus('error');
-            return;
-          }
-
-          setExchangeStatus('ready');
-          return;
-        }
-      }
-
-      // ------------------------------------------------------------------
-      // Attempt 2 — PKCE flow: ?code= in the query string
-      // ------------------------------------------------------------------
-      const code = new URLSearchParams(window.location.search).get('code');
-      console.log('[reset-password] PKCE code present:', !!code);
-
-      if (code) {
-        console.log('[reset-password] calling exchangeCodeForSession()');
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        console.log('[reset-password] exchangeCodeForSession result:', { session: !!data.session, error });
-
-        if (error) {
-          setExchangeError('This reset link has expired or has already been used. Please request a new one.');
-          setExchangeStatus('error');
-          return;
-        }
-
-        setExchangeStatus('ready');
+    async function checkSession() {
+      // ?error=1 means the server-side code exchange failed (expired or reused link).
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('error')) {
+        setExchangeError(
+          'This reset link has expired or has already been used. Please request a new one.'
+        );
+        setExchangeStatus('error');
         return;
       }
 
-      // ------------------------------------------------------------------
-      // Nothing found
-      // ------------------------------------------------------------------
-      console.warn('[reset-password] no token in hash or query string');
-      setExchangeError('No reset token found. Please use the link from your password reset email.');
-      setExchangeStatus('error');
+      // The session should already be in cookies from the callback redirect.
+      const { data: { session }, error } = await supabase.auth.getSession();
+
+      if (error || !session) {
+        setExchangeError(
+          'No active session found. Please use the link from your password reset email.'
+        );
+        setExchangeStatus('error');
+        return;
+      }
+
+      setExchangeStatus('ready');
     }
 
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('load', saveHashOnLoad);
-    };
+    checkSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -241,7 +131,9 @@ export default function ResetPasswordPage() {
       if (error) {
         console.error('[reset-password] updateUser failed:', error.message);
         setFormStatus('error');
-        setFormError('Could not update your password. Please try again or request a new reset link.');
+        setFormError(
+          'Could not update your password. Please try again or request a new reset link.'
+        );
         return;
       }
 
@@ -255,8 +147,8 @@ export default function ResetPasswordPage() {
 
   /**
    * Signs the user out then navigates to /login.
-   * setSession() establishes a real session; without signing out the middleware
-   * redirects /login to /dashboard.
+   * Without signing out, the active session causes the middleware to redirect
+   * /login → /dashboard.
    */
   async function handleBackToSignIn() {
     await supabase.auth.signOut();
@@ -297,8 +189,19 @@ export default function ResetPasswordPage() {
           {exchangeStatus === 'error' && (
             <div className="text-center py-4">
               <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-5 h-5 text-red-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </div>
               <h2 className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
@@ -319,11 +222,19 @@ export default function ResetPasswordPage() {
           {formStatus === 'success' && (
             <div className="text-center py-4">
               <div className="w-10 h-10 bg-[#1A1A1A]/5 rounded-full flex items-center justify-center mx-auto mb-3">
-                <svg className="w-5 h-5 text-[#1A1A1A]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <svg
+                  className="w-5 h-5 text-[#1A1A1A]"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">Password updated</h2>
+              <h2 className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
+                Password updated
+              </h2>
               <p className="text-sm text-[#C8C8C8]">Redirecting you to your dashboard...</p>
             </div>
           )}
@@ -352,12 +263,24 @@ export default function ResetPasswordPage() {
                       required
                       disabled={isSubmitting}
                       value={password}
-                      onChange={(e) => { setPassword(e.target.value); if (fieldError) setFieldError(''); }}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (fieldError) setFieldError('');
+                      }}
                       placeholder="At least 8 characters"
                       className="h-11 pr-10 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
                     />
-                    <button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((v) => !v)} tabIndex={-1} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors">
-                      {showPassword ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
+                    <button
+                      type="button"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      onClick={() => setShowPassword((v) => !v)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                    >
+                      {showPassword
+                        ? <Eye    className="h-4 w-4" aria-hidden="true" />
+                        : <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      }
                     </button>
                   </div>
                 </div>
@@ -374,25 +297,47 @@ export default function ResetPasswordPage() {
                       required
                       disabled={isSubmitting}
                       value={confirmPassword}
-                      onChange={(e) => { setConfirmPassword(e.target.value); if (fieldError) setFieldError(''); }}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (fieldError) setFieldError('');
+                      }}
                       placeholder="Repeat your new password"
                       className="h-11 pr-10 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
                     />
-                    <button type="button" aria-label={showConfirm ? 'Hide password' : 'Show password'} onClick={() => setShowConfirm((v) => !v)} tabIndex={-1} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors">
-                      {showConfirm ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
+                    <button
+                      type="button"
+                      aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                      onClick={() => setShowConfirm((v) => !v)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                    >
+                      {showConfirm
+                        ? <Eye    className="h-4 w-4" aria-hidden="true" />
+                        : <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      }
                     </button>
                   </div>
                 </div>
 
                 <AnimatePresence>
                   {(fieldError || formStatus === 'error') && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} role="alert" className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      role="alert"
+                      className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700"
+                    >
                       {fieldError || formError}
                     </motion.div>
                   )}
                 </AnimatePresence>
 
-                <Button type="submit" disabled={isSubmitting} className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+                >
                   {isSubmitting ? 'Updating password...' : 'Update password'}
                 </Button>
 
@@ -402,9 +347,14 @@ export default function ResetPasswordPage() {
 
         </div>
 
+        {/* Bottom back-link */}
         {exchangeStatus !== 'loading' && formStatus !== 'success' && (
           <p className="mt-7 text-center text-sm text-[#C8C8C8]">
-            <button type="button" onClick={handleBackToSignIn} className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]">
+            <button
+              type="button"
+              onClick={handleBackToSignIn}
+              className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
+            >
               Back to sign in
             </button>
           </p>
