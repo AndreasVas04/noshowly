@@ -68,10 +68,10 @@ export default function LandingFooter() {
                 Terms of Service
               </Link>
               <a
-                href="mailto:noshowly@gmail.com"
+                href="mailto:hello@noshowly.com"
                 className="block text-sm text-white/60 hover:text-white transition-colors font-body"
               >
-                Contact
+                hello@noshowly.com
               </a>
             </nav>
           </div>

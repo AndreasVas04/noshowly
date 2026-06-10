@@ -177,18 +177,18 @@ export default function ResetPasswordPage() {
           <div className="flex justify-center mb-2">
             <Image src="/Logo.png" alt="Noshowly" width={200} height={50} className="h-16 w-auto" />
           </div>
-          <p className="mt-2 text-sm text-[#C8C8C8] font-medium tracking-wide uppercase">
+          <p className="mt-2 text-sm text-[#8A8680] font-body font-medium tracking-wide uppercase">
             Appointment Reminders
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
+        <div className="bg-white rounded-2xl border border-[#E5E2DB] p-8 shadow-sm">
 
           {/* LOADING */}
           {exchangeStatus === 'loading' && (
             <div className="text-center py-6">
-              <div className="w-8 h-8 border-2 border-[#1A1A1A]/20 border-t-[#1A1A1A] rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-sm text-[#C8C8C8]">Verifying your reset link...</p>
+              <div className="w-8 h-8 border-2 border-[#E5E2DB] border-t-[#1B4332] rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-sm text-[#8A8680] font-body">Verifying your reset link...</p>
             </div>
           )}
 
@@ -211,10 +211,10 @@ export default function ResetPasswordPage() {
                   />
                 </svg>
               </div>
-              <h2 className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
+              <h2 className="font-heading text-xl font-bold text-[#1A1A1A] mb-2">
                 Link unavailable
               </h2>
-              <p className="text-sm text-[#C8C8C8] mb-6">{exchangeError}</p>
+              <p className="text-sm text-[#8A8680] font-body mb-6">{exchangeError}</p>
               <button
                 type="button"
                 onClick={handleBackToSignIn}
@@ -228,9 +228,9 @@ export default function ResetPasswordPage() {
           {/* SUCCESS */}
           {formStatus === 'success' && (
             <div className="text-center py-4">
-              <div className="w-10 h-10 bg-[#1A1A1A]/5 rounded-full flex items-center justify-center mx-auto mb-3">
+              <div className="w-10 h-10 bg-[#E8F2EC] rounded-full flex items-center justify-center mx-auto mb-3">
                 <svg
-                  className="w-5 h-5 text-[#1A1A1A]"
+                  className="w-5 h-5 text-[#1B4332]"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -239,20 +239,20 @@ export default function ResetPasswordPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
+              <h2 className="font-heading text-xl font-bold text-[#1A1A1A] mb-2">
                 Password updated
               </h2>
-              <p className="text-sm text-[#C8C8C8]">Redirecting you to your dashboard...</p>
+              <p className="text-sm text-[#8A8680] font-body">Redirecting you to your dashboard...</p>
             </div>
           )}
 
           {/* FORM */}
           {exchangeStatus === 'ready' && formStatus !== 'success' && (
             <>
-              <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-1">
+              <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">
                 Set new password
               </h2>
-              <p className="text-sm text-[#C8C8C8] mb-7">
+              <p className="text-sm text-[#8A8680] font-body mb-7">
                 Choose a strong password for your account.
               </p>
 
@@ -275,14 +275,14 @@ export default function ResetPasswordPage() {
                         if (fieldError) setFieldError('');
                       }}
                       placeholder="At least 8 characters"
-                      className="h-11 pr-10 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                      className="h-11 pr-10 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
                     <button
                       type="button"
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
                       onClick={() => setShowPassword((v) => !v)}
                       tabIndex={-1}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8680] hover:text-[#1B4332] transition-colors"
                     >
                       {showPassword
                         ? <Eye    className="h-4 w-4" aria-hidden="true" />
@@ -309,14 +309,14 @@ export default function ResetPasswordPage() {
                         if (fieldError) setFieldError('');
                       }}
                       placeholder="Repeat your new password"
-                      className="h-11 pr-10 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                      className="h-11 pr-10 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
                     <button
                       type="button"
                       aria-label={showConfirm ? 'Hide password' : 'Show password'}
                       onClick={() => setShowConfirm((v) => !v)}
                       tabIndex={-1}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8680] hover:text-[#1B4332] transition-colors"
                     >
                       {showConfirm
                         ? <Eye    className="h-4 w-4" aria-hidden="true" />
@@ -356,11 +356,11 @@ export default function ResetPasswordPage() {
 
         {/* Bottom back-link */}
         {exchangeStatus !== 'loading' && formStatus !== 'success' && (
-          <p className="mt-7 text-center text-sm text-[#C8C8C8]">
+          <p className="mt-7 text-center text-sm text-[#8A8680] font-body">
             <button
               type="button"
               onClick={handleBackToSignIn}
-              className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
+              className="font-medium text-[#1B4332] underline underline-offset-4 hover:text-[#16392A]"
             >
               Back to sign in
             </button>

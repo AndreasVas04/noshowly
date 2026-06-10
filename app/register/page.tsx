@@ -178,10 +178,10 @@ export default function RegisterPage() {
           transition={{ duration: 0.4, ease: 'easeOut' }}
           className="w-full max-w-md"
         >
-          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm text-center">
-            <div className="w-12 h-12 bg-[#1A1A1A]/5 rounded-full flex items-center justify-center mx-auto mb-5">
+          <div className="bg-white rounded-2xl border border-[#E5E2DB] p-8 shadow-sm text-center">
+            <div className="w-12 h-12 bg-[#E8F2EC] rounded-full flex items-center justify-center mx-auto mb-5">
               <svg
-                className="w-6 h-6 text-[#1A1A1A]"
+                className="w-6 h-6 text-[#1B4332]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -190,21 +190,21 @@ export default function RegisterPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-2">
+            <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-2">
               Check your email
             </h2>
-            <p className="text-sm text-[#C8C8C8] mb-1">We sent a confirmation link to:</p>
-            <p className="text-sm font-semibold text-[#1A1A1A] mb-4">{form.email}</p>
-            <p className="text-sm text-[#C8C8C8]">
+            <p className="text-sm text-[#8A8680] font-body mb-1">We sent a confirmation link to:</p>
+            <p className="text-sm font-semibold text-[#1A1A1A] font-body mb-4">{form.email}</p>
+            <p className="text-sm text-[#8A8680] font-body">
               Click the link in the email to activate your account and get started.
             </p>
           </div>
-          <p className="mt-6 text-center text-sm text-[#C8C8C8]">
+          <p className="mt-6 text-center text-sm text-[#8A8680] font-body">
             Wrong email?{' '}
             <button
               type="button"
               onClick={() => setStatus('idle')}
-              className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
+              className="font-medium text-[#1B4332] underline underline-offset-4 hover:text-[#16392A]"
             >
               Go back
             </button>
@@ -220,8 +220,8 @@ export default function RegisterPage() {
     <main
       className="min-h-screen flex items-center justify-center px-4 py-12"
       style={{
-        backgroundColor: '#F9F9F9',
-        backgroundImage: 'radial-gradient(circle, #C8C8C8 1px, transparent 1px)',
+        backgroundColor: '#FAFAF8',
+        backgroundImage: 'radial-gradient(circle, #D8D4CC 1px, transparent 1px)',
         backgroundSize: '28px 28px',
       }}
     >
@@ -236,25 +236,25 @@ export default function RegisterPage() {
           <div className="flex justify-center mb-2">
             <Image src="/Logo.png" alt="Noshowly" width={200} height={50} className="h-16 w-auto" />
           </div>
-          <p className="mt-2 text-sm text-[#C8C8C8] font-medium tracking-wide uppercase">
+          <p className="mt-2 text-sm text-[#8A8680] font-body font-medium tracking-wide uppercase">
             Appointment Reminders
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 shadow-sm">
-          <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-1">
+        <div className="bg-white rounded-2xl border border-[#E5E2DB] p-8 shadow-sm">
+          <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">
             Create your account
           </h2>
-          <p className="text-sm text-[#C8C8C8] mb-7">
-            Set up your business in minutes
+          <p className="text-sm text-[#8A8680] font-body mb-7">
+            Set up your business in minutes.
           </p>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
 
             {/* Business name */}
             <div className="space-y-1.5">
-              <Label htmlFor="salonName" className="text-sm font-medium text-[#1A1A1A]">
+              <Label htmlFor="salonName" className="text-sm font-medium text-[#1A1A1A] font-body">
                 Business name
               </Label>
               <Input
@@ -267,13 +267,13 @@ export default function RegisterPage() {
                 onChange={(e) => handleChange('salonName', e.target.value)}
                 placeholder="e.g. City Dental Clinic"
                 maxLength={100}
-                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
               />
             </div>
 
             {/* Email */}
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm font-medium text-[#1A1A1A]">
+              <Label htmlFor="email" className="text-sm font-medium text-[#1A1A1A] font-body">
                 Email address
               </Label>
               <Input
@@ -285,13 +285,13 @@ export default function RegisterPage() {
                 value={form.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 placeholder="you@example.com"
-                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
               />
             </div>
 
             {/* Password */}
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm font-medium text-[#1A1A1A]">
+              <Label htmlFor="password" className="text-sm font-medium text-[#1A1A1A] font-body">
                 Password
               </Label>
               <Input
@@ -303,13 +303,13 @@ export default function RegisterPage() {
                 value={form.password}
                 onChange={(e) => handleChange('password', e.target.value)}
                 placeholder="At least 8 characters"
-                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A]"
               />
             </div>
 
             {/* Confirm password */}
             <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword" className="text-sm font-medium text-[#1A1A1A]">
+              <Label htmlFor="confirmPassword" className="text-sm font-medium text-[#1A1A1A] font-body">
                 Confirm password
               </Label>
               <Input
@@ -321,7 +321,7 @@ export default function RegisterPage() {
                 value={form.confirmPassword}
                 onChange={(e) => handleChange('confirmPassword', e.target.value)}
                 placeholder="••••••••"
-                className="h-11 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A]"
               />
             </div>
 
@@ -344,7 +344,7 @@ export default function RegisterPage() {
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors"
+              className="w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold font-body rounded-lg transition-colors"
             >
               {isLoading ? 'Creating account…' : 'Create account'}
             </Button>
@@ -352,13 +352,13 @@ export default function RegisterPage() {
           </form>
 
           {/* Legal */}
-          <p className="mt-5 text-xs text-[#C8C8C8] text-center">
+          <p className="mt-5 text-xs text-[#8A8680] font-body text-center">
             By creating an account you agree to our{' '}
-            <Link href="/privacy" className="underline underline-offset-2 hover:text-[#1A1A1A]">
+            <Link href="/privacy" className="underline underline-offset-2 text-[#1B4332] hover:text-[#16392A]">
               Privacy Policy
             </Link>{' '}
             and{' '}
-            <Link href="/terms" className="underline underline-offset-2 hover:text-[#1A1A1A]">
+            <Link href="/terms" className="underline underline-offset-2 text-[#1B4332] hover:text-[#16392A]">
               Terms of Service
             </Link>
             .
@@ -366,11 +366,11 @@ export default function RegisterPage() {
         </div>
 
         {/* Sign-in link */}
-        <p className="mt-7 text-center text-sm text-[#C8C8C8]">
+        <p className="mt-7 text-center text-sm text-[#8A8680] font-body">
           Already have an account?{' '}
           <Link
             href="/login"
-            className="font-medium text-[#1A1A1A] underline underline-offset-4 hover:text-[#2D2D2D]"
+            className="font-medium text-[#1B4332] underline underline-offset-4 hover:text-[#16392A]"
           >
             Sign in
           </Link>

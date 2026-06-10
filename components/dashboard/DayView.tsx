@@ -217,7 +217,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
       =================================================================== */}
       {title && (
         <div className="mb-5">
-          <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">{title}</h1>
+          <h1 className="font-heading text-4xl font-bold text-[#1A1A1A]">{title}</h1>
           <p className="text-sm text-[#8A8680] mt-1 font-body">{fullDateLabel}</p>
         </div>
       )}

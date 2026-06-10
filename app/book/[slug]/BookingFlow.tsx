@@ -460,7 +460,7 @@ function CalendarPicker({
         <button
           type="button"
           onClick={prevMonth}
-          className="p-2 rounded-lg hover:bg-[#1A1A1A]/5 transition-colors text-[#C8C8C8] hover:text-[#1A1A1A]"
+          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332]"
           aria-label="Previous month"
         >
           &#8592;
@@ -471,7 +471,7 @@ function CalendarPicker({
         <button
           type="button"
           onClick={nextMonth}
-          className="p-2 rounded-lg hover:bg-[#1A1A1A]/5 transition-colors text-[#C8C8C8] hover:text-[#1A1A1A]"
+          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332]"
           aria-label="Next month"
         >
           &#8594;
@@ -481,7 +481,7 @@ function CalendarPicker({
       {/* Day-of-week headers */}
       <div className="grid grid-cols-7 mb-1">
         {DAY_LABELS.map((d) => (
-          <div key={d} className="text-center text-[10px] text-[#C8C8C8] font-semibold py-1 tracking-wider">
+          <div key={d} className="text-center text-[10px] text-[#8A8680] font-semibold py-1 tracking-wider">
             {d}
           </div>
         ))}
@@ -508,12 +508,12 @@ function CalendarPicker({
               className={[
                 'aspect-square flex items-center justify-center text-sm rounded-full transition-colors font-body',
                 isDisabled
-                  ? 'text-[#C8C8C8]/30 cursor-not-allowed'
+                  ? 'text-[#8A8680]/40 cursor-not-allowed'
                   : isSelected
-                    ? 'bg-[#1A1A1A] text-white font-semibold'
+                    ? 'bg-[#1B4332] text-white font-semibold'
                     : isToday
-                      ? 'underline underline-offset-2 text-[#1A1A1A] font-semibold hover:bg-[#1A1A1A]/5'
-                      : 'text-[#1A1A1A] hover:bg-[#1A1A1A]/6',
+                      ? 'underline underline-offset-2 decoration-[#1B4332] text-[#1B4332] font-semibold hover:bg-[#E8F2EC]/60'
+                      : 'text-[#1A1A1A] hover:bg-[#E8F2EC]/50',
               ].join(' ')}
             >
               {day}
@@ -917,7 +917,7 @@ export default function BookingFlow({
     <div className="min-h-screen flex flex-col lg:flex-row">
 
       {/* ── MOBILE TOP BAR ─────────────────────────────────────────────────── */}
-      <div className="lg:hidden bg-[#1A1A1A] px-5 py-3 flex items-center justify-between sticky top-0 z-20">
+      <div className="lg:hidden bg-[#1B4332] px-5 py-3 flex items-center justify-between sticky top-0 z-20">
         <span className="font-heading text-white text-base font-semibold truncate">
           {customTitle ?? salon.name}
         </span>
@@ -927,7 +927,7 @@ export default function BookingFlow({
       </div>
 
       {/* ── DESKTOP SIDEBAR ────────────────────────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-[240px] shrink-0 bg-[#1A1A1A] sticky top-0 self-start h-screen overflow-y-auto">
+      <aside className="hidden lg:flex flex-col w-[240px] shrink-0 sticky top-0 self-start h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
         <div className="flex flex-col h-full p-7 gap-0">
 
           {/* Business name */}
@@ -986,8 +986,8 @@ export default function BookingFlow({
                     <div
                       className={[
                         'w-[18px] h-[18px] rounded-full flex items-center justify-center shrink-0 transition-all',
-                        status === 'active'   ? 'bg-white border-2 border-[#1A1A1A]'          :
-                        status === 'complete' ? 'bg-white text-[#1A1A1A] text-[10px] font-bold' :
+                        status === 'active'   ? 'bg-transparent border-2 border-white'        :
+                        status === 'complete' ? 'bg-white text-[#1B4332] text-[10px] font-bold' :
                                                'border-2 border-white/20 bg-transparent',
                       ].join(' ')}
                     >
@@ -1012,30 +1012,30 @@ export default function BookingFlow({
       </aside>
 
       {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
-      <main className="flex-1 bg-[#F4F4F5] min-h-screen">
+      <main className="flex-1 bg-[#FAFAF8] min-h-screen">
         <div className="max-w-[540px] mx-auto px-5 lg:px-8 py-8 space-y-4">
 
           {/* ----------------------------------------------------------------
               STEP: staff selection
           ---------------------------------------------------------------- */}
           {step === 'staff' && hasBarbers && (
-            <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 overflow-hidden">
-              <div className="px-6 pt-6 pb-5 border-b border-[#C8C8C8]/20">
-                <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">
+            <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
+              <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
+                <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">
                   Select a staff member
                 </h2>
               </div>
 
-              <div className="divide-y divide-[#C8C8C8]/20">
+              <div className="divide-y divide-[#E5E2DB]/60">
                 {/* No preference option */}
                 {allowNoPreferenceStaff && (
                   <button
                     type="button"
                     onClick={() => handleSelectBarber('none')}
-                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-[#F4F4F5] transition-colors text-left"
+                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-[#F5FAF7] transition-colors text-left"
                   >
-                    <div className="w-14 h-14 rounded-full bg-[#F4F4F5] border border-[#C8C8C8]/40 flex items-center justify-center shrink-0">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#C8C8C8]">
+                    <div className="w-14 h-14 rounded-full bg-[#F5F3EF] border border-[#E5E2DB] flex items-center justify-center shrink-0">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#8A8680]">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                         <circle cx="9" cy="7" r="4"/>
                         <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
@@ -1044,9 +1044,9 @@ export default function BookingFlow({
                     </div>
                     <div>
                       <p className="font-body text-sm font-semibold text-[#1A1A1A]">No preference</p>
-                      <p className="font-body text-xs text-[#C8C8C8] mt-0.5">Any available team member</p>
+                      <p className="font-body text-xs text-[#8A8680] mt-0.5">Any available team member</p>
                     </div>
-                    <span className="ml-auto text-[#C8C8C8] shrink-0">&#8594;</span>
+                    <span className="ml-auto text-[#8A8680] shrink-0">&#8594;</span>
                   </button>
                 )}
 
@@ -1055,26 +1055,26 @@ export default function BookingFlow({
                     key={b.id}
                     type="button"
                     onClick={() => handleSelectBarber(b)}
-                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-[#F4F4F5] transition-colors text-left group"
+                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-[#F5FAF7] transition-colors text-left group"
                   >
                     {b.photo_url ? (
                       <img
                         src={b.photo_url}
                         alt={b.name}
-                        className="w-14 h-14 rounded-full object-cover shrink-0 border border-[#C8C8C8]/30"
+                        className="w-14 h-14 rounded-full object-cover shrink-0 border border-[#E5E2DB]"
                       />
                     ) : (
-                      <div className="w-14 h-14 rounded-full bg-[#1A1A1A]/8 flex items-center justify-center text-sm font-semibold text-[#1A1A1A] shrink-0">
+                      <div className="w-14 h-14 rounded-full bg-[#E8F2EC] flex items-center justify-center text-sm font-semibold text-[#1B4332] shrink-0">
                         {getInitials(b.name)}
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="font-body text-sm font-semibold text-[#1A1A1A]">{b.name}</p>
                       {b.bio && (
-                        <p className="font-body text-xs text-[#C8C8C8] mt-0.5 line-clamp-1">{b.bio}</p>
+                        <p className="font-body text-xs text-[#8A8680] mt-0.5 line-clamp-1">{b.bio}</p>
                       )}
                     </div>
-                    <span className="text-[#C8C8C8] group-hover:text-[#1A1A1A] transition-colors shrink-0">&#8594;</span>
+                    <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
                   </button>
                 ))}
               </div>
@@ -1086,18 +1086,18 @@ export default function BookingFlow({
           ---------------------------------------------------------------- */}
           {step === 'service' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 overflow-hidden">
-                <div className="px-6 pt-6 pb-5 border-b border-[#C8C8C8]/20">
-                  <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">Choose a service</h2>
+              <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
+                <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
+                  <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Choose a service</h2>
                 </div>
 
                 {availableServices.length === 0 ? (
                   <div className="p-6 text-center space-y-4">
-                    <p className="font-body text-sm text-[#C8C8C8]">No services listed. Please continue to pick a time.</p>
+                    <p className="font-body text-sm text-[#8A8680]">No services listed. Please continue to pick a time.</p>
                     <Button
                       type="button"
                       onClick={() => setStep('datetime')}
-                      className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white px-6 py-2.5 h-auto font-body"
+                      className="bg-[#1B4332] hover:bg-[#16392A] text-white px-6 py-2.5 h-auto font-body"
                     >
                       Continue &#8594;
                     </Button>
@@ -1108,10 +1108,10 @@ export default function BookingFlow({
                       <button
                         type="button"
                         onClick={() => { setSelectedService(null); setStep('datetime'); }}
-                        className="w-full text-left p-4 rounded-xl border border-[#C8C8C8]/40 hover:border-[#1A1A1A]/30 transition-colors mb-3"
+                        className="w-full text-left p-4 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#F5FAF7] transition-colors mb-3"
                       >
                         <p className="font-body text-sm font-semibold text-[#1A1A1A]">No preference</p>
-                        <p className="font-body text-xs text-[#C8C8C8] mt-0.5">Any available service</p>
+                        <p className="font-body text-xs text-[#8A8680] mt-0.5">Any available service</p>
                       </button>
                     )}
 
@@ -1121,19 +1121,19 @@ export default function BookingFlow({
                           key={svc.id}
                           type="button"
                           onClick={() => { setSelectedService(svc); setStep('datetime'); }}
-                          className="text-left p-4 rounded-xl border border-[#C8C8C8]/40 hover:border-[#1A1A1A] hover:bg-[#1A1A1A]/2 transition-all"
+                          className="text-left p-4 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332] hover:bg-[#E8F2EC]/20 transition-all"
                         >
                           <p className="font-body text-sm font-semibold text-[#1A1A1A] mb-2 leading-snug">
                             {svc.name}
                           </p>
                           <div className="flex items-center gap-2 flex-wrap">
                             {svc.duration_minutes && (
-                              <span className="font-body text-[11px] bg-[#F4F4F5] text-[#2D2D2D] px-2 py-0.5 rounded-md font-medium">
+                              <span className="font-body text-[11px] bg-[#F5F3EF] text-[#4A4540] px-2 py-0.5 rounded-md font-medium">
                                 {svc.duration_minutes} min
                               </span>
                             )}
                             {svc.price != null && (
-                              <span className="font-body text-[11px] bg-[#1A1A1A] text-white px-2 py-0.5 rounded-md font-medium">
+                              <span className="font-body text-[11px] bg-[#1B4332] text-white px-2 py-0.5 rounded-md font-medium">
                                 {currencySymbol}{svc.price.toFixed(2)}
                               </span>
                             )}
@@ -1149,7 +1149,7 @@ export default function BookingFlow({
                 <button
                   type="button"
                   onClick={() => { setSelectedService(null); setStep('staff'); }}
-                  className="font-body text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                  className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
                 >
                   &#8592; Change team member
                 </button>
@@ -1162,8 +1162,8 @@ export default function BookingFlow({
           ---------------------------------------------------------------- */}
           {step === 'datetime' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6">
-                <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A] mb-6">Pick a date</h2>
+              <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6">
+                <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-6">Pick a date</h2>
                 <CalendarPicker
                   selected={selectedDate}
                   onSelect={setSelectedDate}
@@ -1175,14 +1175,14 @@ export default function BookingFlow({
               </div>
 
               {selectedDate && (
-                <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6">
+                <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6">
                   <h2 className="font-body text-base font-semibold text-[#1A1A1A] mb-0.5">Available times</h2>
-                  <p className="font-body text-xs text-[#C8C8C8] mb-5">{formatDateLong(selectedDate)}</p>
+                  <p className="font-body text-xs text-[#8A8680] mb-5">{formatDateLong(selectedDate)}</p>
 
                   {loadingSlots ? (
-                    <p className="font-body text-sm text-[#C8C8C8]">Loading available times...</p>
+                    <p className="font-body text-sm text-[#8A8680]">Loading available times...</p>
                   ) : timeSlots.length === 0 ? (
-                    <p className="font-body text-sm text-[#C8C8C8]">No times available on this day. Please choose another date.</p>
+                    <p className="font-body text-sm text-[#8A8680]">No times available on this day. Please choose another date.</p>
                   ) : (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                       {timeSlots.map((slot) => {
@@ -1199,17 +1199,17 @@ export default function BookingFlow({
                             className={[
                               'flex flex-col items-center justify-center py-3 px-2 rounded-xl border transition-colors',
                               blocked
-                                ? 'text-[#C8C8C8]/30 border-[#C8C8C8]/15 cursor-not-allowed line-through'
+                                ? 'text-[#8A8680]/40 border-[#E5E2DB]/40 cursor-not-allowed line-through'
                                 : isActive
-                                  ? 'bg-[#1A1A1A] text-white border-[#1A1A1A]'
-                                  : 'border-[#C8C8C8]/40 text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/2',
+                                  ? 'bg-[#1B4332] text-white border-[#1B4332]'
+                                  : 'border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1B4332]/40 hover:bg-[#E8F2EC]/50',
                             ].join(' ')}
                           >
                             <span className="font-body text-xs font-semibold">
                               {formatTime12h(slot)}
                             </span>
                             {isNoPreference && !blocked && availCount > 0 && (
-                              <span className={`font-body text-[10px] mt-0.5 ${isActive ? 'text-white/70' : 'text-[#C8C8C8]'}`}>
+                              <span className={`font-body text-[10px] mt-0.5 ${isActive ? 'text-white/70' : 'text-[#8A8680]'}`}>
                                 {availCount} avail.
                               </span>
                             )}
@@ -1231,7 +1231,7 @@ export default function BookingFlow({
                       setStep('staff');
                     }
                   }}
-                  className="font-body text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                  className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
                 >
                   &#8592; Back
                 </button>
@@ -1240,7 +1240,7 @@ export default function BookingFlow({
                   type="button"
                   disabled={!selectedDate || !selectedTime}
                   onClick={() => setStep('details')}
-                  className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white px-6 py-2.5 h-auto disabled:opacity-40 font-body"
+                  className="bg-[#1B4332] hover:bg-[#16392A] text-white px-6 py-2.5 h-auto disabled:opacity-40 font-body"
                 >
                   Continue &#8594;
                 </Button>
@@ -1254,36 +1254,36 @@ export default function BookingFlow({
           {step === 'details' && (
             <div className="space-y-4">
               {/* Booking summary card */}
-              <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-5 space-y-1.5">
-                <p className="font-body text-[10px] font-semibold text-[#C8C8C8] uppercase tracking-widest mb-2">
+              <div className="bg-white rounded-2xl border border-[#E5E2DB] p-5 space-y-1.5">
+                <p className="font-body text-[10px] font-semibold text-[#8A8680] uppercase tracking-widest mb-2">
                   Your booking
                 </p>
                 {selectedService && (
                   <p className="font-body text-sm font-semibold text-[#1A1A1A]">
                     {selectedService.name}
                     {selectedService.duration_minutes && (
-                      <span className="text-[#C8C8C8] font-normal"> &middot; {selectedService.duration_minutes} min</span>
+                      <span className="text-[#8A8680] font-normal"> &middot; {selectedService.duration_minutes} min</span>
                     )}
                   </p>
                 )}
                 {selectedBarber && selectedBarber !== 'none' && (
-                  <p className="font-body text-sm text-[#C8C8C8]">with {selectedBarber.name}</p>
+                  <p className="font-body text-sm text-[#8A8680]">with {selectedBarber.name}</p>
                 )}
                 {selectedDate && selectedTime && (
                   <p className="font-body text-sm text-[#1A1A1A] font-medium">
                     {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
                   </p>
                 )}
-                <p className="font-body text-sm text-[#C8C8C8]">{customTitle ?? salon.name}</p>
+                <p className="font-body text-sm text-[#8A8680]">{customTitle ?? salon.name}</p>
               </div>
 
               {/* Details form */}
               <form
                 onSubmit={(e) => void handleSubmit(e)}
                 noValidate
-                className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5"
+                className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5"
               >
-                <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">Your details</h2>
+                <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
 
                 {/* Full name */}
                 <div className="space-y-1.5">
@@ -1299,7 +1299,7 @@ export default function BookingFlow({
                     maxLength={100}
                     required
                     autoComplete="name"
-                    className="font-body border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                    className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                   />
                 </div>
 
@@ -1317,9 +1317,9 @@ export default function BookingFlow({
                       placeholder="+357 99 123 456"
                       maxLength={20}
                       autoComplete="tel"
-                      className="font-body border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
-                    <p className="font-body text-xs text-[#C8C8C8]">
+                    <p className="font-body text-xs text-[#8A8680]">
                       Required for SMS reminders. Include your country code (e.g. +1, +357).
                     </p>
                   </div>
@@ -1329,7 +1329,7 @@ export default function BookingFlow({
                 {!requirePhone && (
                   <div className="space-y-1.5">
                     <Label htmlFor="client-phone" className="font-body text-sm font-medium text-[#1A1A1A]">
-                      Phone number <span className="font-body text-[#C8C8C8] font-normal">(optional)</span>
+                      Phone number <span className="font-body text-[#8A8680] font-normal">(optional)</span>
                     </Label>
                     <Input
                       id="client-phone"
@@ -1339,9 +1339,9 @@ export default function BookingFlow({
                       placeholder="+357 99 123 456"
                       maxLength={20}
                       autoComplete="tel"
-                      className="font-body border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
-                    <p className="font-body text-xs text-[#C8C8C8]">Include your country code (e.g. +1, +357).</p>
+                    <p className="font-body text-xs text-[#8A8680]">Include your country code (e.g. +1, +357).</p>
                   </div>
                 )}
 
@@ -1358,9 +1358,9 @@ export default function BookingFlow({
                       onChange={(e) => { setClientEmail(e.target.value); setDetailsError(''); }}
                       placeholder="jane@example.com"
                       autoComplete="email"
-                      className="font-body border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
-                    <p className="font-body text-xs text-[#C8C8C8]">Required for email reminders.</p>
+                    <p className="font-body text-xs text-[#8A8680]">Required for email reminders.</p>
                   </div>
                 )}
 
@@ -1368,7 +1368,7 @@ export default function BookingFlow({
                 {!requireEmail && (
                   <div className="space-y-1.5">
                     <Label htmlFor="client-email" className="font-body text-sm font-medium text-[#1A1A1A]">
-                      Email <span className="font-body text-[#C8C8C8] font-normal">(optional)</span>
+                      Email <span className="font-body text-[#8A8680] font-normal">(optional)</span>
                     </Label>
                     <Input
                       id="client-email"
@@ -1377,7 +1377,7 @@ export default function BookingFlow({
                       onChange={(e) => { setClientEmail(e.target.value); setDetailsError(''); }}
                       placeholder="jane@example.com"
                       autoComplete="email"
-                      className="font-body border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
                   </div>
                 )}
@@ -1385,7 +1385,7 @@ export default function BookingFlow({
                 {/* Notes */}
                 <div className="space-y-1.5">
                   <Label htmlFor="client-notes" className="font-body text-sm font-medium text-[#1A1A1A]">
-                    Notes <span className="font-body text-[#C8C8C8] font-normal">(optional)</span>
+                    Notes <span className="font-body text-[#8A8680] font-normal">(optional)</span>
                   </Label>
                   <textarea
                     id="client-notes"
@@ -1394,7 +1394,7 @@ export default function BookingFlow({
                     placeholder="Any special requests or information..."
                     rows={2}
                     maxLength={500}
-                    className="font-body w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] outline-none focus:border-[#1A1A1A] resize-none transition-colors"
+                    className="font-body w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] resize-none transition-colors"
                   />
                 </div>
 
@@ -1414,7 +1414,7 @@ export default function BookingFlow({
                   <button
                     type="button"
                     onClick={() => setStep('datetime')}
-                    className="font-body text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                    className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
                   >
                     &#8592; Back
                   </button>
@@ -1422,7 +1422,7 @@ export default function BookingFlow({
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="w-full bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white px-8 py-3 h-auto font-body text-sm font-medium"
+                    className="w-full bg-[#1B4332] hover:bg-[#16392A] text-white px-8 py-3 h-auto font-body text-sm font-medium"
                   >
                     {submitting ? 'Booking...' : 'Book appointment'}
                   </Button>
@@ -1435,13 +1435,13 @@ export default function BookingFlow({
               STEP: success
           ---------------------------------------------------------------- */}
           {step === 'success' && (
-            <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-8 text-center space-y-6">
+            <div className="bg-white rounded-2xl border border-[#E5E2DB] p-8 text-center space-y-6">
               {/* Animated checkmark */}
-              <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto">
+              <div className="w-20 h-20 rounded-full bg-[#E8F2EC] flex items-center justify-center mx-auto">
                 <svg
                   viewBox="0 0 48 48"
                   fill="none"
-                  stroke="#16a34a"
+                  stroke="#1B4332"
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -1468,35 +1468,35 @@ export default function BookingFlow({
                 <h2 className="font-heading text-3xl font-bold text-[#1A1A1A]">
                   {"You're booked!"}
                 </h2>
-                <p className="font-body text-sm text-[#C8C8C8] mt-2">
+                <p className="font-body text-sm text-[#8A8680] mt-2">
                   {customTitle ?? salon.name} will be in touch if anything changes.
                 </p>
               </div>
 
               {/* Booking summary */}
-              <div className="bg-[#F4F4F5] rounded-xl p-5 text-left space-y-2">
+              <div className="bg-[#F0F7F4] rounded-xl p-5 text-left space-y-2">
                 {selectedService && (
                   <div className="flex items-center justify-between">
                     <p className="font-body text-sm font-semibold text-[#1A1A1A]">{selectedService.name}</p>
                     {selectedService.price != null && (
-                      <p className="font-body text-sm text-[#2D2D2D]">
+                      <p className="font-body text-sm text-[#1A1A1A]">
                         {currencySymbol}{selectedService.price.toFixed(2)}
                       </p>
                     )}
                   </div>
                 )}
                 {selectedBarber && selectedBarber !== 'none' && (
-                  <p className="font-body text-sm text-[#C8C8C8]">with {selectedBarber.name}</p>
+                  <p className="font-body text-sm text-[#8A8680]">with {selectedBarber.name}</p>
                 )}
                 {selectedDate && selectedTime && (
                   <p className="font-body text-sm font-medium text-[#1A1A1A]">
                     {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
                   </p>
                 )}
-                <p className="font-body text-sm text-[#C8C8C8]">{customTitle ?? salon.name}</p>
+                <p className="font-body text-sm text-[#8A8680]">{customTitle ?? salon.name}</p>
               </div>
 
-              <p className="font-body text-xs text-[#C8C8C8]">
+              <p className="font-body text-xs text-[#8A8680]">
                 {"You'll receive a reminder before your appointment."}
               </p>
 
@@ -1504,14 +1504,14 @@ export default function BookingFlow({
                 <button
                   type="button"
                   onClick={handleDownloadICS}
-                  className="font-body inline-flex items-center gap-2 text-sm font-medium text-[#1A1A1A] border border-[#C8C8C8]/60 hover:border-[#1A1A1A]/30 px-5 py-2.5 rounded-lg transition-colors"
+                  className="font-body inline-flex items-center gap-2 text-sm font-medium text-[#1B4332] border border-[#E5E2DB] hover:border-[#1B4332]/40 hover:bg-[#E8F2EC]/40 px-5 py-2.5 rounded-lg transition-colors"
                 >
                   Add to calendar (.ics)
                 </button>
               )}
 
               {confirmedId && (
-                <p className="font-body text-xs text-[#C8C8C8]">
+                <p className="font-body text-xs text-[#8A8680]">
                   Ref: {confirmedId.slice(0, 8).toUpperCase()}
                 </p>
               )}

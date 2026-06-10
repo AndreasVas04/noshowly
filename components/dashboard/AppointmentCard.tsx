@@ -80,11 +80,11 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
       onClick={onClick}
       className={[
         'w-full text-left',
-        'bg-white rounded-xl border border-[#C8C8C8]/40',
+        'bg-white rounded-xl border border-[#E5E2DB] border-l-[3px] border-l-[#1B4332]',
         'px-4 py-3.5',
         'flex items-center gap-3',
-        'hover:border-[#1B4332]/20 hover:shadow-sm hover:bg-[#F5FAF7] transition-all duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20',
+        'hover:border-[#1B4332]/30 hover:shadow-sm hover:bg-[#F5FAF7] transition-all duration-150',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20',
         'cursor-pointer',
         isCancelled ? 'opacity-40' : '',
       ].join(' ')}
@@ -95,28 +95,28 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
         style={{ background: statusColor(appointment.status) }}
       />
 
-      {/* Left: time — fixed width so all times vertically align */}
+      {/* Left: time — Playfair Display, fixed width so all times align */}
       <div className="w-12 shrink-0 text-right">
-        <span className="text-sm font-semibold text-[#1A1A1A] tabular-nums">{time}</span>
+        <span className="font-heading text-sm font-semibold text-[#1A1A1A] tabular-nums">{time}</span>
       </div>
 
       {/* Divider */}
-      <div className="w-px h-8 bg-[#C8C8C8]/30 shrink-0" />
+      <div className="w-px h-8 bg-[#E5E2DB] shrink-0" />
 
-      {/* Client initial avatar */}
-      <div className="w-8 h-8 rounded-full bg-[#1A1A1A]/8 flex items-center justify-center shrink-0">
-        <span className="text-[10px] font-semibold text-[#1A1A1A]">
+      {/* Client initial avatar — forest green circle */}
+      <div className="w-8 h-8 rounded-full bg-[#E8F2EC] flex items-center justify-center shrink-0">
+        <span className="text-[10px] font-semibold text-[#1B4332]">
           {clientInitials(appointment.client_name)}
         </span>
       </div>
 
       {/* Centre: client details */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold text-[#1A1A1A] truncate ${isCancelled ? 'line-through' : ''}`}>
+        <p className={`text-sm font-semibold text-[#1A1A1A] truncate font-body ${isCancelled ? 'line-through' : ''}`}>
           {appointment.client_name ?? 'Unknown client'}
         </p>
         {detailLine && (
-          <p className="text-xs text-[#C8C8C8] mt-0.5 truncate">{detailLine}</p>
+          <p className="text-xs text-[#8A8680] mt-0.5 truncate font-body">{detailLine}</p>
         )}
       </div>
 

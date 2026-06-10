@@ -1,9 +1,8 @@
 /**
  * app/pricing/PricingPageHeader.tsx
  *
- * Client component — sticky header for the pricing page with
- * backdrop blur on scroll. Extracted from the Server Component so that
- * scroll state can use client-side event listeners.
+ * Client component — minimal sticky header for the pricing page.
+ * Single purpose: let users navigate back to the landing page.
  */
 
 'use client';
@@ -12,20 +11,13 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
-/** Props passed from the server component parent. */
-interface PricingPageHeaderProps {
-  /** When true, shows a "Dashboard" link (user is on a paid plan). */
-  showDashboardLink: boolean;
-}
-
 /**
- * Renders a sticky pricing page header with forest green background that gains
- * a backdrop blur shadow when the user scrolls past 20px.
+ * Renders a minimal sticky pricing page header with forest green background.
+ * Shows only a logo and a "Back to home" link.
  *
- * @param props - showDashboardLink flag from the server.
  * @returns The pricing page header JSX.
  */
-export default function PricingPageHeader({ showDashboardLink }: PricingPageHeaderProps) {
+export default function PricingPageHeader() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -48,32 +40,29 @@ export default function PricingPageHeader({ showDashboardLink }: PricingPageHead
       ].join(' ')}
     >
       <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
-        <Link href="/" aria-label="Noshowly home">
-          <Image src="/Logo.png" alt="Noshowly" width={160} height={40} className="h-9 w-auto" />
+        {/* Back to home */}
+        <Link
+          href="/"
+          className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors font-body group"
+          aria-label="Back to home"
+        >
+          <svg
+            className="w-4 h-4 transition-transform group-hover:-translate-x-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to home
         </Link>
 
-        <nav className="flex items-center gap-6" aria-label="Pricing page navigation">
-          <Link
-            href="/"
-            className="text-sm text-white/60 hover:text-white transition-colors font-body"
-          >
-            Home
-          </Link>
-          {showDashboardLink && (
-            <Link
-              href="/dashboard"
-              className="text-sm text-white/60 hover:text-white transition-colors font-body"
-            >
-              Dashboard
-            </Link>
-          )}
-          <Link
-            href="/login"
-            className="text-sm text-white/60 hover:text-white transition-colors font-body"
-          >
-            Sign in
-          </Link>
-        </nav>
+        {/* Logo */}
+        <Link href="/" aria-label="Noshowly home">
+          <Image src="/Logo.png" alt="Noshowly" width={140} height={36} className="h-8 w-auto" />
+        </Link>
       </div>
     </header>
   );
