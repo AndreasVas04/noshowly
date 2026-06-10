@@ -506,17 +506,20 @@ function CalendarPicker({
               disabled={isDisabled}
               onClick={() => onSelect(dateStr)}
               className={[
-                'aspect-square flex items-center justify-center text-sm rounded-full transition-colors font-body',
+                'aspect-square relative flex flex-col items-center justify-center text-sm rounded-full transition-colors font-body',
                 isDisabled
                   ? 'text-[#8A8680]/40 cursor-not-allowed'
                   : isSelected
                     ? 'bg-[#1B4332] text-white font-semibold'
                     : isToday
-                      ? 'underline underline-offset-2 decoration-[#1B4332] text-[#1B4332] font-semibold hover:bg-[#E8F2EC]/60'
+                      ? 'text-[#1B4332] font-semibold hover:bg-[#E8F2EC]/60'
                       : 'text-[#1A1A1A] hover:bg-[#E8F2EC]/50',
               ].join(' ')}
             >
               {day}
+              {isToday && !isSelected && (
+                <span className="absolute bottom-[3px] w-1 h-1 rounded-full bg-[#1B4332]" />
+              )}
             </button>
           );
         })}
@@ -1013,17 +1016,18 @@ export default function BookingFlow({
 
       {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
       <main className="flex-1 bg-[#FAFAF8] min-h-screen">
-        <div className="max-w-[540px] mx-auto px-5 lg:px-8 py-8 space-y-4">
+        <div className="max-w-[560px] mx-auto px-5 lg:px-8 py-10 space-y-5">
 
           {/* ----------------------------------------------------------------
               STEP: staff selection
           ---------------------------------------------------------------- */}
           {step === 'staff' && hasBarbers && (
-            <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
+            <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden shadow-sm">
               <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
                 <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">
                   Select a staff member
                 </h2>
+                <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you'd like to see</p>
               </div>
 
               <div className="divide-y divide-[#E5E2DB]/60">
@@ -1032,9 +1036,9 @@ export default function BookingFlow({
                   <button
                     type="button"
                     onClick={() => handleSelectBarber('none')}
-                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-[#F5FAF7] transition-colors text-left"
+                    className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
                   >
-                    <div className="w-14 h-14 rounded-full bg-[#F5F3EF] border border-[#E5E2DB] flex items-center justify-center shrink-0">
+                    <div className="w-14 h-14 rounded-full bg-[#F5F3EF] border-2 border-[#E5E2DB] group-hover:border-[#1B4332]/20 flex items-center justify-center shrink-0 transition-colors">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#8A8680]">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                         <circle cx="9" cy="7" r="4"/>
@@ -1046,7 +1050,7 @@ export default function BookingFlow({
                       <p className="font-body text-sm font-semibold text-[#1A1A1A]">No preference</p>
                       <p className="font-body text-xs text-[#8A8680] mt-0.5">Any available team member</p>
                     </div>
-                    <span className="ml-auto text-[#8A8680] shrink-0">&#8594;</span>
+                    <span className="ml-auto text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
                   </button>
                 )}
 
@@ -1055,23 +1059,23 @@ export default function BookingFlow({
                     key={b.id}
                     type="button"
                     onClick={() => handleSelectBarber(b)}
-                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-[#F5FAF7] transition-colors text-left group"
+                    className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
                   >
                     {b.photo_url ? (
                       <img
                         src={b.photo_url}
                         alt={b.name}
-                        className="w-14 h-14 rounded-full object-cover shrink-0 border border-[#E5E2DB]"
+                        className="w-14 h-14 rounded-full object-cover shrink-0 border-2 border-[#E5E2DB] group-hover:border-[#1B4332]/40 transition-colors"
                       />
                     ) : (
-                      <div className="w-14 h-14 rounded-full bg-[#E8F2EC] flex items-center justify-center text-sm font-semibold text-[#1B4332] shrink-0">
+                      <div className="w-14 h-14 rounded-full bg-[#E8F2EC] border-2 border-transparent group-hover:border-[#1B4332]/30 flex items-center justify-center text-sm font-semibold text-[#1B4332] shrink-0 transition-colors">
                         {getInitials(b.name)}
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="font-body text-sm font-semibold text-[#1A1A1A]">{b.name}</p>
                       {b.bio && (
-                        <p className="font-body text-xs text-[#8A8680] mt-0.5 line-clamp-1">{b.bio}</p>
+                        <p className="font-body text-xs text-[#8A8680] mt-0.5 line-clamp-2">{b.bio}</p>
                       )}
                     </div>
                     <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
@@ -1086,9 +1090,10 @@ export default function BookingFlow({
           ---------------------------------------------------------------- */}
           {step === 'service' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
+              <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden shadow-sm">
                 <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
                   <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Choose a service</h2>
+                  <p className="font-body text-sm text-[#8A8680] mt-1">Select what you'd like to book</p>
                 </div>
 
                 {availableServices.length === 0 ? (
@@ -1103,12 +1108,12 @@ export default function BookingFlow({
                     </Button>
                   </div>
                 ) : (
-                  <div className="p-4">
+                  <div className="p-5">
                     {allowNoPreferenceService && (
                       <button
                         type="button"
                         onClick={() => { setSelectedService(null); setStep('datetime'); }}
-                        className="w-full text-left p-4 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#F5FAF7] transition-colors mb-3"
+                        className="w-full text-left p-4 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#F5FAF7] transition-colors mb-4"
                       >
                         <p className="font-body text-sm font-semibold text-[#1A1A1A]">No preference</p>
                         <p className="font-body text-xs text-[#8A8680] mt-0.5">Any available service</p>
@@ -1121,19 +1126,21 @@ export default function BookingFlow({
                           key={svc.id}
                           type="button"
                           onClick={() => { setSelectedService(svc); setStep('datetime'); }}
-                          className="text-left p-4 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332] hover:bg-[#E8F2EC]/20 transition-all"
+                          className="text-left p-5 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/50 hover:bg-[#E8F2EC]/20 hover:shadow-sm transition-all group"
                         >
-                          <p className="font-body text-sm font-semibold text-[#1A1A1A] mb-2 leading-snug">
+                          <p className="font-body text-sm font-semibold text-[#1A1A1A] leading-snug mb-3">
                             {svc.name}
                           </p>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {svc.duration_minutes && (
-                              <span className="font-body text-[11px] bg-[#F5F3EF] text-[#4A4540] px-2 py-0.5 rounded-md font-medium">
-                                {svc.duration_minutes} min
-                              </span>
-                            )}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {svc.duration_minutes && (
+                                <span className="font-body text-[11px] bg-[#F5F3EF] text-[#4A4540] px-2.5 py-1 rounded-full font-medium">
+                                  {svc.duration_minutes} min
+                                </span>
+                              )}
+                            </div>
                             {svc.price != null && (
-                              <span className="font-body text-[11px] bg-[#1B4332] text-white px-2 py-0.5 rounded-md font-medium">
+                              <span className="font-body text-sm font-semibold text-[#1B4332]">
                                 {currencySymbol}{svc.price.toFixed(2)}
                               </span>
                             )}
@@ -1162,7 +1169,7 @@ export default function BookingFlow({
           ---------------------------------------------------------------- */}
           {step === 'datetime' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6">
+              <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 shadow-sm">
                 <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-6">Pick a date</h2>
                 <CalendarPicker
                   selected={selectedDate}
@@ -1175,16 +1182,19 @@ export default function BookingFlow({
               </div>
 
               {selectedDate && (
-                <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6">
-                  <h2 className="font-body text-base font-semibold text-[#1A1A1A] mb-0.5">Available times</h2>
+                <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 shadow-sm">
+                  <h2 className="font-heading text-lg font-bold text-[#1A1A1A] mb-0.5">Available times</h2>
                   <p className="font-body text-xs text-[#8A8680] mb-5">{formatDateLong(selectedDate)}</p>
 
                   {loadingSlots ? (
-                    <p className="font-body text-sm text-[#8A8680]">Loading available times...</p>
+                    <div className="flex items-center gap-2 text-[#8A8680]">
+                      <div className="w-4 h-4 border-2 border-[#E5E2DB] border-t-[#1B4332] rounded-full animate-spin" />
+                      <p className="font-body text-sm">Loading available times...</p>
+                    </div>
                   ) : timeSlots.length === 0 ? (
                     <p className="font-body text-sm text-[#8A8680]">No times available on this day. Please choose another date.</p>
                   ) : (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                       {timeSlots.map((slot) => {
                         const blocked    = isSlotBlocked(slot);
                         const isActive   = selectedTime === slot;
@@ -1197,12 +1207,12 @@ export default function BookingFlow({
                             disabled={blocked}
                             onClick={() => setSelectedTime(slot)}
                             className={[
-                              'flex flex-col items-center justify-center py-3 px-2 rounded-xl border transition-colors',
+                              'flex flex-col items-center justify-center py-3.5 px-3 rounded-xl border transition-all',
                               blocked
                                 ? 'text-[#8A8680]/40 border-[#E5E2DB]/40 cursor-not-allowed line-through'
                                 : isActive
-                                  ? 'bg-[#1B4332] text-white border-[#1B4332]'
-                                  : 'border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1B4332]/40 hover:bg-[#E8F2EC]/50',
+                                  ? 'bg-[#1B4332] text-white border-[#1B4332] shadow-sm'
+                                  : 'border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1B4332]/40 hover:bg-[#E8F2EC]/50 hover:shadow-sm',
                             ].join(' ')}
                           >
                             <span className="font-body text-xs font-semibold">
@@ -1254,36 +1264,49 @@ export default function BookingFlow({
           {step === 'details' && (
             <div className="space-y-4">
               {/* Booking summary card */}
-              <div className="bg-white rounded-2xl border border-[#E5E2DB] p-5 space-y-1.5">
-                <p className="font-body text-[10px] font-semibold text-[#8A8680] uppercase tracking-widest mb-2">
+              <div className="bg-white rounded-2xl border border-[#E5E2DB] border-l-[3px] border-l-[#1B4332] p-5 shadow-sm">
+                <p className="font-body text-[10px] font-semibold text-[#8A8680] uppercase tracking-widest mb-3">
                   Your booking
                 </p>
-                {selectedService && (
-                  <p className="font-body text-sm font-semibold text-[#1A1A1A]">
-                    {selectedService.name}
-                    {selectedService.duration_minutes && (
-                      <span className="text-[#8A8680] font-normal"> &middot; {selectedService.duration_minutes} min</span>
-                    )}
-                  </p>
-                )}
-                {selectedBarber && selectedBarber !== 'none' && (
-                  <p className="font-body text-sm text-[#8A8680]">with {selectedBarber.name}</p>
-                )}
-                {selectedDate && selectedTime && (
-                  <p className="font-body text-sm text-[#1A1A1A] font-medium">
-                    {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
-                  </p>
-                )}
-                <p className="font-body text-sm text-[#8A8680]">{customTitle ?? salon.name}</p>
+                <div className="space-y-1.5">
+                  {selectedService && (
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-body text-sm font-semibold text-[#1A1A1A]">
+                        {selectedService.name}
+                        {selectedService.duration_minutes && (
+                          <span className="text-[#8A8680] font-normal"> &middot; {selectedService.duration_minutes} min</span>
+                        )}
+                      </p>
+                      {selectedService.price != null && (
+                        <span className="font-body text-sm font-semibold text-[#1B4332] shrink-0">
+                          {currencySymbol}{selectedService.price.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {selectedBarber && selectedBarber !== 'none' && (
+                    <p className="font-body text-sm text-[#8A8680]">with {selectedBarber.name}</p>
+                  )}
+                  {selectedDate && selectedTime && (
+                    <p className="font-body text-sm text-[#1A1A1A] font-medium">
+                      {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
+                    </p>
+                  )}
+                  <p className="font-body text-xs text-[#8A8680]">{customTitle ?? salon.name}</p>
+                </div>
               </div>
 
               {/* Details form */}
               <form
                 onSubmit={(e) => void handleSubmit(e)}
                 noValidate
-                className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5"
+                className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5 shadow-sm"
               >
-                <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
+                <div>
+                  <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
+                  <p className="font-body text-sm text-[#8A8680] mt-1">We'll use this to confirm your booking</p>
+                </div>
+                <hr className="border-[#E5E2DB]" />
 
                 {/* Full name */}
                 <div className="space-y-1.5">
@@ -1410,22 +1433,23 @@ export default function BookingFlow({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setStep('datetime')}
-                    className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
-                  >
-                    &#8592; Back
-                  </button>
-
+                <div className="space-y-3 pt-2">
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="w-full bg-[#1B4332] hover:bg-[#16392A] text-white px-8 py-3 h-auto font-body text-sm font-medium"
+                    className="w-full h-12 bg-[#1B4332] hover:bg-[#16392A] text-white font-body text-sm font-semibold rounded-xl"
                   >
                     {submitting ? 'Booking...' : 'Book appointment'}
                   </Button>
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setStep('datetime')}
+                      className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
+                    >
+                      &#8592; Back
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>

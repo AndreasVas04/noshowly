@@ -67,12 +67,15 @@ export default function LandingFooter() {
               <Link href="/terms" className="block text-sm text-white/60 hover:text-white transition-colors font-body">
                 Terms of Service
               </Link>
-              <a
-                href="mailto:hello@noshowly.com"
-                className="block text-sm text-white/60 hover:text-white transition-colors font-body"
-              >
-                hello@noshowly.com
-              </a>
+              <p className="text-sm text-white/50 font-body leading-relaxed">
+                Questions? Email us at{' '}
+                <a
+                  href="mailto:noshowly@gmail.com"
+                  className="text-white/70 hover:text-white transition-colors underline underline-offset-2"
+                >
+                  noshowly@gmail.com
+                </a>
+              </p>
             </nav>
           </div>
 
