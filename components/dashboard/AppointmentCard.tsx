@@ -83,7 +83,7 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
         'bg-white rounded-xl border border-[#C8C8C8]/40',
         'px-4 py-3.5',
         'flex items-center gap-3',
-        'hover:border-[#6366F1]/20 hover:shadow-sm hover:bg-[#FAFAFE] transition-all duration-150',
+        'hover:border-[#1B4332]/20 hover:shadow-sm hover:bg-[#F5FAF7] transition-all duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20',
         'cursor-pointer',
         isCancelled ? 'opacity-40' : '',

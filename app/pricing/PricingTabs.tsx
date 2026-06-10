@@ -125,7 +125,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
           <span
             className={[
               'rounded-full px-3 py-1 text-xs font-semibold text-white',
-              highlighted ? 'bg-[#6366F1]' : 'bg-[#1A1A1A]',
+              highlighted ? 'bg-[#1B4332]' : 'bg-[#1A1A1A]',
             ].join(' ')}
           >
             {isCurrent ? 'Current plan' : 'Most popular'}
@@ -137,7 +137,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
         className={[
           'flex flex-col h-full rounded-2xl border shadow-none hover:-translate-y-1 hover:shadow-lg transition-all duration-200',
           isCurrent    ? 'border-[#1A1A1A]'      :
-          highlighted  ? 'border-[#6366F1]/40'   :
+          highlighted  ? 'border-[#1B4332]/40'   :
                          'border-[#C8C8C8]/40',
         ].join(' ')}
       >
@@ -173,7 +173,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className={`mt-0.5 h-4 w-4 shrink-0 ${highlighted ? 'text-[#6366F1]' : 'text-[#1A1A1A]'}`}
+                  className={`mt-0.5 h-4 w-4 shrink-0 ${highlighted ? 'text-[#1B4332]' : 'text-[#1A1A1A]'}`}
                   viewBox="0 0 20 20"
                   fill="currentColor"
                   aria-hidden="true"

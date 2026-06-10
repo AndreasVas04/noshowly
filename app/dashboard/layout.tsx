@@ -57,14 +57,14 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-[#F9F9F9] flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-[#FAFAF8] flex flex-col lg:flex-row">
 
       {/* =================================================================
           SIDEBAR — hidden on mobile, visible as left column on lg+
       ================================================================== */}
       <aside
         className="hidden lg:flex lg:flex-col w-60 shrink-0 min-h-screen sticky top-0"
-        style={{ background: 'linear-gradient(180deg, #1A1A1A 0%, #111111 100%)' }}
+        style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}
       >
         {/* Brand logo */}
         <div className="px-6 py-6 border-b border-white/10">
@@ -107,7 +107,7 @@ export default async function DashboardLayout({
       ================================================================== */}
       <header
         className="lg:hidden flex items-center justify-between gap-4 px-4 py-3"
-        style={{ background: 'linear-gradient(180deg, #1A1A1A 0%, #111111 100%)' }}
+        style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}
       >
         {/* Brand */}
         <Image src="/Logo.png" alt="Noshowly" width={120} height={32} className="h-7 w-auto shrink-0" />

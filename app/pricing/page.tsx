@@ -14,10 +14,9 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
-import Image from 'next/image';
 import type { UserPlan } from '@/lib/plans';
 import PricingTabs from './PricingTabs';
+import PricingPageHeader from './PricingPageHeader';
 
 /**
  * Returns true if the user is already on a paid subscription.
@@ -52,22 +51,9 @@ export default async function PricingPage() {
   const onCancelled = currentPlan === 'cancelled';
 
   return (
-    <div className="min-h-screen bg-[#F9F9F9]">
+    <div className="min-h-screen bg-[#FAFAF8]">
 
-      {/* Dark header */}
-      <div className="bg-[#1A1A1A]">
-        <div className="mx-auto max-w-5xl px-6 py-5 flex items-center justify-between">
-          <Image src="/Logo.png" alt="Noshowly" width={160} height={40} className="h-10 w-auto" />
-          {isPaidPlan(currentPlan) && (
-            <Link
-              href="/dashboard"
-              className="text-sm text-white/50 hover:text-white transition-colors"
-            >
-              Back to dashboard
-            </Link>
-          )}
-        </div>
-      </div>
+      <PricingPageHeader showDashboardLink={isPaidPlan(currentPlan)} />
 
       <div className="mx-auto max-w-5xl px-6 py-14">
 
@@ -93,7 +79,7 @@ export default async function PricingPage() {
           <h1 className="font-heading text-4xl font-bold text-[#1A1A1A] tracking-tight">
             Simple, flat pricing
           </h1>
-          <p className="mt-3 text-[#C8C8C8] text-base">
+          <p className="mt-3 text-[#8A8680] text-base font-body">
             No commissions. No per-booking fees. One flat monthly price.
           </p>
         </div>

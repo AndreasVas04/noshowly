@@ -17,8 +17,9 @@
   --color-brand-dark: #1A1A1A;
   --color-brand-graphite: #2D2D2D;
   --color-brand-gray: #C8C8C8;
-  --color-indigo: #6366F1;
-  --color-indigo-light: #EEF2FF;
+  --color-accent: #1B4332;
+  --color-accent-hover: #16392A;
+  --color-accent-light: #E8F2EC;
   /* shadcn tokens */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -152,7 +153,7 @@ html {
 ::-webkit-scrollbar-thumb:hover { background: #2D2D2D; }
 
 /* Text selection */
-::selection { background-color: #6366F1; color: #ffffff; }
+::selection { background-color: #1B4332; color: #ffffff; }
 
-/* Focus visible with indigo */
-*:focus-visible { outline: 2px solid #6366F1 !important; outline-offset: 2px; }
+/* Focus visible */
+*:focus-visible { outline: 2px solid #1B4332 !important; outline-offset: 2px; }

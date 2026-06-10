@@ -158,7 +158,14 @@ export default function ResetPasswordPage() {
   const isSubmitting = formStatus === 'submitting';
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#F9F9F9] px-4">
+    <main
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{
+        backgroundColor: '#FAFAF8',
+        backgroundImage: 'radial-gradient(circle, #D8D4CC 1px, transparent 1px)',
+        backgroundSize: '28px 28px',
+      }}
+    >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -211,7 +218,7 @@ export default function ResetPasswordPage() {
               <button
                 type="button"
                 onClick={handleBackToSignIn}
-                className="inline-flex items-center justify-center w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+                className="inline-flex items-center justify-center w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors"
               >
                 Back to sign in
               </button>
@@ -336,7 +343,7 @@ export default function ResetPasswordPage() {
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+                  className="w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors"
                 >
                   {isSubmitting ? 'Updating password...' : 'Update password'}
                 </Button>

@@ -204,8 +204,8 @@ export default function LoginPage() {
     <main
       className="min-h-screen flex items-center justify-center px-4 py-12"
       style={{
-        backgroundColor: '#F9F9F9',
-        backgroundImage: 'radial-gradient(circle, #C8C8C8 1px, transparent 1px)',
+        backgroundColor: '#FAFAF8',
+        backgroundImage: 'radial-gradient(circle, #D8D4CC 1px, transparent 1px)',
         backgroundSize: '28px 28px',
       }}
     >
@@ -319,7 +319,7 @@ export default function LoginPage() {
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+              className="w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors"
             >
               {isLoading ? 'Signing in…' : 'Sign in'}
             </Button>
@@ -413,7 +413,7 @@ export default function LoginPage() {
                         <Button
                           type="submit"
                           disabled={resetStatus === 'loading'}
-                          className="flex-1 h-10 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+                          className="flex-1 h-10 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors"
                         >
                           {resetStatus === 'loading' ? 'Sending…' : 'Send reset link'}
                         </Button>

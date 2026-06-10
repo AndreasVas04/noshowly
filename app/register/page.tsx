@@ -167,8 +167,8 @@ export default function RegisterPage() {
       <main
         className="min-h-screen flex items-center justify-center px-4 py-12"
         style={{
-          backgroundColor: '#F9F9F9',
-          backgroundImage: 'radial-gradient(circle, #C8C8C8 1px, transparent 1px)',
+          backgroundColor: '#FAFAF8',
+          backgroundImage: 'radial-gradient(circle, #D8D4CC 1px, transparent 1px)',
           backgroundSize: '28px 28px',
         }}
       >
@@ -344,7 +344,7 @@ export default function RegisterPage() {
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full h-11 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-lg transition-colors"
+              className="w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors"
             >
               {isLoading ? 'Creating account…' : 'Create account'}
             </Button>

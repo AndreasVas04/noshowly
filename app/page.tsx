@@ -38,7 +38,7 @@ export default async function LandingPage() {
   if (session) redirect('/dashboard');
 
   return (
-    <div className="min-h-screen bg-white font-body text-[#1A1A1A]">
+    <div className="min-h-screen bg-[#FAFAF8] font-body text-[#1A1A1A]">
       <LandingNav />
       <LandingContent />
     </div>

@@ -16,7 +16,7 @@ import { Menu, X } from 'lucide-react';
 /**
  * LandingNav renders a sticky top navigation bar with logo, section links,
  * sign-in link, and a start-trial CTA. Collapses to a hamburger on mobile.
- * Applies a frosted glass effect when the page is scrolled more than 20px.
+ * Applies a warm backdrop blur when the page is scrolled more than 20px.
  *
  * @returns The navigation bar JSX.
  */
@@ -27,7 +27,6 @@ export default function LandingNav() {
   useEffect(() => {
     /**
      * Updates the scrolled state based on window.scrollY position.
-     * Triggers a visual transition at the 20px threshold.
      */
     function handleScroll() {
       setScrolled(window.scrollY > 20);
@@ -42,8 +41,8 @@ export default function LandingNav() {
       className={[
         'sticky top-0 z-50 transition-all duration-300',
         scrolled
-          ? 'backdrop-blur-md bg-white/80 shadow-sm border-b border-transparent'
-          : 'bg-white border-b border-[#C8C8C8]/40',
+          ? 'backdrop-blur-md bg-[#FAFAF8]/90 shadow-sm border-b border-[#E8E4DC]'
+          : 'bg-[#FAFAF8] border-b border-[#E8E4DC]',
       ].join(' ')}
     >
       <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
@@ -57,25 +56,25 @@ export default function LandingNav() {
         <nav className="hidden md:flex items-center gap-8" aria-label="Main navigation">
           <a
             href="#features"
-            className="text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors font-body"
+            className="text-sm text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body"
           >
             Features
           </a>
           <a
             href="#pricing"
-            className="text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors font-body"
+            className="text-sm text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body"
           >
             Pricing
           </a>
           <Link
             href="/login"
-            className="text-sm text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors font-body"
+            className="text-sm text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body"
           >
             Sign in
           </Link>
           <Link
             href="/register"
-            className="h-9 px-5 bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold rounded-lg transition-colors inline-flex items-center font-body"
+            className="h-9 px-5 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors inline-flex items-center font-body"
           >
             Start free trial
           </Link>
@@ -85,7 +84,7 @@ export default function LandingNav() {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="md:hidden p-2 text-[#1A1A1A] rounded-lg hover:bg-[#F9F9F9] transition-colors"
+          className="md:hidden p-2 text-[#1A1A1A] rounded-lg hover:bg-[#F0EDE8] transition-colors"
           aria-label={open ? 'Close menu' : 'Open menu'}
           aria-expanded={open}
         >
@@ -95,7 +94,7 @@ export default function LandingNav() {
 
       {/* Mobile dropdown */}
       {open && (
-        <div className="md:hidden border-t border-[#C8C8C8]/40 bg-white px-6 py-5 space-y-4">
+        <div className="md:hidden border-t border-[#E8E4DC] bg-[#FAFAF8] px-6 py-5 space-y-4">
           <a
             href="#features"
             onClick={() => setOpen(false)}
@@ -115,7 +114,7 @@ export default function LandingNav() {
           </Link>
           <Link
             href="/register"
-            className="block w-full h-11 bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold rounded-lg transition-colors text-center leading-[2.75rem] font-body mt-2"
+            className="block w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors text-center leading-[2.75rem] font-body mt-2"
           >
             Start free trial
           </Link>
