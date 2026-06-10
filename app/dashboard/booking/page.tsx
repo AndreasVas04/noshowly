@@ -175,7 +175,7 @@ function Toggle({
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
-        checked ? 'bg-[#1A1A1A]' : 'bg-[#C8C8C8]'
+        checked ? 'bg-[#1B4332]' : 'bg-[#E5E2DB]'
       }`}
     >
       <span
@@ -205,7 +205,7 @@ function SmallToggle({
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
-        checked ? 'bg-[#1A1A1A]' : 'bg-[#C8C8C8]/60'
+        checked ? 'bg-[#1B4332]' : 'bg-[#E5E2DB]/60'
       }`}
     >
       <span
@@ -220,7 +220,7 @@ function SmallToggle({
 /** Wraps a settings section in a card with consistent styling. */
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 overflow-hidden">
+    <div className="bg-white rounded-2xl border border-[#E5E2DB]/40 overflow-hidden">
       {children}
     </div>
   );
@@ -1459,7 +1459,7 @@ export default function BookingPage() {
   if (loadState === 'loading') {
     return (
       <div className="p-8 lg:p-12 flex items-center justify-center min-h-64">
-        <p className="text-sm text-[#C8C8C8]">Loading booking settings…</p>
+        <p className="text-sm text-[#8A8680]">Loading booking settings…</p>
       </div>
     );
   }
@@ -1508,7 +1508,7 @@ export default function BookingPage() {
         {/* Page heading */}
         <div>
           <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">Online Booking</h1>
-          <p className="text-sm text-[#C8C8C8] mt-1.5">
+          <p className="text-sm text-[#8A8680] mt-1.5">
             Set up your public booking page, staff, and availability.
           </p>
         </div>
@@ -1518,17 +1518,17 @@ export default function BookingPage() {
         ================================================================== */}
         <section>
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Booking page</h2>
+            <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Booking page</h2>
             {bookingPage && (
               <span className={`text-xs font-medium transition-colors ${
-                bookingSaveStatus === 'saving' ? 'text-[#C8C8C8]' :
+                bookingSaveStatus === 'saving' ? 'text-[#8A8680]' :
                 bookingSaveStatus === 'saved'  ? 'text-emerald-600' : 'invisible'
               }`}>
                 {bookingSaveStatus === 'saving' ? 'Saving…' : 'Saved'}
               </span>
             )}
           </div>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <p className="text-sm text-[#8A8680] mb-4">
             Clients book directly at your unique link. You control when it goes live.
           </p>
 
@@ -1540,13 +1540,13 @@ export default function BookingPage() {
                 <div className="flex items-center justify-between py-1">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className={`inline-block h-2 w-2 rounded-full ${bookingPage.is_active ? 'bg-emerald-500' : 'bg-[#C8C8C8]'}`} />
+                      <span className={`inline-block h-2 w-2 rounded-full ${bookingPage.is_active ? 'bg-emerald-500' : 'bg-[#E5E2DB]'}`} />
                       <span className="text-sm font-medium text-[#1A1A1A]">
                         {bookingPage.is_active ? 'Live' : 'Offline'}
                       </span>
                     </div>
                     {bookingUrl && (
-                      <p className="text-xs text-[#C8C8C8] font-mono">{bookingUrl}</p>
+                      <p className="text-xs text-[#8A8680] font-mono">{bookingUrl}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-3">
@@ -1555,7 +1555,7 @@ export default function BookingPage() {
                         <button
                           type="button"
                           onClick={() => void handleCopyLink()}
-                          className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                          className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                         >
                           {copied ? 'Copied!' : 'Copy link'}
                         </button>
@@ -1563,7 +1563,7 @@ export default function BookingPage() {
                           href={bookingUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                          className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                         >
                           Open ↗
                         </a>
@@ -1585,8 +1585,8 @@ export default function BookingPage() {
                     <Label htmlFor="booking-slug" className="text-sm font-medium text-[#1A1A1A]">
                       Choose your booking URL
                     </Label>
-                    <div className="flex items-center rounded-lg border border-[#C8C8C8] overflow-hidden focus-within:border-[#1A1A1A] transition-colors">
-                      <span className="px-3 text-sm text-[#C8C8C8] bg-[#F4F4F5] border-r border-[#C8C8C8] h-10 flex items-center shrink-0">
+                    <div className="flex items-center rounded-lg border border-[#E5E2DB] overflow-hidden focus-within:border-[#1B4332] transition-colors">
+                      <span className="px-3 text-sm text-[#8A8680] bg-[#F5F3EF] border-r border-[#E5E2DB] h-10 flex items-center shrink-0">
                         /book/
                       </span>
                       <input
@@ -1597,10 +1597,10 @@ export default function BookingPage() {
                         placeholder="your-business-name"
                         maxLength={50}
                         disabled={bookingSaveStatus === 'saving'}
-                        className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-white placeholder:text-[#C8C8C8] disabled:opacity-50"
+                        className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-white placeholder:text-[#8A8680] disabled:opacity-50"
                       />
                     </div>
-                    <p className="text-xs text-[#C8C8C8]">Lowercase letters, digits, and hyphens only. 3–50 characters. This cannot be changed later.</p>
+                    <p className="text-xs text-[#8A8680]">Lowercase letters, digits, and hyphens only. 3–50 characters. This cannot be changed later.</p>
                   </div>
 
                   {bookingError && (
@@ -1612,7 +1612,7 @@ export default function BookingPage() {
                   <Button
                     type="submit"
                     disabled={bookingSaveStatus === 'saving'}
-                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium px-5 py-2.5 h-auto"
+                    className="bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-medium px-5 py-2.5 h-auto"
                   >
                     {bookingSaveStatus === 'saving' ? 'Creating…' : 'Create booking page'}
                   </Button>
@@ -1628,8 +1628,8 @@ export default function BookingPage() {
                     <Label htmlFor="booking-slug" className="text-sm font-medium text-[#1A1A1A]">
                       Booking page URL
                     </Label>
-                    <div className="flex items-center rounded-lg border border-[#C8C8C8]/50 bg-[#F4F4F5] overflow-hidden">
-                      <span className="px-3 text-sm text-[#C8C8C8] bg-[#F4F4F5] border-r border-[#C8C8C8] h-10 flex items-center shrink-0">
+                    <div className="flex items-center rounded-lg border border-[#E5E2DB]/50 bg-[#F5F3EF] overflow-hidden">
+                      <span className="px-3 text-sm text-[#8A8680] bg-[#F5F3EF] border-r border-[#E5E2DB] h-10 flex items-center shrink-0">
                         /book/
                       </span>
                       <input
@@ -1641,7 +1641,7 @@ export default function BookingPage() {
                         className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-transparent disabled:opacity-60 disabled:cursor-default"
                       />
                     </div>
-                    <p className="text-xs text-[#C8C8C8]">Your booking URL is permanent and cannot be changed.</p>
+                    <p className="text-xs text-[#8A8680]">Your booking URL is permanent and cannot be changed.</p>
                   </div>
 
                   {/* Headline + Description with live preview */}
@@ -1661,9 +1661,9 @@ export default function BookingPage() {
                           placeholder="e.g. Book your appointment at Elena's Salon"
                           maxLength={100}
                           disabled={bookingSaveStatus === 'saving'}
-                          className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                          className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                         />
-                        <p className="text-xs text-[#C8C8C8]">The first thing clients see. Leave blank to use your business name.</p>
+                        <p className="text-xs text-[#8A8680]">The first thing clients see. Leave blank to use your business name.</p>
                       </div>
 
                       <div className="space-y-1.5">
@@ -1678,9 +1678,9 @@ export default function BookingPage() {
                           maxLength={800}
                           rows={3}
                           disabled={bookingSaveStatus === 'saving'}
-                          className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] outline-none focus:border-[#1A1A1A] disabled:opacity-50 resize-none transition-colors"
+                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none transition-colors"
                         />
-                        <p className="text-xs text-[#C8C8C8]">A short description shown below the headline. Leave blank to skip.</p>
+                        <p className="text-xs text-[#8A8680]">A short description shown below the headline. Leave blank to skip.</p>
                       </div>
 
                       <div className="space-y-1.5">
@@ -1695,15 +1695,15 @@ export default function BookingPage() {
                           maxLength={500}
                           rows={2}
                           disabled={bookingSaveStatus === 'saving'}
-                          className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] outline-none focus:border-[#1A1A1A] disabled:opacity-50 resize-none transition-colors"
+                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none transition-colors"
                         />
-                        <p className="text-xs text-[#C8C8C8]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
+                        <p className="text-xs text-[#8A8680]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
                       </div>
                     </div>
 
                     {/* Right: live preview */}
                     <div className="space-y-2">
-                      <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Preview</p>
+                      <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Preview</p>
                       <div className="bg-[#1A1A1A] rounded-2xl p-10 flex flex-col items-center justify-center text-center min-h-[220px] space-y-4">
                         <h3 className="font-heading text-4xl font-bold text-white leading-tight">
                           {customPageTitle.trim() || (
@@ -1722,14 +1722,14 @@ export default function BookingPage() {
 
                   {/* Required client information */}
                   <div className="space-y-3">
-                    <div className="pt-4 border-t border-[#C8C8C8]/30">
+                    <div className="pt-4 border-t border-[#E5E2DB]/30">
                       <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Required client information</h2>
-                      <p className="text-xs text-[#C8C8C8] mt-0.5">Turn off fields you do not need. At least one must be required.</p>
+                      <p className="text-xs text-[#8A8680] mt-0.5">Turn off fields you do not need. At least one must be required.</p>
                     </div>
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-[#1A1A1A]">Require phone number</p>
-                        <p className="text-xs text-[#C8C8C8] mt-0.5">Needed for SMS reminders.</p>
+                        <p className="text-xs text-[#8A8680] mt-0.5">Needed for SMS reminders.</p>
                       </div>
                       <Toggle
                         checked={requirePhone}
@@ -1740,7 +1740,7 @@ export default function BookingPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-[#1A1A1A]">Require email address</p>
-                        <p className="text-xs text-[#C8C8C8] mt-0.5">Needed for email reminders.</p>
+                        <p className="text-xs text-[#8A8680] mt-0.5">Needed for email reminders.</p>
                       </div>
                       <Toggle
                         checked={requireEmail}
@@ -1758,7 +1758,7 @@ export default function BookingPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-[#1A1A1A]">Allow &quot;No preference&quot; for staff</p>
-                        <p className="text-xs text-[#C8C8C8] mt-0.5">Clients can skip choosing a specific team member.</p>
+                        <p className="text-xs text-[#8A8680] mt-0.5">Clients can skip choosing a specific team member.</p>
                       </div>
                       <Toggle
                         checked={allowNoPreferenceStaff}
@@ -1769,7 +1769,7 @@ export default function BookingPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-[#1A1A1A]">Allow &quot;No preference&quot; for service</p>
-                        <p className="text-xs text-[#C8C8C8] mt-0.5">Clients can skip choosing a specific service.</p>
+                        <p className="text-xs text-[#8A8680] mt-0.5">Clients can skip choosing a specific service.</p>
                       </div>
                       <Toggle
                         checked={allowNoPreferenceService}
@@ -1795,8 +1795,8 @@ export default function BookingPage() {
             SECTION 2: Staff
         ================================================================== */}
         <section>
-          <h2 className="text-base font-semibold text-[#1A1A1A] mb-1">Staff</h2>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Staff</h2>
+          <p className="text-sm text-[#8A8680] mb-4">
             Add your team members. For each person, set the services they offer and
             their working hours so clients only see available slots.
           </p>
@@ -1806,7 +1806,7 @@ export default function BookingPage() {
             {barbers.length === 0 && (
               <SectionCard>
                 <div className="px-6 py-10 text-center">
-                  <p className="text-sm text-[#C8C8C8]">No staff members yet. Add your first staff member below.</p>
+                  <p className="text-sm text-[#8A8680]">No staff members yet. Add your first staff member below.</p>
                 </div>
               </SectionCard>
             )}
@@ -1834,7 +1834,7 @@ export default function BookingPage() {
                       <p className="text-sm font-semibold text-[#1A1A1A] truncate">{barber.name}</p>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className={`text-xs font-medium transition-colors ${
-                          barberSaveStatus === 'saving' ? 'text-[#C8C8C8]' :
+                          barberSaveStatus === 'saving' ? 'text-[#8A8680]' :
                           barberSaveStatus === 'saved'  ? 'text-emerald-600' : 'invisible'
                         }`}>
                           {barberSaveStatus === 'saving' ? 'Saving…' : 'Saved'}
@@ -1843,7 +1843,7 @@ export default function BookingPage() {
                           type="button"
                           onClick={() => void handleDeleteBarber(barber.id, barber.name)}
                           disabled={isDeleting}
-                          className="text-xs text-[#C8C8C8] hover:text-red-600 disabled:opacity-40 transition-colors"
+                          className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
                         >
                           {isDeleting ? 'Removing…' : 'Remove'}
                         </button>
@@ -1857,7 +1857,7 @@ export default function BookingPage() {
                         type="button"
                         onClick={() => photoInputRefs.current[barber.id]?.click()}
                         disabled={isRemovingPhoto || isSaving}
-                        className="group relative w-20 h-20 rounded-full overflow-hidden shrink-0 border border-[#C8C8C8]/30 bg-[#F4F4F5] flex items-center justify-center disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A] focus-visible:ring-offset-2"
+                        className="group relative w-20 h-20 rounded-full overflow-hidden shrink-0 border border-[#E5E2DB]/30 bg-[#F5F3EF] flex items-center justify-center disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A] focus-visible:ring-offset-2"
                         aria-label="Upload photo"
                       >
                         {/* Photo or initials */}
@@ -1890,12 +1890,12 @@ export default function BookingPage() {
                         </button>
                         {form.photo_url && (
                           <>
-                            <span className="text-[#C8C8C8] text-xs">·</span>
+                            <span className="text-[#8A8680] text-xs">·</span>
                             <button
                               type="button"
                               onClick={() => void handleRemovePhoto(barber.id)}
                               disabled={isRemovingPhoto || isSaving}
-                              className="text-xs text-[#C8C8C8] hover:text-red-600 disabled:opacity-40 transition-colors"
+                              className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
                             >
                               {isRemovingPhoto ? 'Removing…' : 'Remove photo'}
                             </button>
@@ -1916,31 +1916,31 @@ export default function BookingPage() {
                     {/* Profile fields */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Name</Label>
+                        <Label className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Name</Label>
                         <Input
                           value={form.name}
                           onChange={(e) => updateBarberField(barber.id, 'name', e.target.value)}
                           maxLength={50}
                           disabled={isSaving}
-                          className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-sm text-[#1A1A1A]"
+                          className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-sm text-[#1A1A1A]"
                         />
                       </div>
                       <div className="sm:col-span-2 space-y-1.5">
-                        <Label className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Bio (optional)</Label>
+                        <Label className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Bio (optional)</Label>
                         <Input
                           value={form.bio}
                           onChange={(e) => updateBarberField(barber.id, 'bio', e.target.value)}
                           placeholder="Short description shown on the booking page"
                           maxLength={300}
                           disabled={isSaving}
-                          className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                          className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]"
                         />
                       </div>
                     </div>
 
                     {/* Per-staff services */}
                     <div>
-                      <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest mb-3">Services</p>
+                      <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">Services</p>
 
                       {services.length > 0 && (
                         <ul className="divide-y divide-[#C8C8C8]/20 mb-2">
@@ -1950,7 +1950,7 @@ export default function BookingPage() {
                                 <div className="space-y-2">
                                   <div className="grid grid-cols-3 gap-2">
                                     <div className="col-span-1 space-y-1">
-                                      <Label className="text-xs text-[#C8C8C8]">Name</Label>
+                                      <Label className="text-xs text-[#8A8680]">Name</Label>
                                       <Input
                                         value={staffServiceEditForms[svc.id]?.name ?? ''}
                                         onChange={(e) =>
@@ -1960,11 +1960,11 @@ export default function BookingPage() {
                                           }))
                                         }
                                         maxLength={50}
-                                        className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
                                       />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-[#C8C8C8]">Min</Label>
+                                      <Label className="text-xs text-[#8A8680]">Min</Label>
                                       <Input
                                         type="number"
                                         min={1}
@@ -1976,11 +1976,11 @@ export default function BookingPage() {
                                           }))
                                         }
                                         placeholder="30"
-                                        className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
                                       />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-[#C8C8C8]">Price</Label>
+                                      <Label className="text-xs text-[#8A8680]">Price</Label>
                                       <Input
                                         type="number"
                                         min={0}
@@ -1993,7 +1993,7 @@ export default function BookingPage() {
                                           }))
                                         }
                                         placeholder="25.00"
-                                        className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
                                       />
                                     </div>
                                   </div>
@@ -2002,14 +2002,14 @@ export default function BookingPage() {
                                       type="button"
                                       disabled={savingStaffServiceId === svc.id}
                                       onClick={() => void handleSaveStaffServiceEdit(svc.id, barber.id)}
-                                      className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-xs px-3 py-1.5 h-auto"
+                                      className="bg-[#1B4332] hover:bg-[#16392A] text-white text-xs px-3 py-1.5 h-auto"
                                     >
                                       {savingStaffServiceId === svc.id ? 'Saving…' : 'Save'}
                                     </Button>
                                     <button
                                       type="button"
                                       onClick={() => setEditingStaffServiceId(null)}
-                                      className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                                     >
                                       Cancel
                                     </button>
@@ -2018,9 +2018,9 @@ export default function BookingPage() {
                               ) : (
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="min-w-0">
-                                    <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#C8C8C8]'}`}>{svc.name}</p>
+                                    <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>{svc.name}</p>
                                     {(svc.duration_minutes || svc.price != null) && (
-                                      <p className="text-xs text-[#C8C8C8] mt-0.5">
+                                      <p className="text-xs text-[#8A8680] mt-0.5">
                                         {[
                                           svc.duration_minutes ? `${svc.duration_minutes} min` : null,
                                           svc.price != null ? `$${svc.price.toFixed(2)}` : null,
@@ -2033,9 +2033,9 @@ export default function BookingPage() {
                                         type="checkbox"
                                         checked={svc.active}
                                         onChange={(e) => void handleToggleStaffService(svc.id, barber.id, e.target.checked)}
-                                        className="h-3.5 w-3.5 rounded border-[#C8C8C8] accent-[#1A1A1A] cursor-pointer"
+                                        className="h-3.5 w-3.5 rounded border-[#E5E2DB] accent-[#1A1A1A] cursor-pointer"
                                       />
-                                      <span className="text-xs text-[#C8C8C8]">Available on booking page</span>
+                                      <span className="text-xs text-[#8A8680]">Available on booking page</span>
                                     </label>
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
@@ -2052,7 +2052,7 @@ export default function BookingPage() {
                                           },
                                         }));
                                       }}
-                                      className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                                     >
                                       Edit
                                     </button>
@@ -2060,7 +2060,7 @@ export default function BookingPage() {
                                       type="button"
                                       onClick={() => void handleDeleteStaffService(svc.id, barber.id, svc.name)}
                                       disabled={deletingStaffServiceId === svc.id}
-                                      className="text-xs text-[#C8C8C8] hover:text-red-600 disabled:opacity-40 transition-colors"
+                                      className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
                                     >
                                       {deletingStaffServiceId === svc.id ? 'Removing…' : 'Remove'}
                                     </button>
@@ -2077,7 +2077,7 @@ export default function BookingPage() {
                         <div className="space-y-2 pt-1">
                           <div className="grid grid-cols-3 gap-2">
                             <div className="col-span-1 space-y-1">
-                              <Label className="text-xs text-[#C8C8C8]">Name *</Label>
+                              <Label className="text-xs text-[#8A8680]">Name *</Label>
                               <Input
                                 type="text"
                                 value={addForm.name}
@@ -2088,11 +2088,11 @@ export default function BookingPage() {
                                 placeholder="e.g. Haircut"
                                 maxLength={50}
                                 disabled={isSavingAdd}
-                                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs text-[#C8C8C8]">Min</Label>
+                              <Label className="text-xs text-[#8A8680]">Min</Label>
                               <Input
                                 type="number"
                                 min={1}
@@ -2100,11 +2100,11 @@ export default function BookingPage() {
                                 onChange={(e) => setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, duration: e.target.value } }))}
                                 placeholder="30"
                                 disabled={isSavingAdd}
-                                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs text-[#C8C8C8]">Price</Label>
+                              <Label className="text-xs text-[#8A8680]">Price</Label>
                               <Input
                                 type="number"
                                 min={0}
@@ -2113,7 +2113,7 @@ export default function BookingPage() {
                                 onChange={(e) => setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, price: e.target.value } }))}
                                 placeholder="25.00"
                                 disabled={isSavingAdd}
-                                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-xs"
+                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
                               />
                             </div>
                           </div>
@@ -2123,7 +2123,7 @@ export default function BookingPage() {
                               type="button"
                               disabled={isSavingAdd}
                               onClick={() => void handleAddStaffService(barber.id)}
-                              className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-xs px-3 py-1.5 h-auto"
+                              className="bg-[#1B4332] hover:bg-[#16392A] text-white text-xs px-3 py-1.5 h-auto"
                             >
                               {isSavingAdd ? 'Adding…' : 'Add'}
                             </Button>
@@ -2133,7 +2133,7 @@ export default function BookingPage() {
                                 setAddingServiceForId(null);
                                 setAddServiceErrors((prev) => ({ ...prev, [barber.id]: '' }));
                               }}
-                              className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors"
+                              className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                             >
                               Cancel
                             </button>
@@ -2155,7 +2155,7 @@ export default function BookingPage() {
 
                     {/* Weekly availability */}
                     <div>
-                      <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest mb-3">
+                      <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">
                         Weekly availability
                       </p>
                       <div className="space-y-2">
@@ -2165,7 +2165,7 @@ export default function BookingPage() {
                             <div
                               key={dow}
                               className={`rounded-xl border px-4 py-3 transition-colors ${
-                                day.is_available ? 'border-[#C8C8C8]/40 bg-white' : 'border-[#C8C8C8]/20 bg-[#F9F9F9]'
+                                day.is_available ? 'border-[#E5E2DB]/40 bg-white' : 'border-[#E5E2DB]/20 bg-[#F9F9F9]'
                               }`}
                             >
                               <div className="flex items-start gap-3">
@@ -2176,7 +2176,7 @@ export default function BookingPage() {
                                     onChange={(v) => setDayAvailable(barber.id, dow, v)}
                                     label={`${label} availability`}
                                   />
-                                  <span className={`text-xs font-medium w-8 ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#C8C8C8]'}`}>
+                                  <span className={`text-xs font-medium w-8 ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>
                                     {label}
                                   </span>
                                 </div>
@@ -2190,22 +2190,22 @@ export default function BookingPage() {
                                           value={slot.start}
                                           onChange={(e) => updateSlot(barber.id, dow, slotIndex, 'start', e.target.value)}
                                           disabled={isSaving}
-                                          className="h-8 rounded-lg border border-[#C8C8C8] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-50 transition-colors"
+                                          className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
-                                        <span className="text-xs text-[#C8C8C8]">to</span>
+                                        <span className="text-xs text-[#8A8680]">to</span>
                                         <input
                                           type="time"
                                           value={slot.end}
                                           onChange={(e) => updateSlot(barber.id, dow, slotIndex, 'end', e.target.value)}
                                           disabled={isSaving}
-                                          className="h-8 rounded-lg border border-[#C8C8C8] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-50 transition-colors"
+                                          className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
                                         {/* Remove slot button — hidden for the last slot */}
                                         {day.time_slots.length > 1 && (
                                           <button
                                             type="button"
                                             onClick={() => removeSlot(barber.id, dow, slotIndex)}
-                                            className="text-xs text-[#C8C8C8] hover:text-red-500 transition-colors"
+                                            className="text-xs text-[#8A8680] hover:text-red-500 transition-colors"
                                           >
                                             ×
                                           </button>
@@ -2216,13 +2216,13 @@ export default function BookingPage() {
                                     <button
                                       type="button"
                                       onClick={() => addSlot(barber.id, dow)}
-                                      className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors mt-0.5"
+                                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors mt-0.5"
                                     >
                                       + Add break
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="text-xs text-[#C8C8C8] pt-0.5">Not available</p>
+                                  <p className="text-xs text-[#8A8680] pt-0.5">Not available</p>
                                 )}
                               </div>
                             </div>
@@ -2239,7 +2239,7 @@ export default function BookingPage() {
             {/* Add staff member form */}
             <SectionCard>
               <form onSubmit={(e) => void handleAddBarber(e)} noValidate className="px-6 py-5">
-                <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest mb-3">
+                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">
                   Add staff member
                 </p>
                 <div className="flex gap-3">
@@ -2250,12 +2250,12 @@ export default function BookingPage() {
                     placeholder="First name, e.g. John"
                     maxLength={50}
                     disabled={addingBarber}
-                    className="flex-1 border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                    className="flex-1 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                   />
                   <Button
                     type="submit"
                     disabled={addingBarber}
-                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium px-4 shrink-0"
+                    className="bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-medium px-4 shrink-0"
                   >
                     {addingBarber ? 'Adding…' : 'Add'}
                   </Button>
@@ -2273,8 +2273,8 @@ export default function BookingPage() {
             SECTION 3: Publish
         ================================================================== */}
         <section>
-          <h2 className="text-base font-semibold text-[#1A1A1A] mb-1">Publish</h2>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Publish</h2>
+          <p className="text-sm text-[#8A8680] mb-4">
             Make your booking page live so clients can start booking online.
           </p>
 
@@ -2290,7 +2290,7 @@ export default function BookingPage() {
                     </p>
                   </div>
                   {bookingUrl && (
-                    <p className="text-sm text-[#C8C8C8]">
+                    <p className="text-sm text-[#8A8680]">
                       Share this link with your clients:{' '}
                       <a
                         href={bookingUrl}
@@ -2306,7 +2306,7 @@ export default function BookingPage() {
                     type="button"
                     onClick={() => void handleBookingToggle(false)}
                     variant="outline"
-                    className="border-[#C8C8C8] text-[#1A1A1A] hover:border-[#1A1A1A]/40 text-sm"
+                    className="border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1A1A1A]/40 text-sm"
                   >
                     Take offline
                   </Button>
@@ -2328,13 +2328,13 @@ export default function BookingPage() {
                     type="button"
                     disabled={!bookingPage || !hasAnyService}
                     onClick={() => void handleBookingToggle(true)}
-                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium px-8 py-3 h-auto disabled:opacity-40"
+                    className="bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-medium px-8 py-3 h-auto disabled:opacity-40"
                   >
                     Publish booking page
                   </Button>
 
                   {bookingPage && hasAnyService && (
-                    <p className="text-xs text-[#C8C8C8]">
+                    <p className="text-xs text-[#8A8680]">
                       Your page will be visible at{' '}
                       <span className="font-mono">/book/{bookingPage.slug}</span>.
                       You can take it offline at any time.

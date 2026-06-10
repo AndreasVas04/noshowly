@@ -133,7 +133,7 @@ interface WeekCardProps {
 
 /**
  * Returns Tailwind border and background classes for a pill colored by status.
- * confirmed = dark green, scheduled (pending) = amber, cancelled = red/strikethrough.
+ * confirmed = forest green, scheduled (pending) = amber, cancelled = red/dim.
  *
  * @param status - Appointment lifecycle status.
  * @returns       Tailwind class string.
@@ -141,7 +141,7 @@ interface WeekCardProps {
 function pillClasses(status: AppointmentWithDetails['status']): string {
   switch (status) {
     case 'confirmed':
-      return 'border-emerald-200 bg-emerald-50';
+      return 'border-[#1B4332]/30 bg-[#E8F2EC]';
     case 'cancelled':
       return 'border-red-200/60 bg-red-50/50 opacity-50';
     default: // 'scheduled' — shown as pending
@@ -238,22 +238,22 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: Day
     <div
       className={`
         flex flex-col flex-1 min-w-[115px] rounded-xl overflow-hidden border
-        ${todayColumn ? 'border-[#1A1A1A]/40' : 'border-[#C8C8C8]/40'}
+        ${todayColumn ? 'border-[#1B4332]/40' : 'border-[#E5E2DB]'}
       `}
     >
       {/* Column header */}
       <div
         className={`
           px-2 py-2.5 text-center border-b shrink-0
-          ${todayColumn ? 'bg-[#1A1A1A]/5 border-[#1A1A1A]/10' : 'bg-white border-[#C8C8C8]/30'}
+          ${todayColumn ? 'bg-[#E8F2EC]/50 border-[#1B4332]/20' : 'bg-white border-[#E5E2DB]'}
         `}
       >
-        <p className={`text-xs font-semibold uppercase tracking-wide leading-none
-          ${todayColumn ? 'text-[#1A1A1A]' : 'text-[#C8C8C8]'}`}>
+        <p className={`text-xs font-semibold uppercase tracking-wide leading-none font-body
+          ${todayColumn ? 'text-[#1B4332]' : 'text-[#8A8680]'}`}>
           {format(day, 'EEE')}
         </p>
-        <p className={`text-sm font-bold mt-0.5 leading-none
-          ${todayColumn ? 'text-[#1A1A1A]' : 'text-[#2D2D2D]'}`}>
+        <p className={`text-sm font-bold mt-0.5 leading-none font-body
+          ${todayColumn ? 'text-[#1B4332]' : 'text-[#2D2D2D]'}`}>
           {format(day, 'd')}
         </p>
       </div>
@@ -264,10 +264,10 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: Day
         tabIndex={-1}
         aria-label={`Add appointment on ${format(day, 'EEEE, MMMM d')}`}
         onClick={onColumnClick}
-        className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#F9F9F9] cursor-pointer"
+        className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#FAFAF8] cursor-pointer"
       >
         {appointments.length === 0 && (
-          <p className="text-xs text-[#C8C8C8]/60 p-1 select-none">—</p>
+          <p className="text-xs text-[#8A8680]/50 p-1 select-none">—</p>
         )}
 
         {appointments.map((apt) => (
@@ -577,10 +577,10 @@ export default function WeekView() {
             onClick={handlePrevWeek}
             aria-label="Previous week"
             className="
-              p-2 rounded-lg border border-[#C8C8C8]/60 shrink-0
-              text-[#C8C8C8] hover:text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
+              p-2 rounded-lg border border-[#E5E2DB] shrink-0
+              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
               transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -589,7 +589,7 @@ export default function WeekView() {
           </button>
 
           {/* Week date range */}
-          <span className="text-base font-semibold text-[#1A1A1A] whitespace-nowrap">
+          <span className="text-base font-semibold text-[#1A1A1A] whitespace-nowrap font-body">
             {weekLabel}
           </span>
 
@@ -598,10 +598,10 @@ export default function WeekView() {
             onClick={handleNextWeek}
             aria-label="Next week"
             className="
-              p-2 rounded-lg border border-[#C8C8C8]/60 shrink-0
-              text-[#C8C8C8] hover:text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
+              p-2 rounded-lg border border-[#E5E2DB] shrink-0
+              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
               transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -614,10 +614,10 @@ export default function WeekView() {
             <button
               onClick={handleThisWeek}
               className="
-                text-sm font-medium text-[#1A1A1A] shrink-0
-                px-2.5 py-1.5 rounded-lg border border-[#C8C8C8]/60 hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
+                text-sm font-medium text-[#4A4540] shrink-0 font-body
+                px-2.5 py-1.5 rounded-lg border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
                 transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
               "
             >
               Today
@@ -631,9 +631,9 @@ export default function WeekView() {
           onClick={handleHeaderAddClick}
           className="
             flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold shrink-0
-            bg-[#1A1A1A] text-white hover:bg-[#2D2D2D]
+            bg-[#1B4332] text-white hover:bg-[#16392A]
             transition-colors
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/40
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40
           "
         >
           <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -657,11 +657,11 @@ export default function WeekView() {
               type="button"
               onClick={() => setSelectedBarberId(b.id)}
               className={`
-                px-3 py-1.5 rounded-full text-xs font-medium transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30
+                px-3 py-1.5 rounded-full text-xs font-medium transition-colors font-body
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30
                 ${selectedBarberId === b.id
-                  ? 'bg-[#1A1A1A] text-white'
-                  : 'border border-[#C8C8C8] text-[#2D2D2D] hover:bg-gray-50'
+                  ? 'bg-[#1B4332] text-white'
+                  : 'border border-[#E5E2DB] text-[#4A4540] hover:bg-[#E8F2EC]/50'
                 }
               `}
             >
@@ -675,11 +675,11 @@ export default function WeekView() {
               type="button"
               onClick={() => setSelectedBarberId('unassigned')}
               className={`
-                px-3 py-1.5 rounded-full text-xs font-medium transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30
+                px-3 py-1.5 rounded-full text-xs font-medium transition-colors font-body
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30
                 ${selectedBarberId === 'unassigned'
-                  ? 'bg-[#1A1A1A] text-white'
-                  : 'border border-[#C8C8C8] text-[#2D2D2D] hover:bg-gray-50'
+                  ? 'bg-[#1B4332] text-white'
+                  : 'border border-[#E5E2DB] text-[#4A4540] hover:bg-[#E8F2EC]/50'
                 }
               `}
             >
@@ -705,13 +705,13 @@ export default function WeekView() {
               aria-pressed={isSelected}
               className={`
                 flex flex-col items-center justify-center
-                flex-1 min-w-[42px] px-1 py-2 rounded-xl text-center transition-colors
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30
+                flex-1 min-w-[42px] px-1 py-2 rounded-xl text-center transition-colors font-body
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30
                 ${isSelected
-                  ? 'bg-[#1A1A1A] text-white shadow-sm'
+                  ? 'bg-[#1B4332] text-white shadow-sm'
                   : isCurrentDay
-                    ? 'border border-[#1A1A1A]/30 text-[#1A1A1A] hover:bg-[#1A1A1A]/5'
-                    : 'text-[#C8C8C8] hover:bg-[#1A1A1A]/5'
+                    ? 'border border-[#1B4332]/30 text-[#1B4332] hover:bg-[#E8F2EC]/50'
+                    : 'text-[#8A8680] hover:bg-[#E5E2DB]/50'
                 }
               `}
             >
@@ -734,15 +734,15 @@ export default function WeekView() {
           {Array.from({ length: 7 }).map((_, i) => (
             <div
               key={i}
-              className="flex-1 min-w-[115px] rounded-xl border border-[#C8C8C8]/40 overflow-hidden animate-pulse"
+              className="flex-1 min-w-[115px] rounded-xl border border-[#E5E2DB] overflow-hidden animate-pulse"
             >
-              <div className="px-2 py-2.5 bg-white border-b border-[#C8C8C8]/30 text-center">
-                <div className="h-3 bg-[#C8C8C8]/30 rounded mx-auto w-8 mb-1" />
-                <div className="h-4 bg-[#C8C8C8]/30 rounded mx-auto w-6" />
+              <div className="px-2 py-2.5 bg-white border-b border-[#E5E2DB] text-center">
+                <div className="h-3 bg-[#E5E2DB] rounded mx-auto w-8 mb-1" />
+                <div className="h-4 bg-[#E5E2DB] rounded mx-auto w-6" />
               </div>
-              <div className="p-1.5 space-y-1.5 min-h-[220px] bg-[#F9F9F9]">
-                <div className="h-14 bg-[#C8C8C8]/20 rounded-lg" />
-                <div className="h-10 bg-[#C8C8C8]/20 rounded-lg" />
+              <div className="p-1.5 space-y-1.5 min-h-[220px] bg-[#FAFAF8]">
+                <div className="h-14 bg-[#E5E2DB]/60 rounded-lg" />
+                <div className="h-10 bg-[#E5E2DB]/60 rounded-lg" />
               </div>
             </div>
           ))}
@@ -753,12 +753,12 @@ export default function WeekView() {
       {isLoading && (
         <div className="lg:hidden space-y-3">
           {[1, 2, 3].map((n) => (
-            <div key={n} className="bg-white rounded-xl border border-[#C8C8C8]/40 px-4 py-3 animate-pulse">
+            <div key={n} className="bg-white rounded-xl border border-[#E5E2DB] px-4 py-3 animate-pulse">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-4 bg-[#C8C8C8]/30 rounded" />
+                <div className="w-10 h-4 bg-[#E5E2DB] rounded" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-[#C8C8C8]/30 rounded w-1/3" />
-                  <div className="h-3 bg-[#C8C8C8]/20 rounded w-1/4" />
+                  <div className="h-4 bg-[#E5E2DB] rounded w-1/3" />
+                  <div className="h-3 bg-[#E5E2DB]/70 rounded w-1/4" />
                 </div>
               </div>
             </div>
@@ -812,7 +812,7 @@ export default function WeekView() {
 
             if (dayApts.length === 0) {
               return (
-                <p className="text-sm text-[#C8C8C8] py-4">No appointments this day</p>
+                <p className="text-sm text-[#8A8680] py-4 font-body">No appointments this day</p>
               );
             }
 
@@ -823,23 +823,23 @@ export default function WeekView() {
                 onClick={() => handleAppointmentClick(apt)}
                 className={`
                   w-full text-left
-                  bg-white rounded-xl border border-[#C8C8C8]/40
+                  bg-white rounded-xl border border-[#E5E2DB]
                   px-4 py-3
                   flex items-center justify-between gap-4
-                  hover:border-[#1A1A1A]/20 hover:shadow-sm transition-colors
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+                  hover:border-[#1B4332]/20 hover:shadow-sm transition-colors
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
                   ${apt.status === 'cancelled' ? 'opacity-40' : ''}
                 `}
               >
-                <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums">
+                <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums font-body">
                   {formatTime(apt.datetime)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold text-[#1A1A1A] truncate ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
+                  <p className={`text-sm font-semibold text-[#1A1A1A] truncate font-body ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
                     {apt.client_name ?? 'Unknown client'}
                   </p>
                   {apt.service_type && (
-                    <p className="text-xs text-[#C8C8C8] mt-0.5 truncate">{apt.service_type}</p>
+                    <p className="text-xs text-[#8A8680] mt-0.5 truncate font-body">{apt.service_type}</p>
                   )}
                 </div>
               </button>
@@ -851,10 +851,10 @@ export default function WeekView() {
             type="button"
             onClick={() => handleColumnClick(selectedDay)}
             className="
-              w-full mt-2 py-2.5 rounded-xl border border-dashed border-[#C8C8C8]/60
-              text-sm text-[#C8C8C8] hover:border-[#1A1A1A]/30 hover:text-[#1A1A1A]
-              transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+              w-full mt-2 py-2.5 rounded-xl border border-dashed border-[#E5E2DB]
+              text-sm text-[#8A8680] hover:border-[#1B4332]/30 hover:text-[#1B4332] hover:bg-[#E8F2EC]/30
+              transition-colors font-body
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
             + Add for {format(selectedDay, 'EEE d')}

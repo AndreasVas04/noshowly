@@ -2,171 +2,226 @@
  * app/terms/page.tsx
  *
  * Terms of Service page for Noshowly.
+ * Design: "Calm Professional" palette — #FAFAF8 background, Playfair Display
+ * headings, Montserrat body, forest green #1B4332 accent.
  */
 
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import LandingNav from '@/components/landing/LandingNav';
+import LandingFooter from '@/components/landing/LandingFooter';
 
 export const metadata: Metadata = {
   title: 'Terms of Service - Noshowly',
-  description: 'Terms for using Noshowly.',
+  description: 'The terms and conditions for using the Noshowly service.',
 };
 
 /**
- * Renders a labelled section with consistent spacing.
+ * Renders one content section with a Playfair heading and body text.
  */
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mb-8">
-      <h2 className="text-lg font-semibold text-gray-900 mb-2">{title}</h2>
-      <div className="space-y-2 text-gray-600 leading-relaxed">{children}</div>
+    <section className="py-8 border-b border-[#E5E2DB] last:border-0">
+      <h2 className="font-heading text-xl font-bold text-[#1A1A1A] mb-4">{title}</h2>
+      <div className="space-y-3 text-[#4A4540] leading-relaxed font-body">{children}</div>
     </section>
   );
 }
 
+/**
+ * Terms of Service page.
+ *
+ * @returns The full terms page with shared nav and footer.
+ */
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#FAFAF8] font-body text-[#1A1A1A]">
 
-      <header className="border-b border-gray-200">
-        <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/register" className="text-xl font-bold text-gray-900 hover:text-gray-700 transition">
-            Noshowly
-          </Link>
-          <Link href="/register" className="text-sm text-gray-500 hover:text-gray-900 transition">
-            &larr; Back to home
-          </Link>
-        </div>
-      </header>
+      <LandingNav />
 
-      <main className="max-w-2xl mx-auto px-6 py-12">
-
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms of Service</h1>
-          <p className="text-sm text-gray-400">Last updated: April 2026</p>
-          <p className="mt-3 text-gray-600">
-            By creating an account, you agree to these terms. Questions? Email{' '}
-            <a href="mailto:noshowly@gmail.com" className="text-black underline underline-offset-2">
+      {/* Page hero */}
+      <div className="bg-white border-b border-[#E5E2DB]">
+        <div className="mx-auto max-w-3xl px-6 py-16">
+          <p className="text-xs font-semibold tracking-[0.2em] uppercase text-[#1B4332] mb-4 font-body">
+            Legal
+          </p>
+          <h1 className="font-heading text-4xl md:text-5xl font-bold text-[#1A1A1A] leading-tight">
+            Terms of Service
+          </h1>
+          <p className="mt-4 text-sm text-[#8A8680] font-body">
+            Last updated: April 2026
+          </p>
+          <p className="mt-3 text-[#4A4540] font-body">
+            Questions about these terms? Email us at{' '}
+            <a
+              href="mailto:noshowly@gmail.com"
+              className="text-[#1B4332] underline underline-offset-2 hover:text-[#16392A] transition-colors"
+            >
               noshowly@gmail.com
             </a>
             .
           </p>
         </div>
+      </div>
 
-        <Section title="What Noshowly is">
+      {/* Content */}
+      <main className="mx-auto max-w-3xl px-6 py-12">
+
+        <Section title="Agreement to terms">
           <p>
-            Noshowly is an appointment scheduling and reminder service for service businesses.
-            It lets you manage bookings and automatically send SMS and email reminders
-            to your clients before their appointments.
+            By creating a Noshowly account, you agree to these terms. If you do not agree, do not
+            use the service.
           </p>
           <p>
-            Noshowly handles scheduling and reminders only. We do not process payments between you
-            and your clients and we do not interfere with your existing payment setup.
+            &ldquo;Noshowly&rdquo; refers to this service and the company that operates it.
+            &ldquo;You&rdquo; refers to the business owner using the service.
           </p>
         </Section>
 
-        <Section title="Plans and pricing">
-          <p>Noshowly offers three paid plans:</p>
+        <Section title="What Noshowly provides">
           <p>
-            <strong className="text-gray-800">Solo</strong> at $29.99 per month, includes 250
-            reminders per month, suitable for solo practitioners.
+            Noshowly is a scheduling and appointment reminder tool for service businesses. It lets
+            you manage appointments and automatically send SMS and email reminders to your clients.
           </p>
           <p>
-            <strong className="text-gray-800">Team</strong> at $49.99 per month, includes 600
-            reminders per month, suitable for teams of 2 to 4.
-          </p>
-          <p>
-            <strong className="text-gray-800">Studio</strong> at $89.99 per month, includes 1,200
-            reminders per month, suitable for 5 or more staff.
-          </p>
-          <p>
-            Annual plans are available with 2 months free. Prices are in USD. We will give you at
-            least 30 days notice before any price change.
+            Noshowly does not handle payments between you and your clients. We only handle the
+            monthly subscription you pay to use Noshowly.
           </p>
         </Section>
 
-        <Section title="Billing and cancellation">
+        <Section title="Your account">
           <p>
-            Billing is handled by Stripe. Your card details go directly to Stripe. We never see or store them. Your subscription renews automatically each month or year
-            until you cancel. You can cancel at any time from your account settings.
+            You are responsible for keeping your login credentials secure. You must notify us
+            immediately if you suspect unauthorised access.
           </p>
           <p>
-            When you cancel, you keep access until the end of the current billing period. We do not
-            cut off access mid-cycle.
-          </p>
-          <p>
-            We do not offer refunds for forgetting to cancel before a renewal. If a technical error
-            on our end prevents you from using the service, contact us and we will sort it out.
+            You are responsible for all activity that happens under your account. Each Noshowly
+            account is for one business. You may not share your account with other businesses.
           </p>
         </Section>
 
         <Section title="Acceptable use">
+          <p>You may use Noshowly only for lawful business purposes.</p>
+          <p>You must not:</p>
+          <ul className="list-disc list-inside space-y-1 ml-2">
+            <li>Send unsolicited messages to people who have not booked an appointment with you.</li>
+            <li>Use the service to harass, threaten, or spam anyone.</li>
+            <li>Attempt to reverse-engineer or access the service in unauthorised ways.</li>
+            <li>Violate any applicable laws or regulations.</li>
+          </ul>
           <p>
-            Noshowly is for sending reminders to real clients about real appointments they have
-            booked with you. Do not use it to send unsolicited messages, to contact people who have
-            not booked an appointment, or to send fake or fabricated appointment reminders.
-          </p>
-          <p>
-            Do not use Noshowly for any activity that violates applicable laws, including SMS and
-            email marketing regulations in your country.
-          </p>
-          <p>
-            If we see activity that looks like abuse, we will contact you. Repeated or serious
-            violations may result in account suspension.
+            We may suspend or terminate your account if you violate these rules without notice or
+            refund.
           </p>
         </Section>
 
-        <Section title="Your data">
+        <Section title="Billing and plans">
+          <p>Noshowly is offered on three paid plans, billed monthly in USD:</p>
+          <ul className="list-disc list-inside space-y-1 ml-2">
+            <li>
+              <strong className="text-[#1A1A1A]">Starter</strong> at $19/month. Includes unlimited
+              email reminders. No SMS reminders.
+            </li>
+            <li>
+              <strong className="text-[#1A1A1A]">Professional</strong> at $39/month. Includes
+              unlimited email reminders and 300 SMS reminders per month.
+            </li>
+            <li>
+              <strong className="text-[#1A1A1A]">Business</strong> at $79/month. Includes unlimited
+              email reminders and 1,000 SMS reminders per month.
+            </li>
+          </ul>
           <p>
-            The appointment and client data you enter into Noshowly belongs to you. We process it
-            to run the service. When your account is deleted, your data is removed from our systems.
+            Annual plans are available at a discount equivalent to two months free. All prices are
+            in US dollars.
           </p>
           <p>
-            See our{' '}
-            <Link href="/privacy" className="text-black underline underline-offset-2">
+            Subscriptions renew automatically. You may cancel at any time. Cancellation takes effect
+            at the end of your current billing period. No partial refunds are issued.
+          </p>
+          <p>
+            We may change prices with 30 days notice. If you do not agree to a price change, you
+            may cancel before it takes effect.
+          </p>
+        </Section>
+
+        <Section title="SMS usage">
+          <p>
+            SMS reminders are sent via Twilio. Message frequency depends on the number of
+            appointments you schedule. Standard carrier rates may apply to your clients for
+            receiving messages in some countries.
+          </p>
+          <p>
+            You are responsible for ensuring you have a lawful basis for sending messages to your
+            clients in your jurisdiction.
+          </p>
+        </Section>
+
+        <Section title="Data and privacy">
+          <p>
+            Your use of the service is also governed by our{' '}
+            <Link
+              href="/privacy"
+              className="text-[#1B4332] underline underline-offset-2 hover:text-[#16392A] transition-colors"
+            >
               Privacy Policy
-            </Link>{' '}
-            for full details.
+            </Link>
+            .
+          </p>
+          <p>
+            You own your data. You are responsible for ensuring the client information you enter is
+            accurate and that you have consent to contact clients via SMS and email.
           </p>
         </Section>
 
         <Section title="Limitation of liability">
           <p>
-            Noshowly is provided as-is. We are not liable for missed appointments, lost revenue, or
-            indirect damages arising from using the service. Our total liability for any claim is
-            limited to the amount you have paid us in the three months before the incident.
+            Noshowly is provided &ldquo;as is&rdquo; without warranties of any kind. We do not
+            guarantee that the service will be uninterrupted or error-free.
+          </p>
+          <p>
+            We are not liable for missed reminders due to carrier failures, spam filters, incorrect
+            client contact details, or events outside our reasonable control.
+          </p>
+          <p>
+            To the maximum extent permitted by law, our total liability to you for any claim does
+            not exceed the amount you paid us in the 30 days before the claim arose.
           </p>
         </Section>
 
         <Section title="Changes to these terms">
           <p>
-            If we make meaningful changes, we will email you at least 30 days before they take
-            effect. You can cancel before changes take effect if you do not agree with them.
+            We may update these terms from time to time. We will email you before material changes
+            take effect. Continued use of the service after that date constitutes acceptance of the
+            updated terms.
           </p>
         </Section>
 
         <Section title="Contact">
           <p>
-            Questions about these terms? Email{' '}
-            <a href="mailto:noshowly@gmail.com" className="text-black underline underline-offset-2">
+            For any questions about these terms, email us at{' '}
+            <a
+              href="mailto:noshowly@gmail.com"
+              className="text-[#1B4332] underline underline-offset-2 hover:text-[#16392A] transition-colors"
+            >
               noshowly@gmail.com
             </a>
             .
           </p>
         </Section>
 
-        <div className="mt-10 pt-6 border-t border-gray-200 flex flex-wrap gap-4 text-sm text-gray-400">
-          <Link href="/register" className="hover:text-gray-900 transition">Home</Link>
-          <Link href="/privacy" className="hover:text-gray-900 transition">Privacy Policy</Link>
+        {/* Bottom nav */}
+        <div className="mt-12 pt-8 flex flex-wrap gap-6 text-sm">
+          <Link href="/" className="text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body">
+            Home
+          </Link>
+          <Link href="/privacy" className="text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body">
+            Privacy Policy
+          </Link>
         </div>
-
       </main>
+
+      <LandingFooter />
     </div>
   );
 }

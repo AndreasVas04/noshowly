@@ -201,11 +201,11 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   // Pill style helper
   function pillClass(active: boolean): string {
     return [
-      'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30',
+      'px-3 py-1.5 rounded-full text-xs font-medium transition-colors font-body',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30',
       active
-        ? 'bg-[#1A1A1A] text-white'
-        : 'bg-[#C8C8C8]/20 text-[#1A1A1A] hover:bg-[#C8C8C8]/40',
+        ? 'bg-[#1B4332] text-white'
+        : 'bg-[#E5E2DB]/60 text-[#4A4540] hover:bg-[#E5E2DB]',
     ].join(' ');
   }
 
@@ -218,7 +218,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
       {title && (
         <div className="mb-5">
           <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">{title}</h1>
-          <p className="text-sm text-[#C8C8C8] mt-1">{fullDateLabel}</p>
+          <p className="text-sm text-[#8A8680] mt-1 font-body">{fullDateLabel}</p>
         </div>
       )}
 
@@ -233,8 +233,8 @@ export default function DayView({ initialDate, title }: DayViewProps) {
             onClick={handleOpenAddModal}
             className="
               flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium
-              text-[#1A1A1A] border border-[#C8C8C8]/60 hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+              bg-[#1B4332] text-white hover:bg-[#16392A]
+              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40
             "
           >
             <Plus className="w-4 h-4" />
@@ -245,9 +245,9 @@ export default function DayView({ initialDate, title }: DayViewProps) {
             <button
               onClick={handleToday}
               className="
-                text-sm font-medium text-[#1A1A1A]
-                px-3 py-2 rounded-lg border border-[#C8C8C8]/60 hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
-                transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+                text-sm font-medium text-[#4A4540]
+                px-3 py-2 rounded-lg border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+                transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
               "
             >
               Today
@@ -261,18 +261,18 @@ export default function DayView({ initialDate, title }: DayViewProps) {
             onClick={handlePrevDay}
             aria-label="Previous day"
             className="
-              p-2 rounded-lg border border-[#C8C8C8]/60
-              text-[#C8C8C8] hover:text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+              p-2 rounded-lg border border-[#E5E2DB]
+              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <h2 className="flex-1 text-sm font-semibold text-[#1A1A1A]">
+          <h2 className="flex-1 text-sm font-semibold text-[#1A1A1A] font-body">
             {fullDateLabel}
             {isCurrentlyToday && (
-              <span className="ml-2 text-xs font-medium text-white bg-[#1A1A1A] px-2 py-0.5 rounded-full align-middle">
+              <span className="ml-2 text-xs font-medium text-white bg-[#1B4332] px-2 py-0.5 rounded-full align-middle">
                 Today
               </span>
             )}
@@ -282,9 +282,9 @@ export default function DayView({ initialDate, title }: DayViewProps) {
             <button
               onClick={handleToday}
               className="
-                text-sm font-medium text-[#1A1A1A]
-                px-3 py-1.5 rounded-lg border border-[#C8C8C8]/60 hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
-                transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+                text-sm font-medium text-[#4A4540]
+                px-3 py-1.5 rounded-lg border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+                transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
               "
             >
               Today
@@ -296,8 +296,8 @@ export default function DayView({ initialDate, title }: DayViewProps) {
             onClick={handleOpenAddModal}
             className="
               flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold
-              bg-[#1A1A1A] text-white hover:bg-[#2D2D2D]
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/40
+              bg-[#1B4332] text-white hover:bg-[#16392A]
+              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40
             "
           >
             <Plus className="w-4 h-4" />
@@ -309,9 +309,9 @@ export default function DayView({ initialDate, title }: DayViewProps) {
             onClick={handleNextDay}
             aria-label="Next day"
             className="
-              p-2 rounded-lg border border-[#C8C8C8]/60
-              text-[#C8C8C8] hover:text-[#1A1A1A] hover:border-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/20
+              p-2 rounded-lg border border-[#E5E2DB]
+              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
             <ChevronRight className="w-4 h-4" />
@@ -348,12 +348,12 @@ export default function DayView({ initialDate, title }: DayViewProps) {
       {isLoading && (
         <div className="space-y-3">
           {[1, 2, 3].map((n) => (
-            <div key={n} className="bg-white rounded-xl border border-[#C8C8C8]/40 px-5 py-4 animate-pulse">
+            <div key={n} className="bg-white rounded-xl border border-[#E5E2DB] px-5 py-4 animate-pulse">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-4 bg-[#C8C8C8]/30 rounded" />
+                <div className="w-10 h-4 bg-[#E5E2DB] rounded" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-[#C8C8C8]/30 rounded w-1/3" />
-                  <div className="h-3 bg-[#C8C8C8]/20 rounded w-1/4" />
+                  <div className="h-4 bg-[#E5E2DB] rounded w-1/3" />
+                  <div className="h-3 bg-[#E5E2DB]/70 rounded w-1/4" />
                 </div>
               </div>
             </div>
@@ -376,12 +376,12 @@ export default function DayView({ initialDate, title }: DayViewProps) {
 
       {/* Empty state */}
       {!isLoading && !error && appointments.length === 0 && (
-        <p className="text-sm text-[#C8C8C8] py-6">No appointments today.</p>
+        <p className="text-sm text-[#8A8680] py-6 font-body">No appointments today.</p>
       )}
 
       {/* Filtered empty state */}
       {!isLoading && !error && appointments.length > 0 && sortedAppointments.length === 0 && (
-        <p className="text-sm text-[#C8C8C8] py-6">No appointments for this staff member today.</p>
+        <p className="text-sm text-[#8A8680] py-6 font-body">No appointments for this staff member today.</p>
       )}
 
       {/* Appointment list */}

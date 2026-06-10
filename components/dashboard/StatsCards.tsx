@@ -55,28 +55,26 @@ type StatConfig = {
   loading: boolean;
   /** Tailwind border-left color class for the accent line. */
   accentClass: string;
-  /** Tailwind background tint class matching the accent color. */
-  bgClass: string;
 };
 
 /**
- * Renders a single stat card with a colored left border accent, tinted
- * background, large count, and a subtle icon in the corner.
+ * Renders a single stat card with a colored left border accent, clean white
+ * background, Playfair Display count, and a subtle icon in the corner.
  *
  * @param props - Card data and loading state.
  */
-function StatCard({ label, count, icon, loading, accentClass, bgClass }: StatConfig) {
+function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
   return (
-    <Card className={`border-[#C8C8C8]/40 shadow-none border-l-[3px] ${accentClass} ${bgClass}`}>
+    <Card className={`bg-white border-[#E5E2DB] shadow-none border-l-[3px] ${accentClass}`}>
       <CardContent className="px-5 py-4">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-wider">{label}</p>
-          <div className="text-[#C8C8C8]">{icon}</div>
+          <p className="text-xs font-medium text-[#8A8680] uppercase tracking-wider font-body">{label}</p>
+          <div className="opacity-60">{icon}</div>
         </div>
         {loading ? (
-          <div className="h-8 w-10 animate-pulse rounded bg-[#C8C8C8]/20" />
+          <div className="h-10 w-10 animate-pulse rounded bg-[#E5E2DB]/60" />
         ) : (
-          <p className="text-3xl font-semibold text-[#1A1A1A] tabular-nums leading-none">{count}</p>
+          <p className="font-heading text-4xl font-bold text-[#1A1A1A] tabular-nums leading-none">{count}</p>
         )}
       </CardContent>
     </Card>
@@ -131,7 +129,6 @@ export default function StatsCards({ plan }: StatsCardsProps) {
       loading,
       icon: <CheckCircle className="w-4 h-4" style={{ color: '#1B4332' }} />,
       accentClass: 'border-l-[#1B4332]',
-      bgClass: 'bg-[#E8F2EC]/40',
     },
     {
       label: 'Pending',
@@ -139,7 +136,6 @@ export default function StatsCards({ plan }: StatsCardsProps) {
       loading,
       icon: <Clock className="w-4 h-4 text-amber-600" />,
       accentClass: 'border-l-amber-600',
-      bgClass: 'bg-amber-50/60',
     },
     {
       label: 'Cancelled',
@@ -147,7 +143,6 @@ export default function StatsCards({ plan }: StatsCardsProps) {
       loading,
       icon: <XCircle className="w-4 h-4 text-rose-500" />,
       accentClass: 'border-l-rose-500',
-      bgClass: 'bg-rose-50/50',
     },
   ];
 

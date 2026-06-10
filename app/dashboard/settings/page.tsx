@@ -189,7 +189,7 @@ function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.Re
  */
 function SaveIndicator({ status }: { status: SaveStatus }) {
   if (status === 'idle')   return null;
-  if (status === 'saving') return <span className="text-xs text-[#C8C8C8]">Saving…</span>;
+  if (status === 'saving') return <span className="text-xs text-[#8A8680]">Saving…</span>;
   if (status === 'saved')  return <span className="text-xs text-emerald-600 font-medium">Saved ✓</span>;
   return null; // error shown inline in the section
 }
@@ -672,7 +672,7 @@ export default function SettingsPage() {
   if (loadState === 'loading') {
     return (
       <div className="p-8 lg:p-12 flex items-center justify-center min-h-64">
-        <p className="text-sm text-[#C8C8C8]">Loading settings…</p>
+        <p className="text-sm text-[#8A8680] font-body">Loading settings…</p>
       </div>
     );
   }
@@ -737,7 +737,7 @@ export default function SettingsPage() {
         {/* Page heading */}
         <div>
           <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">Settings</h1>
-          <p className="text-sm text-[#C8C8C8] mt-1.5">
+          <p className="text-sm text-[#8A8680] mt-1.5 font-body">
             Manage your business info, reminder templates and hours.
           </p>
         </div>
@@ -748,11 +748,11 @@ export default function SettingsPage() {
         ================================================================ */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Business info</h2>
+            <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Business info</h2>
             <SaveIndicator status={salonInfoSaveStatus} />
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5">
+          <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
 
             {/* Business name */}
             <div className="space-y-1.5">
@@ -768,9 +768,9 @@ export default function SettingsPage() {
                 }}
                 placeholder="e.g. City Dental Clinic"
                 maxLength={100}
-                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
               />
-              <p className="text-xs text-[#C8C8C8]">This is the name your clients see in reminder messages.</p>
+              <p className="text-xs text-[#8A8680] font-body">This is the name your clients see in reminder messages.</p>
             </div>
 
             {/* Phone */}
@@ -787,9 +787,9 @@ export default function SettingsPage() {
                 }}
                 placeholder="e.g. +1 555 000 0000"
                 maxLength={20}
-                className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]"
+                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
               />
-              <p className="text-xs text-[#C8C8C8]">Your business contact number. Not used for sending reminders.</p>
+              <p className="text-xs text-[#8A8680] font-body">Your business contact number. Not used for sending reminders.</p>
             </div>
 
             {/* Timezone */}
@@ -803,13 +803,13 @@ export default function SettingsPage() {
                   setTimezone(v);
                   scheduleSalonInfoSave(salonName, phone, v, currency);
                 }}
-                className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1A1A1A] transition-colors"
+                className="w-full h-10 rounded-lg border border-[#E5E2DB] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1B4332] transition-colors"
               >
                 {COMMON_TIMEZONES.map((tz) => (
                   <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
                 ))}
               </select>
-              <p className="text-xs text-[#C8C8C8]">All appointment times are shown in this timezone.</p>
+              <p className="text-xs text-[#8A8680] font-body">All appointment times are shown in this timezone.</p>
             </div>
 
             {/* Currency */}
@@ -823,13 +823,13 @@ export default function SettingsPage() {
                   setCurrency(v);
                   scheduleSalonInfoSave(salonName, phone, timezone, v);
                 }}
-                className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1A1A1A] transition-colors"
+                className="w-full h-10 rounded-lg border border-[#E5E2DB] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1B4332] transition-colors"
               >
                 {CURRENCY_OPTIONS.map((opt) => (
                   <option key={opt.code} value={opt.code}>{opt.label}</option>
                 ))}
               </select>
-              <p className="text-xs text-[#C8C8C8]">Used for displaying service prices on your booking page.</p>
+              <p className="text-xs text-[#8A8680] font-body">Used for displaying service prices on your booking page.</p>
             </div>
 
           </div>
@@ -847,14 +847,14 @@ export default function SettingsPage() {
         ================================================================ */}
         <section>
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Business hours</h2>
+            <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Business hours</h2>
             <SaveIndicator status={hoursSaveStatus} />
           </div>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <p className="text-sm text-[#8A8680] mb-4 font-body">
             Used as the default time range for the booking page and appointment modal.
           </p>
 
-          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5">
+          <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
 
             <div className="grid grid-cols-2 gap-5">
               <div className="space-y-1.5">
@@ -903,14 +903,14 @@ export default function SettingsPage() {
         ================================================================ */}
         <section>
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Reminder settings</h2>
+            <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Reminder settings</h2>
             <SaveIndicator status={confirmSaveStatus} />
           </div>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <p className="text-sm text-[#8A8680] mb-4 font-body">
             Control whether clients are asked to confirm or cancel their appointment.
           </p>
 
-          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-5">
+          <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
 
             {/* SMS confirmation toggle */}
             <div className="flex items-start gap-4">
@@ -931,12 +931,12 @@ export default function SettingsPage() {
                   disabled={!smsAllowed || confirmSaveStatus === 'saving'}
                   className="sr-only peer"
                 />
-                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1A1A1A] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
+                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1B4332] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
               </label>
               <div>
                 <p className="text-sm font-medium text-[#1A1A1A]">Request SMS confirmation (YES/NO)</p>
                 {smsAllowed ? (
-                  <p className="text-xs text-[#C8C8C8] mt-0.5">
+                  <p className="text-xs text-[#8A8680] mt-0.5 font-body">
                     When off, SMS reminders are sent without asking for a reply.
                   </p>
                 ) : (
@@ -966,12 +966,12 @@ export default function SettingsPage() {
                   disabled={!emailAllowed || confirmSaveStatus === 'saving'}
                   className="sr-only peer"
                 />
-                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1A1A1A] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
+                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1B4332] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
               </label>
               <div>
                 <p className="text-sm font-medium text-[#1A1A1A]">Request email confirmation (YES/NO)</p>
                 {emailAllowed ? (
-                  <p className="text-xs text-[#C8C8C8] mt-0.5">
+                  <p className="text-xs text-[#8A8680] mt-0.5 font-body">
                     When off, email reminders are sent without YES/NO buttons.
                   </p>
                 ) : (
@@ -998,16 +998,16 @@ export default function SettingsPage() {
         ================================================================ */}
         <section>
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Message templates</h2>
+            <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Message templates</h2>
             <SaveIndicator status={templatesSaveStatus} />
           </div>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <p className="text-sm text-[#8A8680] mb-4 font-body">
             Customise the reminder text sent to your clients. Leave blank to use the default.
           </p>
 
           {/* ---- Live reminder preview ---- */}
           <div className="mb-6">
-            <p className="text-sm text-[#C8C8C8] mb-3">
+            <p className="text-sm text-[#8A8680] mb-3 font-body">
               Preview (updates as you type)
             </p>
 
@@ -1015,7 +1015,7 @@ export default function SettingsPage() {
 
               {/* SMS preview */}
               <div className="space-y-2">
-                <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">SMS · 24h before</p>
+                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">SMS · 24h before</p>
                 <div className="bg-[#1A1A1A] rounded-2xl p-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-medium text-white/30 uppercase tracking-widest">Message</span>
@@ -1034,16 +1034,16 @@ export default function SettingsPage() {
 
               {/* Email preview */}
               <div className="space-y-2">
-                <p className="text-xs font-medium text-[#C8C8C8] uppercase tracking-widest">Email · 48h before</p>
-                <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 overflow-hidden">
+                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">Email · 48h before</p>
+                <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
                   {/* Email header */}
-                  <div className="bg-[#1A1A1A]/3 border-b border-[#C8C8C8]/30 px-4 py-3 space-y-1">
+                  <div className="bg-[#1A1A1A]/3 border-b border-[#E5E2DB] px-4 py-3 space-y-1">
                     <div className="flex gap-2 text-xs">
-                      <span className="text-[#C8C8C8] shrink-0">From:</span>
+                      <span className="text-[#8A8680] shrink-0">From:</span>
                       <span className="text-[#1A1A1A] font-medium truncate">reminders@noshowly.com</span>
                     </div>
                     <div className="flex gap-2 text-xs">
-                      <span className="text-[#C8C8C8] shrink-0">Subject:</span>
+                      <span className="text-[#8A8680] shrink-0">Subject:</span>
                       <span className="text-[#1A1A1A] font-medium truncate">{previewEmailSubjectText}</span>
                     </div>
                   </div>
@@ -1051,19 +1051,19 @@ export default function SettingsPage() {
                   <div className="px-4 py-4 space-y-3">
                     <p className="font-heading text-base font-semibold text-[#1A1A1A]">{previewBusiness}</p>
                     <p className="text-xs text-[#1A1A1A]">{previewEmailGreetingText}</p>
-                    <p className="text-xs text-[#C8C8C8] leading-relaxed">{previewEmailBodyText}</p>
+                    <p className="text-xs text-[#8A8680] leading-relaxed">{previewEmailBodyText}</p>
                     <div className="bg-[#1A1A1A]/4 rounded-lg px-3 py-2.5 space-y-0.5">
-                      <p className="text-xs text-[#C8C8C8]">Haircut &middot; Tomorrow at 10:30 AM</p>
+                      <p className="text-xs text-[#8A8680] font-body">Haircut &middot; Tomorrow at 10:30 AM</p>
                     </div>
                     {emailConfirmationEnabled && emailAllowed ? (
                       <div className="flex gap-2">
-                        <span className="inline-block bg-[#1A1A1A] text-white text-xs font-medium px-4 py-1.5 rounded-lg">YES</span>
-                        <span className="inline-block border border-[#C8C8C8] text-[#1A1A1A] text-xs font-medium px-4 py-1.5 rounded-lg">NO</span>
+                        <span className="inline-block bg-[#1B4332] text-white text-xs font-medium px-4 py-1.5 rounded-lg">YES</span>
+                        <span className="inline-block border border-[#E5E2DB] text-[#1A1A1A] text-xs font-medium px-4 py-1.5 rounded-lg">NO</span>
                       </div>
                     ) : (
-                      <p className="text-xs text-[#C8C8C8] italic">{previewEmailClosingText}</p>
+                      <p className="text-xs text-[#8A8680] italic font-body">{previewEmailClosingText}</p>
                     )}
-                    <p className="text-xs text-[#C8C8C8] border-t border-[#C8C8C8]/20 pt-3">{previewEmailFooterText}</p>
+                    <p className="text-xs text-[#8A8680] border-t border-[#E5E2DB] pt-3 font-body">{previewEmailFooterText}</p>
                   </div>
                 </div>
               </div>
@@ -1072,11 +1072,11 @@ export default function SettingsPage() {
           </div>
 
           {/* ---- Template fields ---- */}
-          <div className="bg-white rounded-2xl border border-[#C8C8C8]/40 p-6 space-y-8">
+          <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-8">
 
             {/* SMS template */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-[#C8C8C8] uppercase tracking-widest mb-2">SMS</p>
+              <p className="text-xs font-semibold text-[#8A8680] uppercase tracking-widest mb-2 font-body">SMS</p>
               <FieldLabel htmlFor="sms-template">SMS template</FieldLabel>
               <textarea
                 id="sms-template"
@@ -1090,7 +1090,7 @@ export default function SettingsPage() {
                 placeholder={DEFAULT_SMS_TEMPLATE}
                 rows={3}
                 maxLength={500}
-                className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8]/70 outline-none focus:border-[#1A1A1A] resize-none transition-colors"
+                className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none transition-colors"
               />
 
               {/* Variable chips for SMS */}
@@ -1115,22 +1115,22 @@ export default function SettingsPage() {
 
               {/* Character counter */}
               <div className="flex items-start justify-between gap-3">
-                <p className="text-xs text-[#C8C8C8]">
+                <p className="text-xs text-[#8A8680] font-body">
                   Actual message length depends on variable values. A single SMS segment is 160 chars.
                 </p>
                 <p className={`text-xs font-medium tabular-nums shrink-0 ${
-                  activeTemplate.length > 160 ? 'text-red-500' : 'text-[#C8C8C8]'
+                  activeTemplate.length > 160 ? 'text-red-500' : 'text-[#8A8680]'
                 }`}>
                   {activeTemplate.length}/160
                 </p>
               </div>
             </div>
 
-            <div className="border-t border-[#C8C8C8]/30" />
+            <div className="border-t border-[#E5E2DB]" />
 
             {/* Email template fields */}
             <div className="space-y-5">
-              <p className="text-xs font-semibold text-[#C8C8C8] uppercase tracking-widest">Email</p>
+              <p className="text-xs font-semibold text-[#8A8680] uppercase tracking-widest font-body">Email</p>
 
               {/* Email subject */}
               <div className="space-y-1.5">
@@ -1146,9 +1146,9 @@ export default function SettingsPage() {
                   }}
                   placeholder={DEFAULT_EMAIL_SUBJECT}
                   maxLength={200}
-                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
                 />
-                <p className="text-xs text-[#C8C8C8]">
+                <p className="text-xs text-[#8A8680] font-body">
                   Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}to insert your business name.
                 </p>
               </div>
@@ -1167,9 +1167,9 @@ export default function SettingsPage() {
                   }}
                   placeholder={DEFAULT_EMAIL_GREETING}
                   maxLength={200}
-                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
                 />
-                <p className="text-xs text-[#C8C8C8]">
+                <p className="text-xs text-[#8A8680] font-body">
                   Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{client_name}'}</span>{' '}to personalise the greeting.
                 </p>
               </div>
@@ -1189,7 +1189,7 @@ export default function SettingsPage() {
                   placeholder={DEFAULT_EMAIL_BODY}
                   rows={3}
                   maxLength={500}
-                  className="w-full rounded-lg border border-[#C8C8C8] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8]/70 outline-none focus:border-[#1A1A1A] resize-none transition-colors"
+                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none transition-colors"
                 />
 
                 {/* Variable chips for email body */}
@@ -1228,9 +1228,9 @@ export default function SettingsPage() {
                   }}
                   placeholder={DEFAULT_EMAIL_CLOSING}
                   maxLength={200}
-                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
                 />
-                <p className="text-xs text-[#C8C8C8]">
+                <p className="text-xs text-[#8A8680] font-body">
                   Shown at the bottom of the email when confirmation buttons are disabled.
                 </p>
               </div>
@@ -1249,9 +1249,9 @@ export default function SettingsPage() {
                   }}
                   placeholder={DEFAULT_EMAIL_FOOTER}
                   maxLength={300}
-                  className="border-[#C8C8C8] focus-visible:border-[#1A1A1A] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#C8C8C8]/70"
+                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
                 />
-                <p className="text-xs text-[#C8C8C8]">
+                <p className="text-xs text-[#8A8680] font-body">
                   Small text at the very bottom of reminder emails. Use{' '}
                   <span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}
                   to insert your business name.
@@ -1274,7 +1274,7 @@ export default function SettingsPage() {
         ================================================================ */}
         <section>
           <h2 className="text-base font-semibold text-red-600 mb-1">Delete account</h2>
-          <p className="text-sm text-[#C8C8C8] mb-4">
+          <p className="text-sm text-[#8A8680] mb-4 font-body">
             Permanently deletes your business data, all appointments, all clients, and all reminders.
             This cannot be undone.
           </p>
@@ -1337,7 +1337,7 @@ export default function SettingsPage() {
                       setDeleteAccountError('');
                     }}
                     disabled={isDeletingAccount}
-                    className="border-[#C8C8C8] text-[#1A1A1A] text-sm"
+                    className="border-[#E5E2DB] text-[#1A1A1A] text-sm"
                   >
                     Cancel
                   </Button>
