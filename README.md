@@ -129,4 +129,4 @@ This project is not open-source. All rights reserved.
 
 ---
 
-*Built as a portfolio project by Andreas Vasiliou*
+*Built as a portfolio project by Andreas Vasileiou*
