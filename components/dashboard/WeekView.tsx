@@ -1,33 +1,28 @@
 /**
  * components/dashboard/WeekView.tsx
  *
- * Week view showing one staff member's schedule across all 7 days.
+ * Week view showing all staff schedules across all 7 days.
  *
  * Layout:
  *  - Top bar: prev/next week arrows flanking the week date range ("Mar 30 – Apr 5"),
  *    plus an "Add appointment" button on the right.
- *  - Below the week range: staff selector pills. Clicking a pill switches to that
- *    person's schedule for the entire week.
+ *  - Below the week range: staff selector pills.
  *    - 0 staff: no pills — all appointments shown in a single week grid.
- *    - 1 staff: one name pill; an "Unassigned" pill is shown whenever
- *      unassigned appointments exist for the current week.
- *    - 2+ staff: one pill per staff member; an "Unassigned" pill is shown
- *      whenever unassigned appointments exist (so legacy or migrated data is
- *      always reachable).
+ *    - 1+ staff: "All" pill (default) + one pill per staff + "Unassigned" pill
+ *      when unassigned appointments exist.
  *  - Desktop (lg+): 7-column grid, one column per day (Mon–Sun), showing
- *    the selected staff member's appointments in each column.
+ *    the selected staff filter's appointments in each column.
  *  - Mobile (< lg): day selector strip (Mon–Sun pills) + single day view for
- *    the selected staff on the selected day.
+ *    the selected filter on the selected day.
  *
  * Interactions:
  *  - Prev/next week arrows navigate the week.
  *  - "Today" button resets to the current week — only shown when off the current week.
- *  - Staff pills switch which staff member's schedule is displayed.
+ *  - Staff pills switch which appointments are displayed. Default: "All".
  *  - Clicking a day column's empty area opens the add modal with that day
- *    and staff pre-filled (when a named staff member is selected).
+ *    and staff pre-filled (when a named staff member is currently selected).
  *  - Clicking an appointment card opens the edit modal.
- *  - "Add appointment" button opens the add modal with the currently viewed date
- *    (selectedDay on mobile, today-or-first-day on desktop).
+ *  - "Add appointment" button opens the add modal.
  *
  * Data fetching:
  *  - Barbers: fetched once on mount from GET /api/barbers.
@@ -35,9 +30,11 @@
  *    GET /api/appointments?start=YYYY-MM-DD&end=YYYY-MM-DD whenever the week changes.
  *    Staff filtering is done client-side so switching staff pills is instant.
  *
- * Staff is always optional in AddAppointmentModal. Unassigned appointments
- * are always reachable via the "Unassigned" pill when at least one named
- * staff member exists.
+ * Visual states for appointment cards:
+ *  - confirmed: green background
+ *  - scheduled (future): amber background
+ *  - scheduled (past, time has elapsed): grey/muted + "Past" label
+ *  - cancelled: dashed border, red tint, reduced opacity
  *
  * This is a Client Component because it owns all navigation and modal state.
  */
@@ -76,7 +73,7 @@ function toDateParam(date: Date): string {
 
 /**
  * Formats an ISO datetime string as a 24-hour time string.
- * e.g. "2026-04-01T09:30:00Z" → "09:30"
+ * Uses the browser's local timezone — consistent with how the dates are stored.
  *
  * @param isoString - ISO 8601 datetime stored in the database (UTC).
  * @returns 24-hour time string like "09:30".
@@ -89,12 +86,27 @@ function formatTime(isoString: string): string {
 }
 
 /**
+ * Returns true when a scheduled appointment's time has already passed.
+ * Only meaningful for 'scheduled' status — confirmed and cancelled are
+ * not affected by whether their time has passed.
+ *
+ * @param apt - The appointment to check.
+ * @returns true if status='scheduled' and datetime is in the past.
+ */
+function isPastScheduled(apt: AppointmentWithDetails): boolean {
+  return apt.status === 'scheduled' && new Date(apt.datetime) < new Date();
+}
+
+/**
  * Filters appointments by the currently selected staff context, then returns
  * only those on the given calendar day.
  *
+ * Day comparison is done in local browser timezone so the column a card lands
+ * in matches the time the owner sees — consistent with how date navigation works.
+ *
  * @param appointments    - Full list of appointments for the week.
  * @param selectedBarber  - Filtering context:
- *                          null         → show all (0-staff case)
+ *                          null         → show all (default, or 0-staff case)
  *                          'unassigned' → show only appointments with no barber
  *                          UUID string  → show only that staff member's appointments
  * @param day             - Calendar day to filter by.
@@ -109,12 +121,13 @@ function getAppointmentsForDayAndStaff(
   const dayKey = toDateParam(day);
 
   return appointments.filter((apt) => {
-    // Day filter — compare the appointment's local date string to the target day.
+    // Day filter — compare the appointment's local date to the target day key.
+    // Both use browser local timezone, so they are consistent with each other.
     if (toDateParam(new Date(apt.datetime)) !== dayKey) return false;
 
     // Staff filter
-    if (selectedBarber === null) return true; // 0-staff: show all
-    if (selectedBarber === 'unassigned') return apt.barber_id === null;
+    if (selectedBarber === null)           return true;  // "All": show everything
+    if (selectedBarber === 'unassigned')   return apt.barber_id === null;
     return apt.barber_id === selectedBarber;
   });
 }
@@ -133,32 +146,41 @@ interface WeekCardProps {
 
 /**
  * Returns Tailwind border and background classes for a pill colored by status.
- * confirmed = forest green, scheduled (pending) = amber, cancelled = red/dim.
+ *  confirmed          = forest green
+ *  scheduled (future) = amber
+ *  scheduled (past)   = grey/muted — time elapsed without a YES/NO reply
+ *  cancelled          = red/dim, dashed border handled by the parent element
  *
  * @param status - Appointment lifecycle status.
+ * @param isPast - Whether this is a past unanswered appointment.
  * @returns       Tailwind class string.
  */
-function pillClasses(status: AppointmentWithDetails['status']): string {
+function pillClasses(status: AppointmentWithDetails['status'], isPast: boolean): string {
+  if (isPast && status === 'scheduled') {
+    // Past unanswered — grey/muted, no amber urgency
+    return 'border-[#C8C8C8]/60 bg-[#F0EFED] opacity-60';
+  }
   switch (status) {
     case 'confirmed':
       return 'border-[#1B4332]/30 bg-[#E8F2EC]';
     case 'cancelled':
       return 'border-red-200/60 bg-red-50/50 opacity-50';
-    default: // 'scheduled' — shown as pending
+    default: // 'scheduled' (upcoming) — shown as pending
       return 'border-amber-200 bg-amber-50';
   }
 }
 
 /**
  * Compact appointment card for the week grid.
- * Color-coded by status: confirmed=green, pending=amber, cancelled=red/dim.
- * Cancelled appointments also have a strikethrough on the client name.
+ * Color-coded by status. Past unanswered appointments are greyed out with a
+ * "Past" label so they are visually distinct from active upcoming appointments.
  *
  * @param props.apt     - The appointment data.
  * @param props.onClick - Opens the edit modal for this appointment.
  */
 function WeekCard({ apt, onClick }: WeekCardProps) {
   const isCancelled = apt.status === 'cancelled';
+  const isPast      = isPastScheduled(apt);
 
   return (
     <div
@@ -179,12 +201,17 @@ function WeekCard({ apt, onClick }: WeekCardProps) {
         'hover:brightness-95 transition-all cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30',
         isCancelled ? 'border-dashed' : '',
-        pillClasses(apt.status),
+        pillClasses(apt.status, isPast),
       ].join(' ')}
     >
-      {/* Time */}
-      <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none">
+      {/* Time + optional "Past" label for past unanswered */}
+      <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
         {formatTime(apt.datetime)}
+        {isPast && (
+          <span className="text-[9px] font-medium text-[#8A8680] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
+            Past
+          </span>
+        )}
       </p>
 
       {/* Client name */}
@@ -223,7 +250,7 @@ interface DayColumnProps {
 
 /**
  * DayColumn renders a single day column in the desktop week grid.
- * The column header shows the day name and date (today is highlighted in indigo).
+ * The column header shows the day name and date (today is highlighted).
  * The empty body area is clickable to add a new appointment for that day.
  *
  * @param props.day                - The calendar day this column represents.
@@ -319,10 +346,12 @@ export default function WeekView() {
   const [isLoadingBarbers, setIsLoadingBarbers] = useState(true);
 
   /**
-   * Which staff member's schedule to display.
-   *  null         — show all appointments (used when the salon has 0 staff).
-   *  'unassigned' — show only appointments with no barber assigned (1-staff + unassigned tab).
+   * Which staff filter is active.
+   *  null         — show ALL appointments (default for all cases).
+   *  'unassigned' — show only appointments with no barber assigned.
    *  UUID string  — show only that staff member's appointments.
+   *
+   * Default is always null ("All") so no appointments are silently hidden on load.
    */
   const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
 
@@ -344,7 +373,8 @@ export default function WeekView() {
   const [modalInitialDate, setModalInitialDate] = useState<Date>(() => new Date());
   /**
    * Staff UUID to pre-select when the modal opens from a day column click.
-   * Undefined when opened via the "Add appointment" header button.
+   * Undefined when opened via the "Add appointment" header button or when
+   * "All" / "Unassigned" is the active filter.
    */
   const [modalInitialBarberId, setModalInitialBarberId] = useState<string | undefined>(undefined);
   /** When set, the modal opens in edit mode pre-filled with this appointment. */
@@ -374,7 +404,8 @@ export default function WeekView() {
 
   /**
    * Fetches the salon's staff list. Called once on mount.
-   * Sets the default selected staff to the first barber (or null if none).
+   * Does NOT set a default staff — selection always starts at null ("All") so
+   * no appointments are hidden when the page loads.
    */
   const fetchBarbers = useCallback(async (): Promise<void> => {
     setIsLoadingBarbers(true);
@@ -383,9 +414,9 @@ export default function WeekView() {
       if (!res.ok) throw new Error('Failed to load staff');
       const data = (await res.json()) as { barbers: Barber[] };
       setBarbers(data.barbers);
-
-      // Default selection: first barber if any exist, otherwise null (show all).
-      setSelectedBarberId(data.barbers.length >= 1 ? data.barbers[0].id : null);
+      // Always default to null ("All") — never silently hide appointments by
+      // pre-selecting a specific staff member that the user has not chosen.
+      setSelectedBarberId(null);
     } catch (err) {
       console.error('[WeekView] fetchBarbers error:', err);
       setBarbers([]);
@@ -442,27 +473,25 @@ export default function WeekView() {
 
   /**
    * Whether any appointments for the current week have no staff assigned.
-   * Drives the "Unassigned" tab visibility in the 1-staff case.
+   * Drives the "Unassigned" pill visibility.
    */
   const hasUnassigned = appointments.some((a) => a.barber_id === null);
 
   /**
    * Show the "Unassigned" tab whenever unassigned appointments exist for the
    * current week AND the salon has at least 1 named staff member.
-   * With 0 staff every appointment is unassigned by definition, so a separate
-   * tab adds no value. With 1+ staff this ensures that appointments saved
-   * without a barber (e.g. migrated data, or an older booking) are always
-   * reachable — not silently hidden behind a staff filter.
+   * With 0 staff every appointment is unassigned by definition — a separate
+   * tab adds no value. With 1+ staff this ensures migrated or no-staff
+   * appointments are always reachable.
    */
   const showUnassignedTab = hasUnassigned && barbers.length >= 1;
 
   /**
-   * Staff pills are shown when:
-   *  - There are 2+ staff members (always show all pills), OR
-   *  - There is 1+ staff member and unassigned appointments exist.
-   * With 0 staff: no pills — everything shown in a single view.
+   * Show staff pills whenever there is at least 1 named staff member.
+   * With 0 staff: no pills — "All" is implied and there is nothing to filter by.
+   * With 1+ staff: "All" pill + per-staff pills + optional "Unassigned" pill.
    */
-  const showStaffPills = barbers.length >= 2 || showUnassignedTab;
+  const showStaffPills = barbers.length >= 1;
 
   // -------------------------------------------------------------------------
   // Navigation handlers
@@ -500,14 +529,14 @@ export default function WeekView() {
   /**
    * Opens the add modal from a day column click.
    * Pre-fills the date and — when a named staff member is currently selected — the staff.
-   * When the "Unassigned" tab is active or there's no staff, no staff is pre-selected.
+   * When "All" (null) or "Unassigned" is active, no staff is pre-selected.
    *
    * @param day - The day column the user clicked.
    */
   function handleColumnClick(day: Date): void {
     setEditingAppointment(null);
     setModalInitialDate(day);
-    // Pre-select staff only when a real staff member (not 'unassigned') is viewed.
+    // Pre-select staff only when a real staff member (not null/"unassigned") is viewed.
     const preselect =
       selectedBarberId && selectedBarberId !== 'unassigned'
         ? selectedBarberId
@@ -522,8 +551,6 @@ export default function WeekView() {
    */
   function handleHeaderAddClick(): void {
     setEditingAppointment(null);
-    // Use selectedDay (tracks the mobile day strip selection).
-    // On desktop this will be today on first load, then whatever day was last tapped on mobile.
     setModalInitialDate(selectedDay);
     setModalInitialBarberId(undefined);
     setModalOpen(true);
@@ -560,6 +587,17 @@ export default function WeekView() {
   // -------------------------------------------------------------------------
 
   const isLoading = isLoadingBarbers || isLoadingApts;
+
+  /** Shared pill class helper for staff filter buttons. */
+  function staffPillClass(active: boolean): string {
+    return [
+      'px-3 py-1.5 rounded-full text-xs font-medium transition-colors font-body',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30',
+      active
+        ? 'bg-[#1B4332] text-white'
+        : 'border border-[#E5E2DB] text-[#4A4540] hover:bg-[#E8F2EC]/50',
+    ].join(' ');
+  }
 
   return (
     <div className="flex flex-col">
@@ -645,10 +683,20 @@ export default function WeekView() {
       </div>
 
       {/* =====================================================================
-          STAFF PILLS — shown when 2+ staff, or 1+ staff + unassigned appts exist
+          STAFF PILLS — "All" + per-staff + optional "Unassigned"
+          Shown when salon has 1+ staff members. Default selection: "All".
       ===================================================================== */}
       {!isLoadingBarbers && showStaffPills && (
         <div className="flex flex-wrap gap-2 mb-4">
+
+          {/* "All" pill — always first, shows every appointment */}
+          <button
+            type="button"
+            onClick={() => setSelectedBarberId(null)}
+            className={staffPillClass(selectedBarberId === null)}
+          >
+            All
+          </button>
 
           {/* One pill per named staff member */}
           {barbers.map((b) => (
@@ -656,32 +704,18 @@ export default function WeekView() {
               key={b.id}
               type="button"
               onClick={() => setSelectedBarberId(b.id)}
-              className={`
-                px-3 py-1.5 rounded-full text-xs font-medium transition-colors font-body
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30
-                ${selectedBarberId === b.id
-                  ? 'bg-[#1B4332] text-white'
-                  : 'border border-[#E5E2DB] text-[#4A4540] hover:bg-[#E8F2EC]/50'
-                }
-              `}
+              className={staffPillClass(selectedBarberId === b.id)}
             >
               {b.name}
             </button>
           ))}
 
-          {/* "Unassigned" pill — shown whenever unassigned appointments exist (1+ staff) */}
+          {/* "Unassigned" pill — only when unassigned appointments exist */}
           {showUnassignedTab && (
             <button
               type="button"
               onClick={() => setSelectedBarberId('unassigned')}
-              className={`
-                px-3 py-1.5 rounded-full text-xs font-medium transition-colors font-body
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30
-                ${selectedBarberId === 'unassigned'
-                  ? 'bg-[#1B4332] text-white'
-                  : 'border border-[#E5E2DB] text-[#4A4540] hover:bg-[#E8F2EC]/50'
-                }
-              `}
+              className={staffPillClass(selectedBarberId === 'unassigned')}
             >
               Unassigned
             </button>
@@ -694,7 +728,7 @@ export default function WeekView() {
       ===================================================================== */}
       <div className="flex lg:hidden items-center gap-1 mb-4">
         {weekDays.map((day) => {
-          const isSelected = isSameDay(day, selectedDay);
+          const isSelected   = isSameDay(day, selectedDay);
           const isCurrentDay = isToday(day);
           return (
             <button
@@ -816,34 +850,43 @@ export default function WeekView() {
               );
             }
 
-            return dayApts.map((apt) => (
-              <button
-                key={apt.id}
-                type="button"
-                onClick={() => handleAppointmentClick(apt)}
-                className={`
-                  w-full text-left
-                  bg-white rounded-xl border border-[#E5E2DB]
-                  px-4 py-3
-                  flex items-center justify-between gap-4
-                  hover:border-[#1B4332]/20 hover:shadow-sm transition-colors
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
-                  ${apt.status === 'cancelled' ? 'opacity-40' : ''}
-                `}
-              >
-                <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums font-body">
-                  {formatTime(apt.datetime)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold text-[#1A1A1A] truncate font-body ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
-                    {apt.client_name ?? 'Unknown client'}
-                  </p>
-                  {apt.service_type && (
-                    <p className="text-xs text-[#8A8680] mt-0.5 truncate font-body">{apt.service_type}</p>
+            return dayApts.map((apt) => {
+              const past = isPastScheduled(apt);
+              return (
+                <button
+                  key={apt.id}
+                  type="button"
+                  onClick={() => handleAppointmentClick(apt)}
+                  className={[
+                    'w-full text-left',
+                    'bg-white rounded-xl border border-[#E5E2DB]',
+                    'px-4 py-3',
+                    'flex items-center justify-between gap-4',
+                    'hover:border-[#1B4332]/20 hover:shadow-sm transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20',
+                    apt.status === 'cancelled' ? 'opacity-40' : '',
+                    past ? 'opacity-60' : '',
+                  ].join(' ')}
+                >
+                  <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums font-body">
+                    {formatTime(apt.datetime)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold text-[#1A1A1A] truncate font-body ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
+                      {apt.client_name ?? 'Unknown client'}
+                    </p>
+                    {apt.service_type && (
+                      <p className="text-xs text-[#8A8680] mt-0.5 truncate font-body">{apt.service_type}</p>
+                    )}
+                  </div>
+                  {past && (
+                    <span className="text-xs font-medium text-[#8A8680] bg-[#F0EFED] px-2 py-0.5 rounded-full font-body shrink-0">
+                      Past
+                    </span>
                   )}
-                </div>
-              </button>
-            ));
+                </button>
+              );
+            });
           })()}
 
           {/* Mobile add button for the selected day */}

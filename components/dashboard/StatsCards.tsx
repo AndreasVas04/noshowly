@@ -3,13 +3,18 @@
  *
  * Three summary stat cards at the top of the Today dashboard:
  *  - Confirmed appointments
- *  - Pending appointments (status='scheduled' in the DB)
+ *  - Pending appointments (status='scheduled' in the DB — client has not replied yet)
  *  - Cancelled appointments
+ *
+ * Shown for all active paid plans (basic, pro, professional, business, starter).
+ * Hidden for trial and cancelled — no reminders are sent during trial so the
+ * counts are meaningless.
  *
  * Premium design: white shadcn Cards with colored left border and subtle tinted
  * background, brand-dark typography, Framer Motion fade-in on load.
  *
  * Fetches today's appointments from GET /api/appointments?date=YYYY-MM-DD.
+ * Response shape: { appointments: AppointmentWithDetails[] }
  */
 
 'use client';
@@ -31,15 +36,16 @@ type DayStats = {
 
 /**
  * Counts today's appointments by status.
+ * "Pending" maps to the database value `scheduled`.
  *
  * @param appointments - List returned by the API.
- * @returns Counts split by confirmed, pending, and cancelled.
+ * @returns Counts split by confirmed, pending (scheduled), and cancelled.
  */
 function computeStats(appointments: AppointmentWithDetails[]): DayStats {
   return appointments.reduce<DayStats>(
     (acc, appt) => {
       if (appt.status === 'confirmed') acc.confirmed++;
-      else if (appt.status === 'scheduled') acc.pending++;
+      else if (appt.status === 'scheduled') acc.pending++;   // DB 'scheduled' = UI 'Pending'
       else if (appt.status === 'cancelled') acc.cancelled++;
       return acc;
     },
@@ -85,25 +91,25 @@ function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
 interface StatsCardsProps {
   /**
    * The authenticated user's current plan.
-   * Stats are only shown for plans that include SMS (professional / business),
-   * since confirmed/pending/cancelled counts are only meaningful when clients
-   * can reply YES or NO. For starter and trial plans there are no SMS responses,
-   * so the cards are hidden.
+   * Cards are hidden only for trial and cancelled — both have no active reminders
+   * and therefore no meaningful confirmed/pending/cancelled counts.
+   * All paid plans (basic, starter, pro, professional, business) show stats because
+   * email YES/NO confirmation is available on every paid plan.
    */
   plan: UserPlan;
 }
 
 /**
  * StatsCards displays a row of three summary cards for today's appointment counts.
- * Only rendered for professional and business plan users.
+ * Visible for all active paid plans; hidden for trial and cancelled accounts.
  *
  * @param props - plan from the server component parent.
- * @returns A grid of three stat cards, or null when the plan does not include SMS.
+ * @returns A grid of three stat cards, or null for trial/cancelled plans.
  */
 export default function StatsCards({ plan }: StatsCardsProps) {
-  // Only show stats for plans with SMS confirmation support.
-  // On starter and trial, clients never reply YES/NO, so the counts are meaningless.
-  if (plan !== 'professional' && plan !== 'business') return null;
+  // Hide for trial and cancelled — reminders not sent, counts are meaningless.
+  if (plan === 'trial' || plan === 'cancelled') return null;
+
   const [stats, setStats] = useState<DayStats>({ confirmed: 0, pending: 0, cancelled: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -113,11 +119,12 @@ export default function StatsCards({ plan }: StatsCardsProps) {
     fetch(`/api/appointments?date=${today}`)
       .then(async (res) => {
         if (!res.ok) return;
-        const data = (await res.json()) as AppointmentWithDetails[];
-        setStats(computeStats(data));
+        // API returns { appointments: AppointmentWithDetails[] } — destructure accordingly.
+        const payload = (await res.json()) as { appointments: AppointmentWithDetails[] };
+        setStats(computeStats(payload.appointments));
       })
       .catch(() => {
-        // Silently fail — stats are non-critical
+        // Silently fail — stats are non-critical display only.
       })
       .finally(() => setLoading(false));
   }, []);

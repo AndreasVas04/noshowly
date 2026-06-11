@@ -194,9 +194,19 @@ export default function DayView({ initialDate, title }: DayViewProps) {
         ? appointments.filter((a) => a.barber_id === null)
         : appointments.filter((a) => a.barber_id === selectedBarberId);
 
-  const activeAppointments = filteredAppointments.filter((a) => a.status !== 'cancelled');
+  // Separate into three visual tiers:
+  //  1. Upcoming: confirmed or scheduled with a future datetime — shown first, full styling
+  //  2. Past unanswered: scheduled but datetime has already passed — shown below upcoming,
+  //     greyed out (AppointmentCard handles the visual, sort order communicates priority)
+  //  3. Cancelled: shown last with strikethrough
+  const now = new Date();
+  const isPastScheduled = (a: AppointmentWithDetails) =>
+    a.status === 'scheduled' && new Date(a.datetime) < now;
+
+  const upcomingActive    = filteredAppointments.filter((a) => a.status !== 'cancelled' && !isPastScheduled(a));
+  const pastUnanswered    = filteredAppointments.filter(isPastScheduled);
   const cancelledAppointments = filteredAppointments.filter((a) => a.status === 'cancelled');
-  const sortedAppointments = [...activeAppointments, ...cancelledAppointments];
+  const sortedAppointments = [...upcomingActive, ...pastUnanswered, ...cancelledAppointments];
 
   // Pill style helper
   function pillClass(active: boolean): string {

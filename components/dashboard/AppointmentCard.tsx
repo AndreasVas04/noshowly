@@ -8,8 +8,14 @@
  *  - Client name + service type and staff name (centre)
  *  - Status badge (right, colour-coded)
  *
- * Cancelled appointments render with reduced opacity and strikethrough on
- * the client name. Clicking opens the edit modal in the parent.
+ * Visual states:
+ *  - Upcoming scheduled (status='scheduled', datetime >= now): amber dot, no badge
+ *  - Confirmed (status='confirmed'): green dot, "Confirmed" badge
+ *  - Past unanswered (status='scheduled', datetime < now): grey dot, grey left border,
+ *    reduced opacity, "Past" label — the time passed without a YES/NO reply
+ *  - Cancelled: amber dot + full row opacity-40 + strikethrough on client name
+ *
+ * Clicking opens the edit modal in the parent.
  *
  * Premium design: white card, subtle border, brand-dark hover state.
  */
@@ -20,20 +26,23 @@ import Badge from '@/components/ui/Badge';
 import type { AppointmentWithDetails } from '@/types';
 
 /**
- * Returns the hex color for a given appointment status.
- * Used to render the colored status dot beside each appointment.
+ * Returns the hex color for the status dot beside each appointment.
+ * Past unanswered (scheduled + past time) uses grey to avoid looking "active".
  *
- * @param status - The appointment status string.
+ * @param status        - The appointment status string.
+ * @param isPastScheduled - True when status is 'scheduled' and datetime has passed.
  * @returns A hex color string.
  */
-function statusColor(status: string): string {
+function statusColor(status: string, isPastScheduled: boolean): string {
+  if (isPastScheduled) return '#C8C8C8';    // grey — past, unanswered
   if (status === 'confirmed') return '#10B981';
   if (status === 'cancelled') return '#EF4444';
-  return '#F59E0B'; // scheduled / pending
+  return '#F59E0B'; // upcoming scheduled / pending
 }
 
 /**
  * Formats an ISO datetime string as a 24-hour clock time string.
+ * Uses the browser's local timezone (consistent with how appointments are displayed).
  *
  * @param isoString - ISO 8601 datetime string (UTC).
  * @returns Formatted time string like "09:30".
@@ -45,18 +54,6 @@ function formatTime(isoString: string): string {
   return `${h}:${m}`;
 }
 
-/** Props accepted by AppointmentCard. */
-interface AppointmentCardProps {
-  appointment: AppointmentWithDetails;
-  onClick: () => void;
-}
-
-/**
- * Renders a single appointment row. Clicking opens the edit modal.
- *
- * @param props.appointment - Appointment data with joined display names.
- * @param props.onClick     - Opens the edit modal.
- */
 /** Returns up to 2 initials from a client's display name. */
 function clientInitials(name: string | null): string {
   if (!name) return '?';
@@ -65,9 +62,26 @@ function clientInitials(name: string | null): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/** Props accepted by AppointmentCard. */
+interface AppointmentCardProps {
+  appointment: AppointmentWithDetails;
+  onClick: () => void;
+}
+
+/**
+ * Renders a single appointment row. Clicking opens the edit modal.
+ * Past unanswered appointments receive grey/muted styling.
+ *
+ * @param props.appointment - Appointment data with joined display names.
+ * @param props.onClick     - Opens the edit modal.
+ */
 export default function AppointmentCard({ appointment, onClick }: AppointmentCardProps) {
-  const time = formatTime(appointment.datetime);
-  const isCancelled = appointment.status === 'cancelled';
+  const time         = formatTime(appointment.datetime);
+  const isCancelled  = appointment.status === 'cancelled';
+
+  // Past unanswered: scheduled status but the appointment time has already passed.
+  const isPastScheduled =
+    appointment.status === 'scheduled' && new Date(appointment.datetime) < new Date();
 
   const parts: string[] = [];
   if (appointment.service_type) parts.push(appointment.service_type);
@@ -80,19 +94,22 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
       onClick={onClick}
       className={[
         'w-full text-left',
-        'bg-white rounded-xl border border-[#E5E2DB] border-l-[3px] border-l-[#1B4332]',
+        'bg-white rounded-xl border border-[#E5E2DB]',
+        // Left border: grey for past unanswered, green for all others
+        isPastScheduled ? 'border-l-[3px] border-l-[#C8C8C8]' : 'border-l-[3px] border-l-[#1B4332]',
         'px-4 py-3.5',
         'flex items-center gap-3',
         'hover:border-[#1B4332]/30 hover:shadow-sm hover:bg-[#F5FAF7] transition-all duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20',
         'cursor-pointer',
-        isCancelled ? 'opacity-40' : '',
+        isCancelled    ? 'opacity-40' : '',
+        isPastScheduled ? 'opacity-60' : '',
       ].join(' ')}
     >
       {/* Status dot */}
       <div
         className="w-2 h-2 rounded-full shrink-0 ml-0.5"
-        style={{ background: statusColor(appointment.status) }}
+        style={{ background: statusColor(appointment.status, isPastScheduled) }}
       />
 
       {/* Left: time — Playfair Display, fixed width so all times align */}
@@ -103,7 +120,7 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
       {/* Divider */}
       <div className="w-px h-8 bg-[#E5E2DB] shrink-0" />
 
-      {/* Client initial avatar — forest green circle */}
+      {/* Client initial avatar */}
       <div className="w-8 h-8 rounded-full bg-[#E8F2EC] flex items-center justify-center shrink-0">
         <span className="text-[10px] font-semibold text-[#1B4332]">
           {clientInitials(appointment.client_name)}
@@ -120,9 +137,15 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
         )}
       </div>
 
-      {/* Right: status badge */}
+      {/* Right: status badge — "Past" label for past unanswered, badge for others */}
       <div className="shrink-0">
-        <Badge status={appointment.status} />
+        {isPastScheduled ? (
+          <span className="text-xs font-medium text-[#8A8680] bg-[#F0EFED] px-2 py-0.5 rounded-full font-body">
+            Past
+          </span>
+        ) : (
+          <Badge status={appointment.status} />
+        )}
       </div>
     </button>
   );
