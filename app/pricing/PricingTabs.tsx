@@ -45,14 +45,16 @@ const PLAN_FEATURES: Record<PaidPlan, string[]> = {
   basic: [
     'Online booking page',
     'Unlimited email reminders',
+    'Email YES/NO confirmation buttons',
     'Client management',
     'Appointment management',
   ],
   pro: [
     'Everything in Basic',
     '100 SMS reminders/month',
+    'SMS YES/NO replies',
     'Unlimited email reminders',
-    'Clients can reply YES or NO',
+    'Email YES/NO confirmation buttons',
   ],
 };
 

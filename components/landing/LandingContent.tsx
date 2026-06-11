@@ -575,6 +575,7 @@ export default function LandingContent() {
                 features={[
                   'Online booking page',
                   'Unlimited email reminders',
+                  'Email YES/NO confirmation buttons',
                   'Client management',
                   'Appointment management',
                 ]}
@@ -590,8 +591,9 @@ export default function LandingContent() {
                 features={[
                   'Everything in Basic',
                   '100 SMS reminders/month',
+                  'SMS YES/NO replies',
                   'Unlimited email reminders',
-                  'Clients can reply YES or NO',
+                  'Email YES/NO confirmation buttons',
                 ]}
                 featured={true}
               />
