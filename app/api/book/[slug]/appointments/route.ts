@@ -405,6 +405,32 @@ async function handleBookingPost(
     if (svc) resolvedServiceName = svc.name;
   }
 
+  // BUG 5 guard: if a barber was explicitly assigned and a service was requested,
+  // verify the barber actually offers that service. This catches invalid combinations
+  // that could arise from a race condition or a tampered request.
+  if (barberId && resolvedServiceName) {
+    const { data: barberOffersService } = await supabase
+      .from('staff_services')
+      .select('id')
+      .eq('barber_id', barberId)
+      .eq('name', resolvedServiceName)
+      .eq('active', true)
+      .maybeSingle();
+
+    if (!barberOffersService) {
+      console.error(
+        '[POST /api/book/[slug]/appointments] barber does not offer service — barberId:',
+        barberId,
+        '| service:', resolvedServiceName,
+        '| salonId:', salonId,
+      );
+      return Response.json(
+        { error: 'The selected staff member does not offer this service.' },
+        { status: 400 }
+      );
+    }
+  }
+
   // Step 5: Find or create client. Deduplicate by phone first, then by email.
   // Phone is the preferred identifier; fall back to email when phone is absent.
   let clientId: string;

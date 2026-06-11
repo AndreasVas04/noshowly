@@ -206,9 +206,12 @@ function isDateAvailable(
     return record === undefined || record.is_available;
   }
 
-  // No preference — available if at least one barber works on this day_of_week.
-  // If no records exist at all, treat as available.
-  const recordsForDay = availability.filter((a) => a.day_of_week === dow);
+  // No preference — available if at least one barber in the provided list works on this day_of_week.
+  // Filter by the provided barbers so service-constrained callers only see relevant records.
+  const barberIdSet = new Set(barbers.map((b) => b.id));
+  const recordsForDay = availability.filter(
+    (a) => a.day_of_week === dow && barberIdSet.has(a.barber_id)
+  );
   if (recordsForDay.length === 0) return true;
   return recordsForDay.some((a) => a.is_available);
 }
@@ -624,6 +627,17 @@ export default function BookingFlow({
     return selectedBarber.staffServices ?? [];
   })();
 
+  // When "no preference" is selected and a service is chosen, restrict slot calculations
+  // to only barbers who offer that service. Prevents showing time slots (or calendar days)
+  // where the only available staff don't actually perform the selected service.
+  const effectiveBarbers: PublicBarber[] = (() => {
+    if (selectedBarber !== 'none' || !selectedService) return barbers;
+    const serviceName = selectedService.name.toLowerCase();
+    return barbers.filter((b) =>
+      b.staffServices.some((svc) => svc.name.toLowerCase() === serviceName)
+    );
+  })();
+
   // -------------------------------------------------------------------------
   // Auto-advance: skip staff step when only one barber and no-preference is off
   // -------------------------------------------------------------------------
@@ -658,7 +672,7 @@ export default function BookingFlow({
   // -------------------------------------------------------------------------
 
   const timeSlots = selectedDate
-    ? getSlotsForDate(selectedDate, selectedBarber, barbers, staffAvailability, salon.opening_time, salon.closing_time)
+    ? getSlotsForDate(selectedDate, selectedBarber, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time)
     : generateTimeSlots(salon.opening_time, salon.closing_time);
 
   const todayStr = new Intl.DateTimeFormat('en-CA', {
@@ -699,10 +713,10 @@ export default function BookingFlow({
       );
     }
 
-    // No preference: blocked only if ALL barbers who work this slot are booked.
+    // No preference: blocked only if ALL barbers who offer this service and work this slot are booked.
     if (selectedDate) {
       const workingBarbers = getAvailableBarbersForSlot(
-        slot, selectedDate, barbers, staffAvailability, salon.opening_time, salon.closing_time
+        slot, selectedDate, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
       );
       if (workingBarbers.length === 0) return false;
       const bookedBarberIds = new Set(
@@ -724,7 +738,7 @@ export default function BookingFlow({
   function getAvailableCount(slot: string): number {
     if (!selectedDate || !selectedBarber || selectedBarber !== 'none') return 0;
     const workingBarbers = getAvailableBarbersForSlot(
-      slot, selectedDate, barbers, staffAvailability, salon.opening_time, salon.closing_time
+      slot, selectedDate, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
     );
     const bookedBarberIds = new Set(
       bookedSlots.filter((bs) => bs.time === slot).map((bs) => bs.barberId)
@@ -743,7 +757,7 @@ export default function BookingFlow({
    */
   function getLeastBusyBarber(dateStr: string, timeStr: string): string | null {
     const available = getAvailableBarbersForSlot(
-      timeStr, dateStr, barbers, staffAvailability, salon.opening_time, salon.closing_time
+      timeStr, dateStr, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
     );
     // Also exclude barbers who are already booked at this exact time.
     const bookedAtTime = new Set(
@@ -1176,7 +1190,7 @@ export default function BookingFlow({
                   onSelect={setSelectedDate}
                   timezone={salon.timezone}
                   checkAvailability={(dateStr) =>
-                    isDateAvailable(dateStr, selectedBarber, barbers, staffAvailability)
+                    isDateAvailable(dateStr, selectedBarber, effectiveBarbers, staffAvailability)
                   }
                 />
               </div>
