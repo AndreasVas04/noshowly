@@ -288,6 +288,28 @@ export type StaffService = {
 };
 
 /**
+ * Row in the `barber_services` table — links salon-level services to specific barbers.
+ *
+ * Used by the dashboard appointment modal to filter the staff dropdown to only
+ * show barbers that offer the selected service, and to validate appointments
+ * server-side (if any assignments exist for a service, barbers not in that set
+ * are rejected).
+ *
+ * Separate from `staff_services` (per-barber public-booking services with free-text
+ * names). This table uses FKs to both barbers and services tables.
+ */
+export type BarberService = {
+  id: string;
+  /** FK → salons.id */
+  salon_id: string;
+  /** FK → barbers.id */
+  barber_id: string;
+  /** FK → services.id */
+  service_id: string;
+  created_at: string;
+};
+
+/**
  * Row in the `booking_pages` table — one optional public booking page per salon.
  * The owner creates and activates this page to allow clients to self-book.
  * Public URL pattern: /book/[slug]
@@ -528,6 +550,18 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Omit<StaffService, 'id'>>;
+        Relationships: [];
+      };
+      barber_services: {
+        Row: BarberService;
+        Insert: {
+          id?: string;
+          salon_id: string;
+          barber_id: string;
+          service_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<BarberService, 'id'>>;
         Relationships: [];
       };
     };

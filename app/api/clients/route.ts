@@ -245,9 +245,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Step 4: Deduplication — if a client with the same phone already exists for
-  // this salon, return the existing record instead of creating a duplicate.
-  // This prevents orphaned duplicate records when the owner books the same
-  // client twice (e.g. after a page refresh during autocomplete).
+  // this salon and the name matches, return the existing record to avoid duplicates.
+  // If phone matches but name differs, fall through and create a new client.
+  // This prevents the case where two different people share a phone number or a
+  // returning client whose number was reassigned would overwrite an existing record.
   const { data: existing, error: lookupError } = await supabase
     .from('clients')
     .select('*')
@@ -261,8 +262,15 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (existing) {
-    // Return the existing client — the caller can use its id immediately.
-    return Response.json({ client: existing as Client }, { status: 200 });
+    // Only reuse the existing client when the name matches (case-insensitive, trimmed).
+    // If names differ, fall through to create a new client — the phone may belong to
+    // a different person, or the owner is booking under a different name.
+    const existingNameNorm = (existing as Client).name.toLowerCase().trim();
+    const requestedNameNorm = name.toLowerCase().trim();
+    if (existingNameNorm === requestedNameNorm) {
+      return Response.json({ client: existing as Client }, { status: 200 });
+    }
+    // Different name — do not reuse; create a new client below.
   }
 
   // Step 5: Insert the new client.

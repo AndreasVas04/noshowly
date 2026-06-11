@@ -33,7 +33,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { AppointmentWithDetails, Barber, Client, Service } from '@/types';
+import type { AppointmentStatus, AppointmentWithDetails, BarberService, Barber, Client, Service } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,6 +119,8 @@ interface FormState {
   serviceType: string;
   barberId: string;
   notes: string;
+  /** Initial status for a new appointment. Only used in create mode. */
+  appointmentStatus: AppointmentStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +154,9 @@ export default function AddAppointmentModal({
 
   /**
    * Builds the initial FormState from the appointment prop (edit mode) or defaults.
+   * In create mode, appointmentStatus defaults to 'confirmed' when the appointment
+   * is within the next 24 hours (likely phone-confirmed on the spot) and 'scheduled'
+   * otherwise.
    */
   function getInitialState(): FormState {
     if (appointment) {
@@ -176,8 +181,18 @@ export default function AddAppointmentModal({
         serviceType: appointment.service_type ?? '',
         barberId: appointment.barber_id ?? '',
         notes: appointment.notes ?? '',
+        appointmentStatus: appointment.status,
       };
     }
+
+    // Create mode: smart default for appointmentStatus.
+    // If the appointment is in the next 24 hours → default to 'confirmed'
+    // (the owner is likely booking someone who confirmed in person or by phone).
+    const defaultTime = getNextRounded30();
+    const defaultDatetimeStr = `${toLocalDateString(defaultDate)}T${defaultTime}:00`;
+    const hoursUntil = (new Date(defaultDatetimeStr).getTime() - Date.now()) / (1000 * 60 * 60);
+    const defaultStatus: AppointmentStatus =
+      hoursUntil >= 0 && hoursUntil <= 24 ? 'confirmed' : 'scheduled';
 
     return {
       clientQuery: '',
@@ -185,10 +200,11 @@ export default function AddAppointmentModal({
       clientPhone: '',
       clientEmail: '',
       date: toLocalDateString(defaultDate),
-      time: getNextRounded30(),
+      time: defaultTime,
       serviceType: '',
       barberId: initialBarberId ?? '',
       notes: '',
+      appointmentStatus: defaultStatus,
     };
   }
 
@@ -203,10 +219,19 @@ export default function AddAppointmentModal({
   const [isLoadingBarbers, setIsLoadingBarbers] = useState(false);
   const [services, setServices] = useState<Service[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(false);
+  /** Barber/service assignments — used to filter the staff dropdown. */
+  const [barberServices, setBarberServices] = useState<BarberService[]>([]);
   const [salonOpeningTime, setSalonOpeningTime] = useState<string>('06:00');
   const [salonClosingTime, setSalonClosingTime] = useState<string>('23:00');
   /** True only when the salon has explicitly set opening and closing times. */
   const [salonHasCustomHours, setSalonHasCustomHours] = useState<boolean>(false);
+
+  // ---------------------------------------------------------------------------
+  // Test reminder state
+  // ---------------------------------------------------------------------------
+
+  const [isSendingTestReminder, setIsSendingTestReminder] = useState(false);
+  const [testReminderResult, setTestReminderResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // ---------------------------------------------------------------------------
   // Warning dialog state
@@ -276,6 +301,22 @@ export default function AddAppointmentModal({
       console.error('[AddAppointmentModal] Failed to load services:', err);
     } finally {
       setIsLoadingServices(false);
+    }
+  }, []);
+
+  /**
+   * Fetches barber/service assignments used to filter the staff dropdown
+   * when a service is selected.
+   */
+  const fetchBarberServices = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch('/api/barber-services', { cache: 'no-store' });
+      if (res.ok) {
+        const payload = (await res.json()) as { barberServices: BarberService[] };
+        setBarberServices(payload.barberServices);
+      }
+    } catch (err) {
+      console.error('[AddAppointmentModal] Failed to load barber service assignments:', err);
     }
   }, []);
 
@@ -388,11 +429,13 @@ export default function AddAppointmentModal({
     setNameReadOnly(false);
     setWarningDialog(null);
     setSalonHasCustomHours(false);
+    setTestReminderResult(null);
     fetchBarbers();
     fetchServices();
     fetchSalonHours();
+    fetchBarberServices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, appointment, fetchBarbers, fetchServices, fetchSalonHours]);
+  }, [isOpen, appointment, fetchBarbers, fetchServices, fetchSalonHours, fetchBarberServices]);
 
   // Debounced client name search.
   useEffect(() => {
@@ -408,6 +451,23 @@ export default function AddAppointmentModal({
     phoneSearchTimerRef.current = setTimeout(() => { searchByPhone(form.clientPhone); }, 400);
     return () => { if (phoneSearchTimerRef.current) clearTimeout(phoneSearchTimerRef.current); };
   }, [form.clientPhone, searchByPhone]);
+
+  // Clear staff selection when the selected service changes and the current barber
+  // is no longer in the filtered list for that service.
+  useEffect(() => {
+    if (!form.barberId || !form.serviceType) return;
+    const service = services.find((s) => s.name === form.serviceType);
+    if (!service) return;
+    const assignedIds = new Set(
+      barberServices.filter((bs) => bs.service_id === service.id).map((bs) => bs.barber_id)
+    );
+    if (assignedIds.size === 0) return; // No restrictions — all barbers allowed.
+    if (!assignedIds.has(form.barberId)) {
+      setForm((prev) => ({ ...prev, barberId: '' }));
+    }
+  // form.barberId intentionally excluded — only re-run when service changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.serviceType, barberServices, services]);
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -580,6 +640,7 @@ export default function AddAppointmentModal({
             datetime,
             service_type: form.serviceType || null,
             notes: form.notes.trim() || null,
+            status: form.appointmentStatus,
           }),
         });
 
@@ -674,11 +735,57 @@ export default function AddAppointmentModal({
     }
   }
 
+  /**
+   * Sends a test reminder email immediately for this appointment.
+   * Only available in edit mode when the client has an email address.
+   */
+  async function handleTestReminder(): Promise<void> {
+    if (!appointment) return;
+    setIsSendingTestReminder(true);
+    setTestReminderResult(null);
+
+    try {
+      const res = await fetch(`/api/appointments/${appointment.id}/test-reminder`, {
+        method: 'POST',
+      });
+      const payload = (await res.json()) as { success?: boolean; message?: string; error?: string };
+
+      if (res.ok) {
+        setTestReminderResult({ success: true, message: payload.message ?? 'Test reminder sent.' });
+      } else {
+        setTestReminderResult({ success: false, message: payload.error ?? 'Failed to send test reminder.' });
+      }
+    } catch (err) {
+      setTestReminderResult({ success: false, message: 'Something went wrong. Please try again.' });
+      console.error('[AddAppointmentModal] Test reminder error:', err);
+    } finally {
+      setIsSendingTestReminder(false);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   const title = isEditMode ? 'Edit appointment' : 'New appointment';
+
+  // Compute filtered barber list for the staff dropdown.
+  // When a service is selected and barber_services assignments exist for it,
+  // only show barbers assigned to that service. If no assignments exist for the
+  // service (not yet configured), show all barbers (backwards compatible).
+  const filteredBarbers = (() => {
+    if (!form.serviceType) return barbers;
+    const service = services.find((s) => s.name === form.serviceType);
+    if (!service) return barbers;
+    const assignedIds = new Set(
+      barberServices.filter((bs) => bs.service_id === service.id).map((bs) => bs.barber_id)
+    );
+    if (assignedIds.size === 0) return barbers;
+    return barbers.filter((b) => assignedIds.has(b.id));
+  })();
+
+  // Whether the staff dropdown is filtered to a subset of barbers.
+  const staffFiltered = filteredBarbers.length < barbers.length && barbers.length > 0;
 
   // Shared input class helpers
   const inputClass = (hasError?: boolean) =>
@@ -907,7 +1014,7 @@ export default function AddAppointmentModal({
                 )}
               </div>
 
-              {/* Staff — always optional */}
+              {/* Staff — always optional; filtered by service assignment */}
               <div className="space-y-1.5">
                 <Label htmlFor="modal-staff" className={labelClass}>
                   Staff <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span>
@@ -920,12 +1027,33 @@ export default function AddAppointmentModal({
                   className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-60 transition-colors"
                 >
                   <option value="">No staff assigned</option>
-                  {barbers.map((b) => (
+                  {filteredBarbers.map((b) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
+                {staffFiltered && (
+                  <p className="text-xs text-[#8A8680]">
+                    Showing {filteredBarbers.length} of {barbers.length} staff for this service.
+                  </p>
+                )}
               </div>
             </div>
+
+            {/* ---- Status (create mode only) ----------------------------- */}
+            {!isEditMode && (
+              <div className="space-y-1.5">
+                <Label htmlFor="modal-status" className={labelClass}>Status</Label>
+                <select
+                  id="modal-status"
+                  value={form.appointmentStatus}
+                  onChange={(e) => setField('appointmentStatus', e.target.value as AppointmentStatus)}
+                  className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
+                >
+                  <option value="scheduled">Pending (awaiting confirmation)</option>
+                  <option value="confirmed">Confirmed</option>
+                </select>
+              </div>
+            )}
 
             {/* ---- Notes ------------------------------------------------- */}
             {!showNotes ? (
@@ -956,7 +1084,20 @@ export default function AddAppointmentModal({
           {/* ================================================================
               Sticky footer
           ================================================================ */}
-          <div className="shrink-0 px-6 py-4 border-t border-[#C8C8C8]/30 flex items-center gap-2">
+          <div className="shrink-0 px-6 py-4 border-t border-[#C8C8C8]/30 space-y-2">
+
+            {/* Test reminder result banner */}
+            {testReminderResult && (
+              <div className={`text-xs px-3 py-2 rounded-lg ${
+                testReminderResult.success
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                  : 'bg-red-50 text-red-700 border border-red-100'
+              }`}>
+                {testReminderResult.message}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
 
             {/* Cancel appointment (edit mode, not already cancelled) */}
             {isEditMode && appointment?.status !== 'cancelled' && (
@@ -965,7 +1106,7 @@ export default function AddAppointmentModal({
                 onClick={handleCancelAppointment}
                 disabled={isCancelling || isSubmitting}
                 className="
-                  mr-auto px-3 py-2 rounded-lg text-xs font-medium
+                  px-3 py-2 rounded-lg text-xs font-medium
                   text-red-600 border border-red-200 hover:bg-red-50
                   disabled:opacity-50 disabled:cursor-not-allowed
                   transition-colors
@@ -975,7 +1116,25 @@ export default function AddAppointmentModal({
               </button>
             )}
 
-            {(!isEditMode || appointment?.status === 'cancelled') && <div className="mr-auto" />}
+            {/* Send test reminder (edit mode, not cancelled, client has email) */}
+            {isEditMode && appointment?.status !== 'cancelled' && appointment?.client_email && (
+              <button
+                type="button"
+                onClick={() => { void handleTestReminder(); }}
+                disabled={isSendingTestReminder || isSubmitting || isCancelling}
+                className="
+                  px-3 py-2 rounded-lg text-xs font-medium
+                  text-[#1B4332] border border-[#1B4332]/30 hover:bg-[#E8F2EC]
+                  disabled:opacity-50 disabled:cursor-not-allowed
+                  transition-colors
+                "
+              >
+                {isSendingTestReminder ? 'Sending...' : 'Send test reminder'}
+              </button>
+            )}
+
+            {/* Flexible spacer — pushes Close + Save to the right */}
+            <div className="flex-1" />
 
             {/* Close */}
             <Button
@@ -997,6 +1156,7 @@ export default function AddAppointmentModal({
               {isSubmitting ? 'Saving...' : 'Save'}
             </Button>
 
+            </div>
           </div>
         </form>
 

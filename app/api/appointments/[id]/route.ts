@@ -342,7 +342,56 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     }
   }
 
-  // Step 5: Update — scoped to this salon so cross-salon updates are impossible.
+  // Step 5: Staff/service assignment check — mirrors the POST validation.
+  // Only runs when either barber_id or service_type is being updated.
+  if ('barber_id' in updates || 'service_type' in updates) {
+    // Fetch the current record to fill in whichever field was not updated.
+    const { data: currentAppt } = await supabase
+      .from('appointments')
+      .select('barber_id, service_type')
+      .eq('id', id)
+      .eq('salon_id', salon.id)
+      .single();
+
+    const checkBarberId = 'barber_id' in updates ? updates.barber_id : currentAppt?.barber_id;
+    const checkServiceType = ('service_type' in updates
+      ? updates.service_type
+      : currentAppt?.service_type) as string | null | undefined;
+
+    if (checkBarberId && checkServiceType) {
+      const { data: serviceRecord } = await supabase
+        .from('services')
+        .select('id')
+        .eq('salon_id', salon.id)
+        .ilike('name', checkServiceType)
+        .maybeSingle();
+
+      if (serviceRecord) {
+        const { count: totalAssignments } = await supabase
+          .from('barber_services')
+          .select('id', { count: 'exact', head: true })
+          .eq('service_id', serviceRecord.id);
+
+        if (totalAssignments && totalAssignments > 0) {
+          const { data: barberAssignment } = await supabase
+            .from('barber_services')
+            .select('id')
+            .eq('barber_id', checkBarberId)
+            .eq('service_id', serviceRecord.id)
+            .maybeSingle();
+
+          if (!barberAssignment) {
+            return Response.json(
+              { error: 'This staff member does not offer the selected service.' },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Step 7: Update — scoped to this salon so cross-salon updates are impossible.
   const { data: appointment, error: updateError } = await supabase
     .from('appointments')
     .update(updates)

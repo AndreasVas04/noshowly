@@ -308,6 +308,18 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // Validate optional: status — allows the owner to create an already-confirmed
+  // appointment (e.g. phone-confirmed on the spot). Defaults to 'scheduled'.
+  const VALID_POST_STATUSES: AppointmentStatus[] = ['scheduled', 'confirmed', 'cancelled'];
+  if (raw.status !== undefined && !VALID_POST_STATUSES.includes(raw.status as AppointmentStatus)) {
+    return Response.json(
+      { error: `status must be one of: ${VALID_POST_STATUSES.join(', ')}` },
+      { status: 400 }
+    );
+  }
+  const requestedStatus: AppointmentStatus =
+    (raw.status as AppointmentStatus | undefined) ?? 'scheduled';
+
   // Step 3: Resolve salon for this user.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
@@ -367,7 +379,46 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 5: Insert the appointment.
+  // Step 5: Staff/service assignment check — runs before insert to prevent
+  // booking a barber with a service they are not assigned to.
+  // Only enforced when barber_services rows exist for the service; if nobody
+  // is assigned yet the validation is skipped (backwards compatible).
+  const serviceTypeName = (raw.service_type as string | undefined) ?? null;
+  if (barberId && serviceTypeName) {
+    const { data: serviceRecord } = await supabase
+      .from('services')
+      .select('id')
+      .eq('salon_id', salon.id)
+      .ilike('name', serviceTypeName)
+      .maybeSingle();
+
+    if (serviceRecord) {
+      // Service is a known salon service — check barber assignment.
+      const { count: totalAssignments } = await supabase
+        .from('barber_services')
+        .select('id', { count: 'exact', head: true })
+        .eq('service_id', serviceRecord.id);
+
+      if (totalAssignments && totalAssignments > 0) {
+        // At least one barber is assigned to this service — enforce the restriction.
+        const { data: barberAssignment } = await supabase
+          .from('barber_services')
+          .select('id')
+          .eq('barber_id', barberId)
+          .eq('service_id', serviceRecord.id)
+          .maybeSingle();
+
+        if (!barberAssignment) {
+          return Response.json(
+            { error: 'This staff member does not offer the selected service.' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+  }
+
+  // Step 6: Insert the appointment.
   // salon_id is derived from session — never accepted from client request body.
   const { data: appointment, error: insertError } = await supabase
     .from('appointments')
@@ -376,10 +427,10 @@ export async function POST(request: Request): Promise<Response> {
       client_id: clientId,
       barber_id: barberId,
       datetime: datetimeParsed.toISOString(),
-      service_type: (raw.service_type as string | undefined) ?? null,
+      service_type: serviceTypeName,
       duration_minutes: (raw.duration_minutes as number | undefined) ?? 30,
       notes: (raw.notes as string | null | undefined) ?? null,
-      status: 'scheduled' as AppointmentStatus,
+      status: requestedStatus,
     })
     .select()
     .single();

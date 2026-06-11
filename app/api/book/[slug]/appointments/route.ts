@@ -435,39 +435,51 @@ async function handleBookingPost(
 
   // Step 5: Find or create client. Deduplicate by phone first, then by email.
   // Phone is the preferred identifier; fall back to email when phone is absent.
-  let clientId: string;
+  // Name-mismatch rule: if phone/email matches but the name differs, create a new
+  // client — the number may belong to a different person or a family member.
+  let clientId = '';
 
-  let existingClient: { id: string } | null = null;
+  let existingClient: { id: string; name: string } | null = null;
 
   if (clientPhone) {
     // Primary dedup: match by phone within this salon.
     const { data, error: findError } = await supabase
       .from('clients')
-      .select('id')
+      .select('id, name')
       .eq('salon_id', salonId)
       .eq('phone', clientPhone)
       .maybeSingle();
     if (findError) {
       console.error('[POST /api/book/[slug]/appointments] client phone lookup error:', JSON.stringify(findError));
     }
-    existingClient = data;
+    existingClient = data as { id: string; name: string } | null;
   } else if (clientEmail) {
     // Fallback dedup: match by email when phone not provided.
     const { data, error: findError } = await supabase
       .from('clients')
-      .select('id')
+      .select('id, name')
       .eq('salon_id', salonId)
       .eq('email', clientEmail)
       .maybeSingle();
     if (findError) {
       console.error('[POST /api/book/[slug]/appointments] client email lookup error:', JSON.stringify(findError));
     }
-    existingClient = data;
+    existingClient = data as { id: string; name: string } | null;
   }
 
   if (existingClient) {
-    clientId = existingClient.id;
-  } else {
+    // Only reuse the existing client when the name matches (case-insensitive, trimmed).
+    // If names differ, fall through to create a new record — different person, same number.
+    const existingNameNorm = existingClient.name.toLowerCase().trim();
+    const requestedNameNorm = clientName.toLowerCase().trim();
+    if (existingNameNorm === requestedNameNorm) {
+      clientId = existingClient.id;
+    } else {
+      existingClient = null; // fall through to create
+    }
+  }
+
+  if (!existingClient) {
     const { data: newClient, error: clientError } = await supabase
       .from('clients')
       .insert({

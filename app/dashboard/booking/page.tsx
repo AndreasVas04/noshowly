@@ -20,7 +20,7 @@ import { Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Barber, BookingPage, StaffAvailability, StaffService } from '@/types';
+import type { Barber, BarberService, BookingPage, Service, StaffAvailability, StaffService } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Local types
@@ -326,6 +326,16 @@ export default function BookingPage() {
   } | null>(null);
 
   // -------------------------------------------------------------------------
+  // Salon-level service assignments (barber_services table)
+  // -------------------------------------------------------------------------
+  /** Salon-level services (from the services table) — used for assignment checkboxes. */
+  const [salonServices, setSalonServices] = useState<Service[]>([]);
+  /** All barber_services assignments for this salon. */
+  const [barberServiceAssignments, setBarberServiceAssignments] = useState<BarberService[]>([]);
+  /** barberId currently being updated (for disabling checkboxes during save). */
+  const [savingBarberServiceId, setSavingBarberServiceId] = useState<string | null>(null);
+
+  // -------------------------------------------------------------------------
   // Per-staff services
   // -------------------------------------------------------------------------
   /** Map of barberId → list of that barber's staff services. */
@@ -353,14 +363,16 @@ export default function BookingPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [bookingRes, barbersRes, staffServicesRes, availabilityRes] = await Promise.all([
+        const [bookingRes, barbersRes, staffServicesRes, availabilityRes, salonServicesRes, barberServicesRes] = await Promise.all([
           fetch('/api/booking-page'),
           fetch('/api/barbers'),
           fetch('/api/staff-services'),
           fetch('/api/staff-availability'),
+          fetch('/api/services'),
+          fetch('/api/barber-services'),
         ]);
 
-        const [bookingData, barbersData, staffServicesData, availData] = await Promise.all([
+        const [bookingData, barbersData, staffServicesData, availData, salonServicesData, barberServicesData] = await Promise.all([
           bookingRes.ok
             ? (bookingRes.json() as Promise<{ bookingPage: BookingPage | null }>)
             : Promise.resolve({ bookingPage: null }),
@@ -373,6 +385,12 @@ export default function BookingPage() {
           availabilityRes.ok
             ? (availabilityRes.json() as Promise<{ availability: StaffAvailability[] }>)
             : Promise.resolve({ availability: [] }),
+          salonServicesRes.ok
+            ? (salonServicesRes.json() as Promise<{ services: Service[] }>)
+            : Promise.resolve({ services: [] }),
+          barberServicesRes.ok
+            ? (barberServicesRes.json() as Promise<{ barberServices: BarberService[] }>)
+            : Promise.resolve({ barberServices: [] }),
         ]);
 
         const bp = bookingData.bookingPage;
@@ -391,9 +409,13 @@ export default function BookingPage() {
         const loadedBarbers = barbersData.barbers ?? [];
         const loadedAvailability = availData.availability ?? [];
         const loadedServices = staffServicesData.staffServices ?? [];
+        const loadedSalonServices = (salonServicesData.services ?? []).filter((s: Service) => s.active);
+        const loadedBarberServices = barberServicesData.barberServices ?? [];
 
         setBarbers(loadedBarbers);
         setStaffAvailability(loadedAvailability);
+        setSalonServices(loadedSalonServices);
+        setBarberServiceAssignments(loadedBarberServices);
 
         // Build per-barber services map.
         const servicesMap: Record<string, StaffService[]> = {};
@@ -1486,6 +1508,69 @@ export default function BookingPage() {
   handleSaveBarberRef.current   = handleSaveBarber;
 
   // -------------------------------------------------------------------------
+  // Barber service assignment handler
+  // -------------------------------------------------------------------------
+
+  /**
+   * Toggles a service assignment for a barber (optimistic update + server sync).
+   * Replaces the entire assignment set for the barber on each change.
+   *
+   * @param barberId  - The barber to update.
+   * @param serviceId - The salon-level service to toggle.
+   * @param checked   - True to add the assignment, false to remove it.
+   */
+  async function handleToggleBarberService(
+    barberId: string,
+    serviceId: string,
+    checked: boolean,
+  ): Promise<void> {
+    // Compute new list of service IDs for this barber.
+    const currentServiceIds = barberServiceAssignments
+      .filter((ba) => ba.barber_id === barberId)
+      .map((ba) => ba.service_id);
+
+    const newServiceIds = checked
+      ? [...currentServiceIds.filter((id) => id !== serviceId), serviceId]
+      : currentServiceIds.filter((id) => id !== serviceId);
+
+    // Optimistic update: reflect the change immediately in the UI.
+    setBarberServiceAssignments((prev) => {
+      const withoutBarber = prev.filter((ba) => ba.barber_id !== barberId);
+      const newEntries: BarberService[] = newServiceIds.map((sid) => ({
+        id: `tmp-${barberId}-${sid}`,
+        salon_id: '',
+        barber_id: barberId,
+        service_id: sid,
+        created_at: '',
+      }));
+      return [...withoutBarber, ...newEntries];
+    });
+
+    setSavingBarberServiceId(barberId);
+
+    try {
+      const res = await fetch('/api/barber-services', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barber_id: barberId, service_ids: newServiceIds }),
+      });
+
+      if (!res.ok) {
+        // On failure, reload actual state from server to undo the optimistic update.
+        const assignRes = await fetch('/api/barber-services');
+        if (assignRes.ok) {
+          const data = (await assignRes.json()) as { barberServices: BarberService[] };
+          setBarberServiceAssignments(data.barberServices);
+        }
+      }
+    } catch (err) {
+      console.error('[BookingPage] handleToggleBarberService error:', err);
+    } finally {
+      setSavingBarberServiceId(null);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Derived values
   // -------------------------------------------------------------------------
 
@@ -2152,6 +2237,48 @@ export default function BookingPage() {
                         </button>
                       )}
                     </div>
+
+                    {/* Dashboard service assignments */}
+                    {salonServices.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-1">
+                          Services in appointments
+                        </p>
+                        <p className="text-xs text-[#8A8680] mb-3">
+                          When checked, this staff member can be selected for these services in the appointment modal.
+                        </p>
+                        <div className="space-y-2">
+                          {salonServices.map((svc) => {
+                            const isAssigned = barberServiceAssignments.some(
+                              (ba) => ba.barber_id === barber.id && ba.service_id === svc.id
+                            );
+                            const isSavingAssignments = savingBarberServiceId === barber.id;
+                            return (
+                              <label
+                                key={svc.id}
+                                className="flex items-center gap-2.5 cursor-pointer select-none group"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isAssigned}
+                                  disabled={isSavingAssignments}
+                                  onChange={(e) =>
+                                    void handleToggleBarberService(barber.id, svc.id, e.target.checked)
+                                  }
+                                  className="h-4 w-4 rounded border-[#E5E2DB] accent-[#1B4332] cursor-pointer disabled:opacity-50"
+                                />
+                                <span className="text-sm text-[#1A1A1A] group-hover:text-[#1B4332] transition-colors">
+                                  {svc.name}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {savingBarberServiceId === barber.id && (
+                          <p className="text-xs text-[#8A8680] mt-2">Saving…</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Weekly availability */}
                     <div>
