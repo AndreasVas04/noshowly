@@ -566,18 +566,17 @@ export default function LandingContent() {
             </p>
           </FadeIn>
 
-          <div className="grid md:grid-cols-3 gap-6 items-stretch">
+          <div className="grid md:grid-cols-2 gap-6 items-stretch max-w-2xl mx-auto">
             <FadeIn delay={0} className="flex flex-col">
               <PricingCard
-                name="Starter"
+                name="Basic"
                 price={19}
-                description="Email reminders and online booking. Everything you need to get started."
+                description="For businesses that want simple online booking and email reminders."
                 features={[
-                  'Unlimited email reminders',
                   'Online booking page',
-                  'Appointment dashboard',
+                  'Unlimited email reminders',
                   'Client management',
-                  'YES / NO email confirmations',
+                  'Appointment management',
                 ]}
                 featured={false}
               />
@@ -585,37 +584,22 @@ export default function LandingContent() {
 
             <FadeIn delay={0.1} className="flex flex-col">
               <PricingCard
-                name="Professional"
+                name="Pro"
                 price={39}
-                description="Add SMS reminders for clients who prefer a text over an email."
+                description="For businesses that want fewer no-shows with SMS confirmations."
                 features={[
-                  'Everything in Starter',
-                  '300 SMS reminders per month',
-                  'YES / NO SMS confirmations',
-                  'SMS reply tracking',
-                  'Email and SMS combined',
+                  'Everything in Basic',
+                  '100 SMS reminders/month',
+                  'Unlimited email reminders',
+                  'Clients can reply YES or NO',
                 ]}
                 featured={true}
-              />
-            </FadeIn>
-
-            <FadeIn delay={0.2} className="flex flex-col">
-              <PricingCard
-                name="Business"
-                price={79}
-                description="For busy businesses sending a high volume of reminders every month."
-                features={[
-                  'Everything in Professional',
-                  '1,000 SMS reminders per month',
-                  'Priority support',
-                ]}
-                featured={false}
               />
             </FadeIn>
           </div>
 
           <p className="mt-8 text-center text-sm text-[#8A8680] font-body">
-            All plans include unlimited email reminders. No credit card required to start.
+            No commissions. No per-booking fees. No credit card required to start.
           </p>
         </div>
       </section>

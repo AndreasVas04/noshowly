@@ -153,12 +153,11 @@ export default function TermsPage() {
           </Section>
 
           <Section number="05" title="Billing and plans">
-            <p>Noshowly is offered on three paid plans, billed monthly in USD:</p>
+            <p>Noshowly is offered on two paid plans, billed monthly in USD:</p>
             <ul className="list-none space-y-2 mt-1">
               {[
-                { name: 'Starter', price: '$19/month', detail: 'Includes unlimited email reminders. No SMS reminders.' },
-                { name: 'Professional', price: '$39/month', detail: 'Includes unlimited email reminders and 300 SMS reminders per month.' },
-                { name: 'Business', price: '$79/month', detail: 'Includes unlimited email reminders and 1,000 SMS reminders per month.' },
+                { name: 'Basic', price: '$19/month', detail: 'Includes unlimited email reminders. No SMS reminders.' },
+                { name: 'Pro',   price: '$39/month', detail: 'Includes unlimited email reminders and 100 SMS reminders per month.' },
               ].map((plan) => (
                 <li key={plan.name} className="flex items-start gap-2.5">
                   <span className="mt-[0.45em] w-1 h-1 rounded-full bg-[#1B4332]/40 shrink-0" />

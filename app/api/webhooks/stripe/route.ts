@@ -33,7 +33,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types';
 import { stripe } from '@/lib/stripe';
 import type Stripe from 'stripe';
-import type { PaidPlan } from '@/lib/plans';
+import type { UserPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Service role client — needed to update users.plan without RLS restriction.
@@ -98,21 +98,30 @@ function markEventProcessed(eventId: string): void {
  * Returns null for unrecognized price IDs (e.g. annual billing variants or
  * price IDs not yet configured via env vars).
  *
- * Env var convention:
- *  - STRIPE_STARTER_PRICE_ID      → 'starter'
- *  - STRIPE_PROFESSIONAL_PRICE_ID → 'professional'
- *  - STRIPE_BUSINESS_PRICE_ID     → 'business'
+ * Primary env vars (new plans):
+ *  - STRIPE_BASIC_PRICE_ID → 'basic'
+ *  - STRIPE_PRO_PRICE_ID   → 'pro'
+ *
+ * Legacy backward-compatible env vars (maps old plan names to new canonical names):
+ *  - STRIPE_STARTER_PRICE_ID      → 'basic'       (starter is now called basic)
+ *  - STRIPE_PROFESSIONAL_PRICE_ID → 'pro'          (professional is now called pro)
+ *  - STRIPE_BUSINESS_PRICE_ID     → 'business'     (internal only, preserved for existing subscribers)
  *
  * @param priceId - The Stripe price ID from the subscription object.
- * @returns Noshowly PaidPlan name, or null if unrecognized.
+ * @returns Noshowly plan name that can be written to users.plan, or null if unrecognized.
  */
-function priceIdToPlan(priceId: string): PaidPlan | null {
+function priceIdToPlan(priceId: string): Exclude<UserPlan, 'cancelled' | 'trial'> | null {
+  type PlanValue = Exclude<UserPlan, 'cancelled' | 'trial'>;
   // Build a lookup table from env vars to plan names at call time.
   // Any env var not set is undefined — those entries are skipped.
-  const lookup: Array<[string | undefined, PaidPlan]> = [
-    [process.env.STRIPE_STARTER_PRICE_ID,      'starter'],
-    [process.env.STRIPE_PROFESSIONAL_PRICE_ID, 'professional'],
-    [process.env.STRIPE_BUSINESS_PRICE_ID,     'business'],
+  const lookup: Array<[string | undefined, PlanValue]> = [
+    // New primary price IDs
+    [process.env.STRIPE_BASIC_PRICE_ID, 'basic'],
+    [process.env.STRIPE_PRO_PRICE_ID,   'pro'],
+    // Legacy backward-compatible price IDs — mapped to new canonical plan names
+    [process.env.STRIPE_STARTER_PRICE_ID,      'basic'],       // starter → basic
+    [process.env.STRIPE_PROFESSIONAL_PRICE_ID, 'pro'],         // professional → pro
+    [process.env.STRIPE_BUSINESS_PRICE_ID,     'business'],    // internal only
   ];
 
   for (const [envPriceId, plan] of lookup) {
@@ -269,7 +278,7 @@ async function handleSubscriptionUpsert(sub: Stripe.Subscription): Promise<void>
     `priceId=${priceId} resolvedPlan=${plan ?? 'unknown'}`
   );
 
-  if (!plan) {
+  if (plan === null) {
     console.warn(`[webhooks/stripe] Unrecognized price ID "${priceId}" — plan not updated`);
     return;
   }

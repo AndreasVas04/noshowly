@@ -1,72 +1,77 @@
 /**
  * app/pricing/PricingTabs.tsx
  *
- * Client component — three-card plan selector for the pricing page.
+ * Client component — two-card plan selector for the pricing page.
  *
- * Plans:
- *  - Starter      $19/month — unlimited email, no SMS
- *  - Professional $39/month — 300 SMS + unlimited email (most popular)
- *  - Business     $79/month — 1,000 SMS + unlimited email
+ * Plans shown publicly:
+ *  - Basic  $19/month — unlimited email reminders, no SMS
+ *  - Pro    $39/month — 100 SMS/month + unlimited email (most popular)
  *
- * Plan prices and limits are imported from lib/plans — never hardcoded here.
- * Design: brand-dark palette, Playfair Display headings, shadcn Card.
+ * Business is intentionally hidden from the public pricing UI.
+ * Email fair-use caps are internal — never shown here.
+ *
+ * Plan prices and SMS limits are imported from lib/plans — never hardcoded here.
+ * Design: Calm Professional palette, Playfair Display headings, shadcn Card.
  */
 
 'use client';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import CheckoutButton from './CheckoutButton';
-import { PLAN_LIMITS, PLAN_PRICES } from '@/lib/plans';
+import { PLAN_PRICES, SMS_ADDON_PRICE, SMS_ADDON_AMOUNT } from '@/lib/plans';
 import type { PaidPlan, UserPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Plan configuration
 // ---------------------------------------------------------------------------
 
-/** Ordered plan keys displayed left to right. */
-const PLAN_KEYS: PaidPlan[] = ['starter', 'professional', 'business'];
+/** Ordered plan keys displayed left to right (Basic first, Pro second). */
+const PLAN_KEYS: PaidPlan[] = ['basic', 'pro'];
 
 /** Display name for each plan. */
 const PLAN_NAMES: Record<PaidPlan, string> = {
-  starter:      'Starter',
-  professional: 'Professional',
-  business:     'Business',
+  basic: 'Basic',
+  pro:   'Pro',
 };
 
 /** One-line tagline shown under the plan name. */
 const PLAN_TAGLINES: Record<PaidPlan, string> = {
-  starter:      'Start taking online bookings today.',
-  professional: 'Reduce no-shows with SMS and email.',
-  business:     'For busy businesses with larger teams.',
+  basic: 'For businesses that want simple online booking and email reminders.',
+  pro:   'For businesses that want fewer no-shows with SMS confirmations.',
 };
 
-/** Feature list for each plan. */
+/** Feature list for each plan. Email caps are internal — not listed here. */
 const PLAN_FEATURES: Record<PaidPlan, string[]> = {
-  starter: [
-    'Custom booking page',
-    'Unlimited appointments',
-    'Email reminders',
-    'YES / NO confirmation via email',
-    'Real-time dashboard',
-    'Staff management',
-    'Custom email templates',
+  basic: [
+    'Online booking page',
+    'Unlimited email reminders',
+    'Client management',
+    'Appointment management',
   ],
-  professional: [
-    'Everything in Starter',
-    'SMS reminders (300/month)',
-    'YES / NO confirmation via SMS and email',
-    'Custom SMS templates',
-  ],
-  business: [
-    'Everything in Professional',
-    'SMS reminders (1,000/month)',
-    'Priority support',
+  pro: [
+    'Everything in Basic',
+    '100 SMS reminders/month',
+    'Unlimited email reminders',
+    'Clients can reply YES or NO',
   ],
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Maps legacy plan names (starter, professional) to the equivalent public plan key.
+ * Used to correctly highlight the "Current plan" badge for users on legacy plans.
+ *
+ * @param plan - The user's current plan from the database.
+ * @returns The equivalent public plan key, or the original value if no mapping exists.
+ */
+function normalizePlan(plan: UserPlan): string {
+  if (plan === 'starter')      return 'basic';
+  if (plan === 'professional') return 'pro';
+  return plan;
+}
 
 /**
  * Returns true if the user is already on a paid subscription.
@@ -91,11 +96,11 @@ interface PlanCardProps {
 }
 
 /**
- * Renders a single subscription plan card with price, limits, features, and CTA.
+ * Renders a single subscription plan card with price, features, and CTA.
  *
  * - Current plan: shows "Your current plan" label instead of a CTA button.
- * - Professional (unpaid user): dark border + "Most popular" badge.
- * - Other plans: light border + standard CTA.
+ * - Pro (unpaid user): dark forest green border + "Most popular" badge.
+ * - Pro card shows the SMS add-on note below the CTA.
  *
  * @param props - planKey and currentPlan.
  * @returns A plan card JSX element.
@@ -105,16 +110,10 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
   const tagline  = PLAN_TAGLINES[planKey];
   const features = PLAN_FEATURES[planKey];
   const price    = PLAN_PRICES[planKey];
-  const limits   = PLAN_LIMITS[planKey];
 
-  const isCurrent  = currentPlan === planKey;
-  // Highlight Professional as "Most popular" when the user has not paid yet.
-  const highlighted = planKey === 'professional' && !isPaidPlan(currentPlan);
-
-  // Build the subtitle from PLAN_LIMITS — never hardcoded here.
-  const subtitle = limits.sms > 0
-    ? `${limits.sms.toLocaleString()} SMS reminders + unlimited email reminders`
-    : 'Unlimited email reminders';
+  const isCurrent  = normalizePlan(currentPlan) === planKey;
+  // Highlight Pro as "Most popular" when the user has not yet paid.
+  const highlighted = planKey === 'pro' && !isPaidPlan(currentPlan);
 
   return (
     <div className="relative">
@@ -145,7 +144,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
           <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">
             {name}
           </h2>
-          <p className="text-sm text-[#C8C8C8] mt-1">
+          <p className="text-sm text-[#8A8680] mt-1">
             {tagline}
           </p>
 
@@ -156,11 +155,6 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
             </span>
             <span className="text-sm text-[#C8C8C8]">/month</span>
           </div>
-
-          {/* Reminder limits subtitle */}
-          <p className="mt-2 text-sm font-medium text-[#2D2D2D]">
-            {subtitle}
-          </p>
         </CardHeader>
 
         <CardContent className="px-7 pb-7 flex-1 flex flex-col">
@@ -198,15 +192,15 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
             <CheckoutButton plan={planKey} highlighted={highlighted} />
           )}
 
-          {/* Add-on note — shown only for plans that include SMS */}
-          {(planKey === 'professional' || planKey === 'business') && (
-            <p className="mt-4 text-center text-xs text-[#C8C8C8]">
-              Need more SMS? Add 100 SMS reminders for $8/month.{' '}
+          {/* SMS add-on note — shown only on the Pro card */}
+          {planKey === 'pro' && (
+            <p className="mt-4 text-center text-xs text-[#8A8680]">
+              Need more SMS? Add {SMS_ADDON_AMOUNT} SMS for ${SMS_ADDON_PRICE}/month.{' '}
               <a
                 href="mailto:noshowly@gmail.com"
                 className="underline hover:text-[#1A1A1A] transition-colors"
               >
-                Contact us to add on.
+                Contact us.
               </a>
             </p>
           )}
@@ -227,15 +221,15 @@ interface PricingTabsProps {
 }
 
 /**
- * Three-card pricing layout: Starter, Professional, Business.
- * No tabs — all plans visible at once.
+ * Two-card pricing layout: Basic and Pro.
+ * Business is intentionally hidden from public UI.
  *
  * @param props - currentPlan from the server component.
  * @returns The full pricing section JSX.
  */
 export default function PricingTabs({ currentPlan }: PricingTabsProps) {
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 max-w-2xl mx-auto">
       {PLAN_KEYS.map((key) => (
         <PlanCard key={key} planKey={key} currentPlan={currentPlan} />
       ))}

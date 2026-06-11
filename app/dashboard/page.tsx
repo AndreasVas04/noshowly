@@ -16,7 +16,7 @@
  * interactivity independently.
  *
  * The user's plan is fetched server-side and passed to StatsCards, which renders
- * nothing for trial and starter plans (no SMS replies on those plans).
+ * nothing for trial and basic plans (no SMS replies on those plans).
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -49,7 +49,7 @@ export default async function DashboardPage() {
   return (
     <div className="p-6 lg:p-10">
       {/* Stats summary — confirmed / pending / cancelled counts for today.
-          Only rendered on professional and business plans (SMS-enabled). */}
+          Only rendered on pro and business plans (SMS-enabled). */}
       <StatsCards plan={plan} />
 
       {/* Chronological appointment list for the selected day */}

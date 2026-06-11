@@ -15,7 +15,7 @@
  * section header while the request is in flight / just completed.
  *
  * The SMS and email confirmation toggles are plan-gated:
- *  - SMS: disabled on trial and starter (no SMS on those plans).
+ *  - SMS: disabled on trial and basic (no SMS on those plans).
  *  - Email: disabled on trial (email reminders require a paid plan).
  *
  * Team, Services, and Online Booking are managed in /dashboard/booking.
@@ -898,7 +898,7 @@ export default function SettingsPage() {
 
         {/* ================================================================
             SECTION 3: Reminder settings
-            Plan-gated: SMS disabled on trial/starter; email disabled on trial.
+            Plan-gated: SMS disabled on trial/basic; email disabled on trial.
             Auto-saves 800 ms after any toggle change.
         ================================================================ */}
         <section>
@@ -941,7 +941,7 @@ export default function SettingsPage() {
                   </p>
                 ) : (
                   <p className="text-xs text-amber-600 mt-0.5">
-                    SMS reminders are not included in your current plan. Upgrade to Professional or Business to enable SMS.
+                    SMS reminders are not included in your current plan. Upgrade to Pro to enable SMS reminders.
                   </p>
                 )}
               </div>

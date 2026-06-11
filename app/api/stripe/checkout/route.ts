@@ -54,27 +54,36 @@ const adminSupabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY);
 // ---------------------------------------------------------------------------
 
 /**
- * All 3 paid plan names that map to Stripe price IDs.
- * Aliased from PaidPlan for clarity at the checkout boundary.
+ * Public paid plan names accepted at the checkout boundary.
+ * Aliased from PaidPlan for clarity.
+ *
+ * Business is intentionally excluded — it is internal/future only and must
+ * not be purchasable via the public checkout flow.
  */
 type CheckoutPlan = PaidPlan;
 
-/** Exhaustive list of valid checkout plan names — used for input validation. */
-const VALID_PLANS: CheckoutPlan[] = ['starter', 'professional', 'business'];
+/**
+ * Exhaustive list of valid checkout plan names — used for input validation.
+ * Only 'basic' and 'pro' are accepted. Any other value (including 'business')
+ * is rejected with a 400 error.
+ */
+const VALID_PLANS: CheckoutPlan[] = ['basic', 'pro'];
 
 /**
- * Maps a Noshowly plan name to its Stripe price ID from environment variables.
+ * Maps a Noshowly public plan name to its Stripe price ID from environment variables.
  *
- * Env var convention: plan 'solo-sms' → STRIPE_SOLO_SMS_PRICE_ID.
- * Hyphens in the plan name are replaced with underscores, then uppercased.
+ * Env var convention: plan 'basic' → STRIPE_BASIC_PRICE_ID, 'pro' → STRIPE_PRO_PRICE_ID.
+ * Plan name is uppercased to derive the env var key.
  *
- * @param plan - The validated plan name chosen by the user.
+ * Required env vars: STRIPE_BASIC_PRICE_ID, STRIPE_PRO_PRICE_ID.
+ *
+ * @param plan - The validated plan name chosen by the user ('basic' or 'pro').
  * @returns The Stripe price ID for the plan.
  * @throws If the corresponding env var is not configured.
  */
 function getPriceId(plan: CheckoutPlan): string {
-  // 'solo-sms' → 'STRIPE_SOLO_SMS_PRICE_ID'
-  const envKey = `STRIPE_${plan.toUpperCase().replace(/-/g, '_')}_PRICE_ID`;
+  // 'basic' → 'STRIPE_BASIC_PRICE_ID', 'pro' → 'STRIPE_PRO_PRICE_ID'
+  const envKey = `STRIPE_${plan.toUpperCase()}_PRICE_ID`;
   const priceId = process.env[envKey];
   if (!priceId) {
     throw new Error(`Missing Stripe price ID env var: ${envKey}`);

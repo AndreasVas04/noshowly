@@ -306,18 +306,26 @@ async function processReminder(
     // Enforce per-channel monthly limits separately.
     const smsMonthlyLimit = getPlanSMSLimit(user.plan as UserPlan);
     if (type === 'sms' && user.reminders_used_this_month >= smsMonthlyLimit) {
-      console.log(
-        `${logPrefix} SKIP — monthly SMS limit reached ` +
-        `(used=${user.reminders_used_this_month} limit=${smsMonthlyLimit})`
+      // SMS allowance exhausted — skip this SMS but email processing continues
+      // in the separate email batch (batches are independent).
+      console.warn(
+        `${logPrefix} SKIP — monthly SMS allowance exhausted for salon=${appt.salon_id} ` +
+        `plan=${user.plan} (used=${user.reminders_used_this_month} limit=${smsMonthlyLimit}). ` +
+        `Email reminders will still be sent if the appointment is in the email window.`
       );
       return 'skipped';
     }
 
+    // Email fair-use cap check (internal only — never expose this limit publicly).
+    // Public copy says "Unlimited email reminders"; this cap protects system resources.
+    // TODO: Add admin notification when a salon exceeds 80% of their email fair-use cap.
+    //       Implement as a separate monitoring job querying email_reminders_used_this_month.
     const emailMonthlyLimit = getPlanEmailLimit(user.plan as UserPlan);
     if (type === 'email' && user.email_reminders_used_this_month >= emailMonthlyLimit) {
-      console.log(
-        `${logPrefix} SKIP — monthly email limit reached ` +
-        `(used=${user.email_reminders_used_this_month} limit=${emailMonthlyLimit})`
+      console.warn(
+        `${logPrefix} SKIP — email fair-use cap reached for salon=${appt.salon_id} ` +
+        `plan=${user.plan} (internal cap: ${emailMonthlyLimit}/month). ` +
+        `This is an internal limit and must not be communicated to the end user.`
       );
       return 'skipped';
     }
