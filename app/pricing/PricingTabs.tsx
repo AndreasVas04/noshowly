@@ -1,16 +1,12 @@
 /**
  * app/pricing/PricingTabs.tsx
  *
- * Client component — two-card plan selector for the pricing page.
+ * Client component — single plan card for the pricing page.
  *
- * Plans shown publicly:
- *  - Basic  $19/month — unlimited email reminders, no SMS
- *  - Pro    $39/month — 100 SMS/month + unlimited email (most popular)
+ * Only Basic ($19/month) is shown publicly for MVP.
+ * Pro and Business are hidden from public UI.
+ * SMS is not offered publicly — do not mention SMS anywhere here.
  *
- * Business is intentionally hidden from the public pricing UI.
- * Email fair-use caps are internal — never shown here.
- *
- * Plan prices and SMS limits are imported from lib/plans — never hardcoded here.
  * Design: Calm Professional palette, Playfair Display headings, shadcn Card.
  */
 
@@ -18,60 +14,40 @@
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import CheckoutButton from './CheckoutButton';
-import { PLAN_PRICES, SMS_ADDON_PRICE, SMS_ADDON_AMOUNT } from '@/lib/plans';
-import type { PaidPlan, UserPlan } from '@/lib/plans';
+import { PLAN_PRICES } from '@/lib/plans';
+import type { UserPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Plan configuration
 // ---------------------------------------------------------------------------
 
-/** Ordered plan keys displayed left to right (Basic first, Pro second). */
-const PLAN_KEYS: PaidPlan[] = ['basic', 'pro'];
-
-/** Display name for each plan. */
-const PLAN_NAMES: Record<PaidPlan, string> = {
-  basic: 'Basic',
-  pro:   'Pro',
-};
-
-/** One-line tagline shown under the plan name. */
-const PLAN_TAGLINES: Record<PaidPlan, string> = {
-  basic: 'For businesses that want simple online booking and email reminders.',
-  pro:   'For businesses that want fewer no-shows with SMS confirmations.',
-};
-
-/** Feature list for each plan. Email caps are internal — not listed here. */
-const PLAN_FEATURES: Record<PaidPlan, string[]> = {
-  basic: [
-    'Online booking page',
-    'Unlimited email reminders',
-    'Email YES/NO confirmation buttons',
-    'Client management',
-    'Appointment management',
-  ],
-  pro: [
-    'Everything in Basic',
-    '100 SMS reminders/month',
-    'SMS YES/NO replies',
-    'Unlimited email reminders',
-    'Email YES/NO confirmation buttons',
-  ],
-};
+/** Features shown on the Basic plan card. No SMS mentioned. */
+const BASIC_FEATURES: string[] = [
+  'Online booking page',
+  'Unlimited email reminders',
+  'Email YES/NO confirmation buttons',
+  'Client management',
+  'Appointment management',
+  'Flat monthly price',
+  'No commissions',
+  'No per-booking fees',
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Maps legacy plan names (starter, professional) to the equivalent public plan key.
- * Used to correctly highlight the "Current plan" badge for users on legacy plans.
+ * Maps legacy plan names to the equivalent public plan key.
+ * Used to correctly show the "Current plan" badge for users on legacy plans.
  *
  * @param plan - The user's current plan from the database.
- * @returns The equivalent public plan key, or the original value if no mapping exists.
+ * @returns The equivalent public plan key string.
  */
 function normalizePlan(plan: UserPlan): string {
   if (plan === 'starter')      return 'basic';
-  if (plan === 'professional') return 'pro';
+  if (plan === 'professional') return 'basic'; // professional maps to basic for badge display
+  if (plan === 'pro')          return 'basic'; // pro maps to basic for badge display
   return plan;
 }
 
@@ -86,41 +62,32 @@ function isPaidPlan(plan: UserPlan): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// PlanCard
+// BasicPlanCard
 // ---------------------------------------------------------------------------
 
-/** Props for a single plan card. */
-interface PlanCardProps {
-  /** The plan to display. */
-  planKey: PaidPlan;
-  /** The user's current plan — used to highlight the current plan. */
+/** Props for the Basic plan card. */
+interface BasicPlanCardProps {
+  /** The user's current plan — used to highlight the current plan badge. */
   currentPlan: UserPlan;
 }
 
 /**
- * Renders a single subscription plan card with price, features, and CTA.
+ * Renders the Basic plan card with price, features, and CTA.
  *
  * - Current plan: shows "Your current plan" label instead of a CTA button.
- * - Pro (unpaid user): dark forest green border + "Most popular" badge.
- * - Pro card shows the SMS add-on note below the CTA.
+ * - Unpaid user: shows "Most popular" badge with forest green border.
  *
- * @param props - planKey and currentPlan.
- * @returns A plan card JSX element.
+ * @param props - currentPlan.
+ * @returns The Basic plan card JSX element.
  */
-function PlanCard({ planKey, currentPlan }: PlanCardProps) {
-  const name     = PLAN_NAMES[planKey];
-  const tagline  = PLAN_TAGLINES[planKey];
-  const features = PLAN_FEATURES[planKey];
-  const price    = PLAN_PRICES[planKey];
-
-  const isCurrent  = normalizePlan(currentPlan) === planKey;
-  // Highlight Pro as "Most popular" when the user has not yet paid.
-  const highlighted = planKey === 'pro' && !isPaidPlan(currentPlan);
+function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
+  const isCurrent  = normalizePlan(currentPlan) === 'basic';
+  const highlighted = !isPaidPlan(currentPlan);
 
   return (
-    <div className="relative">
+    <div className="relative max-w-sm w-full mx-auto">
 
-      {/* Badge — shown for current plan or most popular */}
+      {/* Badge */}
       {(isCurrent || highlighted) && (
         <div className="absolute -top-3.5 inset-x-0 flex justify-center z-10">
           <span
@@ -136,24 +103,24 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
 
       <Card
         className={[
-          'flex flex-col h-full rounded-2xl border shadow-none hover:-translate-y-1 hover:shadow-lg transition-all duration-200',
-          isCurrent    ? 'border-[#1A1A1A]'      :
-          highlighted  ? 'border-[#1B4332]/40'   :
-                         'border-[#C8C8C8]/40',
+          'flex flex-col rounded-2xl border shadow-none hover:-translate-y-1 hover:shadow-lg transition-all duration-200',
+          isCurrent   ? 'border-[#1A1A1A]'    :
+          highlighted ? 'border-[#1B4332]/40' :
+                        'border-[#C8C8C8]/40',
         ].join(' ')}
       >
         <CardHeader className="px-7 pt-7 pb-5">
           <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">
-            {name}
+            Basic
           </h2>
           <p className="text-sm text-[#8A8680] mt-1">
-            {tagline}
+            Simple appointment reminders for small service businesses.
           </p>
 
           {/* Price */}
           <div className="mt-5 flex items-baseline gap-1">
             <span className="font-heading text-4xl font-bold text-[#1A1A1A]">
-              ${price}
+              ${PLAN_PRICES.basic}
             </span>
             <span className="text-sm text-[#C8C8C8]">/month</span>
           </div>
@@ -162,14 +129,14 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
         <CardContent className="px-7 pb-7 flex-1 flex flex-col">
           {/* Feature list */}
           <ul className="flex-1 space-y-3 mb-8">
-            {features.map((feature) => (
+            {BASIC_FEATURES.map((feature) => (
               <li
                 key={feature}
                 className="flex items-start gap-2.5 text-sm text-[#2D2D2D]"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className={`mt-0.5 h-4 w-4 shrink-0 ${highlighted ? 'text-[#1B4332]' : 'text-[#1A1A1A]'}`}
+                  className="mt-0.5 h-4 w-4 shrink-0 text-[#1B4332]"
                   viewBox="0 0 20 20"
                   fill="currentColor"
                   aria-hidden="true"
@@ -191,20 +158,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
               Your current plan
             </div>
           ) : (
-            <CheckoutButton plan={planKey} highlighted={highlighted} />
-          )}
-
-          {/* SMS add-on note — shown only on the Pro card */}
-          {planKey === 'pro' && (
-            <p className="mt-4 text-center text-xs text-[#8A8680]">
-              Need more SMS? Add {SMS_ADDON_AMOUNT} SMS for ${SMS_ADDON_PRICE}/month.{' '}
-              <a
-                href="mailto:noshowly@gmail.com"
-                className="underline hover:text-[#1A1A1A] transition-colors"
-              >
-                Contact us.
-              </a>
-            </p>
+            <CheckoutButton plan="basic" highlighted={highlighted} />
           )}
         </CardContent>
       </Card>
@@ -213,7 +167,7 @@ function PlanCard({ planKey, currentPlan }: PlanCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// PricingCards
+// PricingTabs (main export)
 // ---------------------------------------------------------------------------
 
 /** Props passed from the server component pricing page. */
@@ -223,18 +177,16 @@ interface PricingTabsProps {
 }
 
 /**
- * Two-card pricing layout: Basic and Pro.
- * Business is intentionally hidden from public UI.
+ * Single-plan pricing layout: Basic only.
+ * Pro and Business are hidden from public UI.
  *
  * @param props - currentPlan from the server component.
- * @returns The full pricing section JSX.
+ * @returns The pricing section JSX.
  */
 export default function PricingTabs({ currentPlan }: PricingTabsProps) {
   return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 max-w-2xl mx-auto">
-      {PLAN_KEYS.map((key) => (
-        <PlanCard key={key} planKey={key} currentPlan={currentPlan} />
-      ))}
+    <div className="flex justify-center">
+      <BasicPlanCard currentPlan={currentPlan} />
     </div>
   );
 }

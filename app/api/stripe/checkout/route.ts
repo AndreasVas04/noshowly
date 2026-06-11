@@ -22,7 +22,7 @@
  *    accepted from the client.
  *  - STRIPE_SECRET_KEY is server-only; never returned in the response.
  *
- * @param request - POST body: { plan: PaidPlan } (one of the 3 valid plan keys)
+ * @param request - POST body: { plan: PaidPlan } ('basic' is the only accepted value for MVP)
  * @returns 200 { url: string }     — Stripe Checkout URL; redirect the user here.
  * @returns 400 { error: string }   — Invalid or missing plan.
  * @returns 401 { error: string }   — Not authenticated.
@@ -64,10 +64,10 @@ type CheckoutPlan = PaidPlan;
 
 /**
  * Exhaustive list of valid checkout plan names — used for input validation.
- * Only 'basic' and 'pro' are accepted. Any other value (including 'business')
- * is rejected with a 400 error.
+ * Only 'basic' is accepted publicly for MVP. Pro and Business are internal only.
+ * Any other value is rejected with a 400 error.
  */
-const VALID_PLANS: CheckoutPlan[] = ['basic', 'pro'];
+const VALID_PLANS: CheckoutPlan[] = ['basic'];
 
 /**
  * Maps a Noshowly public plan name to its Stripe price ID from environment variables.
@@ -75,9 +75,9 @@ const VALID_PLANS: CheckoutPlan[] = ['basic', 'pro'];
  * Env var convention: plan 'basic' → STRIPE_BASIC_PRICE_ID, 'pro' → STRIPE_PRO_PRICE_ID.
  * Plan name is uppercased to derive the env var key.
  *
- * Required env vars: STRIPE_BASIC_PRICE_ID, STRIPE_PRO_PRICE_ID.
+ * Required env vars: STRIPE_BASIC_PRICE_ID.
  *
- * @param plan - The validated plan name chosen by the user ('basic' or 'pro').
+ * @param plan - The validated plan name chosen by the user ('basic').
  * @returns The Stripe price ID for the plan.
  * @throws If the corresponding env var is not configured.
  */

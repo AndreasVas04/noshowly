@@ -19,7 +19,7 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: 'Noshowly: Stop Losing Money to No-Shows',
   description:
-    'Noshowly automatically sends appointment reminders before every booking. Clients confirm or cancel via SMS or email. Flat monthly fee, zero commissions.',
+    'Noshowly automatically sends email reminders before every booking. Clients confirm or cancel with one click. Flat monthly fee, zero commissions.',
 };
 
 /**

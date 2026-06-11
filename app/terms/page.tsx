@@ -111,7 +111,7 @@ export default function TermsPage() {
           <Section number="02" title="What Noshowly provides">
             <p>
               Noshowly is a scheduling and appointment reminder tool for service businesses. It lets
-              you manage appointments and automatically send SMS and email reminders to your clients.
+              you manage appointments and automatically send email reminders to your clients.
             </p>
             <p>
               Noshowly does not handle payments between you and your clients. We only handle the
@@ -153,20 +153,17 @@ export default function TermsPage() {
           </Section>
 
           <Section number="05" title="Billing and plans">
-            <p>Noshowly is offered on two paid plans, billed monthly in USD:</p>
+            <p>
+              Noshowly is offered on one paid plan, billed monthly in USD:
+            </p>
             <ul className="list-none space-y-2 mt-1">
-              {[
-                { name: 'Basic', price: '$19/month', detail: 'Includes unlimited email reminders. No SMS reminders.' },
-                { name: 'Pro',   price: '$39/month', detail: 'Includes unlimited email reminders and 100 SMS reminders per month.' },
-              ].map((plan) => (
-                <li key={plan.name} className="flex items-start gap-2.5">
-                  <span className="mt-[0.45em] w-1 h-1 rounded-full bg-[#1B4332]/40 shrink-0" />
-                  <span>
-                    <strong className="font-semibold text-[#1A1A1A]">{plan.name}</strong>{' '}
-                    at {plan.price}. {plan.detail}
-                  </span>
-                </li>
-              ))}
+              <li className="flex items-start gap-2.5">
+                <span className="mt-[0.45em] w-1 h-1 rounded-full bg-[#1B4332]/40 shrink-0" />
+                <span>
+                  <strong className="font-semibold text-[#1A1A1A]">Basic</strong>{' '}
+                  at $19/month. Includes online booking and unlimited email reminders.
+                </span>
+              </li>
             </ul>
             <p>
               Annual plans are available at a discount equivalent to two months free. All prices are
@@ -182,15 +179,11 @@ export default function TermsPage() {
             </p>
           </Section>
 
-          <Section number="06" title="SMS usage">
+          <Section number="06" title="Messaging">
             <p>
-              SMS reminders are sent via Twilio. Message frequency depends on the number of
-              appointments you schedule. Standard carrier rates may apply to your clients for
-              receiving messages in some countries.
-            </p>
-            <p>
-              You are responsible for ensuring you have a lawful basis for sending messages to your
-              clients in your jurisdiction.
+              Email reminders are sent via Resend. Message frequency depends on the number of
+              appointments you schedule. You are responsible for ensuring you have a lawful basis
+              for sending messages to your clients in your jurisdiction.
             </p>
           </Section>
 
@@ -207,7 +200,7 @@ export default function TermsPage() {
             </p>
             <p>
               You own your data. You are responsible for ensuring the client information you enter is
-              accurate and that you have consent to contact clients via SMS and email.
+              accurate and that you have consent to contact clients via email.
             </p>
           </Section>
 

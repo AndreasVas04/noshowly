@@ -84,7 +84,7 @@ export default async function PricingPage() {
           </p>
         </div>
 
-        {/* Plan cards — add-on note is shown per-card for SMS plans */}
+        {/* Plan cards */}
         <PricingTabs currentPlan={currentPlan} />
 
       </div>

@@ -797,7 +797,7 @@ export default function BookingFlow({
     if (!name) { setDetailsError('Your name is required.'); return; }
 
     if (requirePhone && !phone) {
-      setDetailsError('Your phone number is required to receive SMS reminders.');
+      setDetailsError('Your phone number is required.');
       return;
     }
     if (phone && !phone.startsWith('+')) {
@@ -1357,7 +1357,7 @@ export default function BookingFlow({
                       className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                     />
                     <p className="font-body text-xs text-[#8A8680]">
-                      Required for SMS reminders. Include your country code (e.g. +1, +357).
+                      Include your country code (e.g. +1, +357).
                     </p>
                   </div>
                 )}

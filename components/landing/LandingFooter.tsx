@@ -30,7 +30,7 @@ export default function LandingFooter() {
               className="h-7 w-auto mb-4"
             />
             <p className="text-sm text-white/50 font-body leading-relaxed max-w-xs">
-              Appointment reminders for service businesses. SMS, email, and online booking in one tool.
+              Email reminders and online booking for service businesses. Flat monthly price, zero commissions.
             </p>
           </div>
 

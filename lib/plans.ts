@@ -3,19 +3,24 @@
  *
  * Single source of truth for Noshowly's subscription plan configuration.
  *
- * Public plans (the only plans available via checkout and pricing UI):
- *  - Basic  — Unlimited email reminders (2,000/month internal fair-use cap), no SMS. $19/month.
- *  - Pro    — 100 SMS/month + unlimited email reminders (5,000/month internal fair-use cap). $39/month.
+ * Public plan (the ONLY plan available via checkout and pricing UI for MVP):
+ *  - Basic — Unlimited email reminders (2,000/month internal fair-use cap), no SMS. $19/month.
  *
  * Internal/legacy plans (kept for DB compatibility — NOT available via public checkout or pricing UI):
+ *  - pro          — Internal/future plan. Hidden from public UI and checkout.
  *  - business     — Internal/future plan. Hidden from public UI and checkout.
  *  - starter      — Legacy alias for Basic. Backward-compatible with existing DB values.
  *  - professional — Legacy alias for Pro. Backward-compatible with existing DB values.
  *
+ * SMS policy for MVP:
+ *  - SMS is not offered publicly. Basic has sms: 0.
+ *  - Do not mention SMS in any public UI, pricing page, or landing page.
+ *  - SMS infrastructure remains in the codebase for future plans but is disabled for all public plans.
+ *
  * RULES (never violate):
- *  - Never offer unlimited SMS. SMS limits must always be shown clearly.
  *  - Email limits are internal fair-use caps — never shown publicly. Public copy says "Unlimited email reminders".
  *  - Never increase SMS limits without checking real SMS provider costs per country first.
+ *  - Never price SMS add-ons at break-even or below cost.
  *
  * Every part of the codebase that touches plan limits, reminder caps, or
  * geo-blocking MUST import from this file — never hardcode these values.
@@ -68,13 +73,14 @@ export const PLAN_LIMITS = {
 export type PlanType = keyof typeof PLAN_LIMITS;
 
 /**
- * The two publicly available paid plan keys.
+ * The only publicly available paid plan key for MVP.
  * Used for Stripe checkout and pricing page CTA buttons.
  *
- * Business is intentionally excluded — it is internal/future only.
+ * Pro and Business are intentionally excluded — internal/future only.
  * starter/professional are excluded — they are legacy DB aliases only.
+ * SMS is not offered publicly — Basic has sms: 0.
  */
-export type PaidPlan = 'basic' | 'pro';
+export type PaidPlan = 'basic';
 
 /**
  * Full set of values the `users.plan` database column can hold.
@@ -96,7 +102,6 @@ export type UserPlan = PlanType | 'cancelled';
  */
 export const PLAN_PRICES: Record<PaidPlan, number> = {
   basic: 19,
-  pro:   39,
 };
 
 // ---------------------------------------------------------------------------

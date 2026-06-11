@@ -251,7 +251,7 @@ export default function LandingContent() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-[#1A1A1A] font-body">City Hair Salon</p>
-                      <p className="text-xs text-[#8A8680] font-body">SMS Reminder</p>
+                      <p className="text-xs text-[#8A8680] font-body">Email Reminder</p>
                     </div>
                     <div className="ml-auto w-2 h-2 rounded-full bg-[#1B4332]" />
                   </div>
@@ -342,21 +342,21 @@ export default function LandingContent() {
                   Reminders that actually get read.
                 </h3>
                 <p className="text-base text-[#8A8680] leading-relaxed font-body">
-                  Noshowly sends an SMS 24 hours before every appointment and an email
-                  48 hours before. No manual work. No forgotten clients. It runs entirely
-                  in the background from the moment you add an appointment.
+                  Noshowly sends an email reminder before every appointment, automatically.
+                  No manual work. No forgotten clients. It runs entirely in the background
+                  from the moment you add an appointment.
                 </p>
               </div>
               <div className="hidden lg:block">
                 <div className="bg-white rounded-2xl border border-[#E8E4DC] p-6 max-w-sm ml-auto shadow-sm">
                   <p className="text-xs text-[#8A8680] font-body mb-3 uppercase tracking-widest">
-                    SMS · Sent 24 hours before
+                    Email · Sent before your appointment
                   </p>
                   <div className="bg-[#F5F2ED] rounded-xl p-4">
                     <p className="text-sm text-[#1A1A1A] leading-relaxed font-body">
                       Hi Emma! Reminder from Grove Physio: your{' '}
                       <strong>Physiotherapy session</strong> is tomorrow, Tuesday at{' '}
-                      <strong>10:30 AM</strong>. Reply YES to confirm or NO to cancel.
+                      <strong>10:30 AM</strong>. Click YES to confirm or NO to cancel.
                     </p>
                   </div>
                   <div className="mt-4 flex items-center gap-2 text-xs text-[#8A8680] font-body">
@@ -566,39 +566,22 @@ export default function LandingContent() {
             </p>
           </FadeIn>
 
-          <div className="grid md:grid-cols-2 gap-6 items-stretch max-w-2xl mx-auto">
-            <FadeIn delay={0} className="flex flex-col">
-              <PricingCard
-                name="Basic"
-                price={19}
-                description="For businesses that want simple online booking and email reminders."
-                features={[
-                  'Online booking page',
-                  'Unlimited email reminders',
-                  'Email YES/NO confirmation buttons',
-                  'Client management',
-                  'Appointment management',
-                ]}
-                featured={false}
-              />
-            </FadeIn>
-
-            <FadeIn delay={0.1} className="flex flex-col">
-              <PricingCard
-                name="Pro"
-                price={39}
-                description="For businesses that want fewer no-shows with SMS confirmations."
-                features={[
-                  'Everything in Basic',
-                  '100 SMS reminders/month',
-                  'SMS YES/NO replies',
-                  'Unlimited email reminders',
-                  'Email YES/NO confirmation buttons',
-                ]}
-                featured={true}
-              />
-            </FadeIn>
-          </div>
+          <FadeIn className="max-w-sm mx-auto w-full">
+            <PricingCard
+              name="Basic"
+              price={19}
+              description="Online booking and email reminders for service businesses."
+              features={[
+                'Online booking page',
+                'Unlimited email reminders',
+                'Email YES/NO confirmation buttons',
+                'Client management',
+                'Appointment management',
+                'Flat monthly price',
+              ]}
+              featured={true}
+            />
+          </FadeIn>
 
           <p className="mt-8 text-center text-sm text-[#8A8680] font-body">
             No commissions. No per-booking fees. No credit card required to start.
