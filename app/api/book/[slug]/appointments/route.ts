@@ -49,12 +49,14 @@ function createServiceRoleClient() {
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the HTML body for the booking confirmation email sent to the client
+ * Builds the HTML body for the booking acknowledgement email sent to the client
  * immediately after they book via the public booking page.
  *
  * Design principles (same as reminder emails):
  *  - Noshowly is completely invisible — only the salon's name is shown.
- *  - No YES/NO buttons — this is a confirmation, not a reminder.
+ *  - No YES/NO buttons — this is a booking acknowledgement, not a reminder.
+ *  - The appointment is still 'scheduled' (pending) at this point; the copy
+ *    must NOT say "confirmed". Use "booked" instead.
  *  - Inline CSS only for broad email client compatibility.
  *
  * @param salonName   - The salon display name.
@@ -111,7 +113,7 @@ function getConfirmationEmailHTML(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Appointment Confirmed — ${safeSalon}</title>
+  <title>Appointment Booked — ${safeSalon}</title>
 </head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
@@ -129,7 +131,7 @@ function getConfirmationEmailHTML(
             <td style="padding:32px;">
               <p style="margin:0 0 8px;font-size:16px;color:#3f3f46;">Hi ${safeClient},</p>
               <p style="margin:0 0 24px;font-size:16px;color:#3f3f46;line-height:1.5;">
-                Your appointment has been confirmed.
+                Your appointment has been booked.
               </p>
               <table width="100%" cellpadding="0" cellspacing="0"
                 style="background:#f4f4f5;border-radius:6px;margin-bottom:28px;">
@@ -648,7 +650,7 @@ async function handleBookingPost(
 
     const emailResult = await sendEmail(
       clientEmail,
-      `Appointment confirmed at ${salon.name}`,
+      `Appointment booked at ${salon.name}`,
       confirmHtml,
     );
 
