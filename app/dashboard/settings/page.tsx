@@ -954,7 +954,7 @@ export default function SettingsPage() {
               Preview (updates as you type)
             </p>
 
-            <div className="max-w-sm">
+            <div>
 
               {/* Email preview */}
               <div className="space-y-2">

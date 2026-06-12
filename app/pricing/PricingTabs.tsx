@@ -50,16 +50,6 @@ function normalizePlan(plan: UserPlan): string {
   return plan;
 }
 
-/**
- * Returns true if the user is already on a paid subscription.
- *
- * @param plan - The user's current plan.
- * @returns true if on a paid plan.
- */
-function isPaidPlan(plan: UserPlan): boolean {
-  return plan !== 'trial' && plan !== 'cancelled';
-}
-
 // ---------------------------------------------------------------------------
 // BasicPlanCard
 // ---------------------------------------------------------------------------
@@ -80,22 +70,16 @@ interface BasicPlanCardProps {
  * @returns The Basic plan card JSX element.
  */
 function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
-  const isCurrent  = normalizePlan(currentPlan) === 'basic';
-  const highlighted = !isPaidPlan(currentPlan);
+  const isCurrent = normalizePlan(currentPlan) === 'basic';
 
   return (
     <div className="relative max-w-sm w-full mx-auto">
 
-      {/* Badge */}
-      {(isCurrent || highlighted) && (
+      {/* Badge — only shown when this is the user's current plan */}
+      {isCurrent && (
         <div className="absolute -top-3.5 inset-x-0 flex justify-center z-10">
-          <span
-            className={[
-              'rounded-full px-3 py-1 text-xs font-semibold text-white',
-              highlighted ? 'bg-[#1B4332]' : 'bg-[#1A1A1A]',
-            ].join(' ')}
-          >
-            {isCurrent ? 'Current plan' : 'Most popular'}
+          <span className="rounded-full px-3 py-1 text-xs font-semibold text-white bg-[#1A1A1A]">
+            Current plan
           </span>
         </div>
       )}
@@ -103,9 +87,7 @@ function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
       <Card
         className={[
           'flex flex-col rounded-2xl border shadow-none hover:-translate-y-1 hover:shadow-lg transition-all duration-200',
-          isCurrent   ? 'border-[#1A1A1A]'    :
-          highlighted ? 'border-[#1B4332]/40' :
-                        'border-[#C8C8C8]/40',
+          isCurrent ? 'border-[#1A1A1A]' : 'border-[#1B4332]/40',
         ].join(' ')}
       >
         <CardHeader className="px-7 pt-7 pb-5">
@@ -157,7 +139,7 @@ function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
               Your current plan
             </div>
           ) : (
-            <CheckoutButton plan="basic" highlighted={highlighted} />
+            <CheckoutButton plan="basic" highlighted={true} />
           )}
         </CardContent>
       </Card>

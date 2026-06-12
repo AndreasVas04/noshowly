@@ -69,7 +69,7 @@ export default async function PricingPage() {
             <p className={`text-sm font-medium ${onCancelled ? 'text-red-800' : 'text-[#1A1A1A]'}`}>
               {onCancelled
                 ? 'Your subscription has ended. Pick a plan below to reactivate your account and keep your data.'
-                : 'Pick a plan below to activate your account and unlock all features.'}
+                : 'Activate your account with one simple plan.'}
             </p>
           </div>
         )}
