@@ -45,7 +45,15 @@ type PublicAvailability = Pick<
 
 type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
 
-type BarberServiceLink = Pick<BarberService, 'barber_id' | 'service_id'>;
+/**
+ * Links a barber to a service they can perform.
+ * Includes optional price/duration overrides so the booking flow can display
+ * the effective price/duration when a specific barber is selected.
+ */
+type BarberServiceLink = Pick<
+  BarberService,
+  'barber_id' | 'service_id' | 'price_override' | 'duration_minutes_override'
+>;
 
 /** A booked appointment slot: local HH:MM time + which barber is assigned. */
 type BookedSlot = {
@@ -348,6 +356,34 @@ function getInitials(name: string): string {
   const parts = name.trim().split(' ');
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Computes the effective price and duration for a service given the selected barber.
+ * Uses the barber-specific override if one exists; falls back to the global service defaults.
+ *
+ * @param service                 - The global service definition.
+ * @param barberId                - UUID of the currently selected barber, or null for no-preference.
+ * @param barberServiceAssignments - All barber-service assignments for this salon.
+ * @returns                        Effective { price, duration } — either from override or global default.
+ */
+function getEffectivePriceAndDuration(
+  service: PublicService,
+  barberId: string | null,
+  barberServiceAssignments: BarberServiceLink[],
+): { price: number | null; duration: number | null } {
+  if (barberId) {
+    const assignment = barberServiceAssignments.find(
+      (ba) => ba.barber_id === barberId && ba.service_id === service.id
+    );
+    if (assignment) {
+      return {
+        price:    assignment.price_override    ?? service.price,
+        duration: assignment.duration_minutes_override ?? service.duration_minutes,
+      };
+    }
+  }
+  return { price: service.price, duration: service.duration_minutes };
 }
 
 /**
@@ -1130,32 +1166,42 @@ export default function BookingFlow({
                 ) : (
                   <div className="p-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {availableServices.map((svc) => (
-                        <button
-                          key={svc.id}
-                          type="button"
-                          onClick={() => { setSelectedService(svc); setStep('datetime'); }}
-                          className="text-left p-5 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/50 hover:bg-[#E8F2EC]/20 hover:shadow-sm transition-all group"
-                        >
-                          <p className="font-body text-sm font-semibold text-[#1A1A1A] leading-snug mb-3">
-                            {svc.name}
-                          </p>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {svc.duration_minutes && (
-                                <span className="font-body text-[11px] bg-[#F5F3EF] text-[#4A4540] px-2.5 py-1 rounded-full font-medium">
-                                  {svc.duration_minutes} min
+                      {availableServices.map((svc) => {
+                        // Compute effective price/duration: use barber override when a specific barber is selected.
+                        const specificBarberId =
+                          selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null;
+                        const effective = getEffectivePriceAndDuration(
+                          svc,
+                          specificBarberId,
+                          barberServiceAssignments,
+                        );
+                        return (
+                          <button
+                            key={svc.id}
+                            type="button"
+                            onClick={() => { setSelectedService(svc); setStep('datetime'); }}
+                            className="text-left p-5 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/50 hover:bg-[#E8F2EC]/20 hover:shadow-sm transition-all group"
+                          >
+                            <p className="font-body text-sm font-semibold text-[#1A1A1A] leading-snug mb-3">
+                              {svc.name}
+                            </p>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {effective.duration && (
+                                  <span className="font-body text-[11px] bg-[#F5F3EF] text-[#4A4540] px-2.5 py-1 rounded-full font-medium">
+                                    {effective.duration} min
+                                  </span>
+                                )}
+                              </div>
+                              {effective.price != null && (
+                                <span className="font-body text-sm font-semibold text-[#1B4332]">
+                                  {currencySymbol}{effective.price.toFixed(2)}
                                 </span>
                               )}
                             </div>
-                            {svc.price != null && (
-                              <span className="font-body text-sm font-semibold text-[#1B4332]">
-                                {currencySymbol}{svc.price.toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

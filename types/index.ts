@@ -297,6 +297,9 @@ export type StaffService = {
  *
  * Separate from `staff_services` (per-barber public-booking services with free-text
  * names). This table uses FKs to both barbers and services tables.
+ *
+ * price_override and duration_minutes_override allow individual staff members to have
+ * different pricing or duration for the same service. NULL means "use global default".
  */
 export type BarberService = {
   id: string;
@@ -306,6 +309,10 @@ export type BarberService = {
   barber_id: string;
   /** FK → services.id */
   service_id: string;
+  /** Optional price override for this barber/service pair. Null = use global service price. */
+  price_override: number | null;
+  /** Optional duration override in minutes for this barber/service pair. Null = use global service duration. */
+  duration_minutes_override: number | null;
   created_at: string;
 };
 
@@ -559,6 +566,8 @@ export type Database = {
           salon_id: string;
           barber_id: string;
           service_id: string;
+          price_override?: number | null;
+          duration_minutes_override?: number | null;
           created_at?: string;
         };
         Update: Partial<Omit<BarberService, 'id'>>;

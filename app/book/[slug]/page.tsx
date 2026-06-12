@@ -35,8 +35,15 @@ type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'>;
 /** Global service available on the booking page. */
 type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
 
-/** Links a barber to a service they can perform. */
-type BarberServiceLink = Pick<BarberService, 'barber_id' | 'service_id'>;
+/**
+ * Links a barber to a service they can perform.
+ * Includes optional price/duration overrides so the booking flow can display
+ * the effective price/duration when a specific barber is selected.
+ */
+type BarberServiceLink = Pick<
+  BarberService,
+  'barber_id' | 'service_id' | 'price_override' | 'duration_minutes_override'
+>;
 
 // ---------------------------------------------------------------------------
 // Metadata (SEO + browser tab title)
@@ -164,7 +171,7 @@ export default async function BookPage({ params }: PageProps) {
         .order('name', { ascending: true }),
       supabase
         .from('barber_services')
-        .select('barber_id, service_id')
+        .select('barber_id, service_id, price_override, duration_minutes_override')
         .in('barber_id', barberIds),
     ]);
 

@@ -30,14 +30,24 @@ import type { Barber, BarberService, BookingPage, Service, StaffAvailability } f
 type LoadState = 'loading' | 'ready' | 'error';
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-/** A single working interval { start: HH:MM, end: HH:MM }. */
-type SlotEntry = { start: string; end: string };
-
-/** Per-day availability state — uses unlimited time_slots array. */
+/**
+ * Per-day availability state — simplified break model.
+ * Internally converted to/from the time_slots JSONB column in the DB.
+ *
+ * Working model: a single contiguous work window with an optional break gap.
+ *   No break:   time_slots = [{ start: work_start, end: work_end }]
+ *   With break: time_slots = [{ start: work_start, end: break_start }, { start: break_end, end: work_end }]
+ */
 type DayState = {
   is_available: boolean;
-  /** Array of working intervals; should have at least 1 when is_available=true. */
-  time_slots: SlotEntry[];
+  /** Working start time, e.g. "09:00". */
+  work_start: string;
+  /** Working end time, e.g. "18:00". */
+  work_end: string;
+  /** Break start time. Null if no break. */
+  break_start: string | null;
+  /** Break end time. Null if no break. */
+  break_end: string | null;
 };
 
 /** In-memory form state for a single barber. */
@@ -89,13 +99,19 @@ const WEEK_DAYS = [
 
 /**
  * Default per-day availability when no DB record exists.
- * Mon–Fri available 09:00–17:00; Sat and Sun unavailable.
+ * Mon–Fri available 09:00–17:00 with no break; Sat and Sun unavailable.
+ *
+ * @param dayOfWeek - 0=Sunday … 6=Saturday.
+ * @returns         Default DayState for the given day.
  */
 function makeDefaultDayState(dayOfWeek: number): DayState {
   const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
   return {
     is_available: isWeekday,
-    time_slots: isWeekday ? [{ start: '09:00', end: '17:00' }] : [],
+    work_start:   '09:00',
+    work_end:     '17:00',
+    break_start:  null,
+    break_end:    null,
   };
 }
 
@@ -106,6 +122,12 @@ function makeDefaultDayState(dayOfWeek: number): DayState {
 /**
  * Builds the initial BarberFormState for a barber, merging in any
  * existing staff_availability records from the database.
+ *
+ * Converts the DB time_slots array into the simplified DayState break model:
+ *   1 slot  → work_start=slot[0].start, work_end=slot[0].end, no break
+ *   2+ slots → work_start=slot[0].start, work_end=slot[last].end,
+ *               break_start=slot[0].end, break_end=slot[1].start
+ *              (3+ slot legacy data: treated as a single break using first gap)
  *
  * Prefers the JSONB `time_slots` column; falls back to legacy start/end_time columns.
  *
@@ -120,28 +142,63 @@ function buildBarberForm(barber: Barber, availability: StaffAvailability[]): Bar
   for (let dow = 0; dow <= 6; dow++) {
     const rec = barberRecords.find((a) => a.day_of_week === dow);
     if (rec) {
-      let slots: SlotEntry[] = [];
+      // Convert DB record to simplified DayState break model.
       if (rec.time_slots && rec.time_slots.length > 0) {
-        // Primary: use JSONB time_slots column.
-        slots = rec.time_slots as SlotEntry[];
+        // Primary: convert JSONB time_slots array to break model.
+        const slots = rec.time_slots as Array<{ start: string; end: string }>;
+        if (slots.length === 1) {
+          // Single slot — no break.
+          days[dow] = {
+            is_available: rec.is_available,
+            work_start:   slots[0].start,
+            work_end:     slots[0].end,
+            break_start:  null,
+            break_end:    null,
+          };
+        } else {
+          // 2+ slots: work spans first start → last end; break sits between slot[0] end and slot[1] start.
+          // For 3+ legacy slots we just use the first gap as the break (simplified model).
+          days[dow] = {
+            is_available: rec.is_available,
+            work_start:   slots[0].start,
+            work_end:     slots[slots.length - 1].end,
+            break_start:  slots[0].end,
+            break_end:    slots[1].start,
+          };
+        }
       } else if (rec.start_time_1 && rec.end_time_1) {
         // Legacy fallback: reconstruct from start/end_time columns.
-        slots = [{ start: rec.start_time_1, end: rec.end_time_1 }];
         if (rec.start_time_2 && rec.end_time_2) {
-          slots.push({ start: rec.start_time_2, end: rec.end_time_2 });
+          days[dow] = {
+            is_available: rec.is_available,
+            work_start:   rec.start_time_1,
+            work_end:     rec.end_time_2,
+            break_start:  rec.end_time_1,
+            break_end:    rec.start_time_2,
+          };
+        } else {
+          days[dow] = {
+            is_available: rec.is_available,
+            work_start:   rec.start_time_1,
+            work_end:     rec.end_time_1,
+            break_start:  null,
+            break_end:    null,
+          };
         }
       } else if (rec.is_available) {
-        slots = [{ start: '09:00', end: '17:00' }];
+        // Available but no time info — apply sensible defaults.
+        days[dow] = { is_available: true, work_start: '09:00', work_end: '17:00', break_start: null, break_end: null };
+      } else {
+        days[dow] = makeDefaultDayState(dow);
       }
-      days[dow] = { is_available: rec.is_available, time_slots: slots };
     } else {
       days[dow] = makeDefaultDayState(dow);
     }
   }
 
   return {
-    name: barber.name,
-    bio: barber.bio ?? '',
+    name:     barber.name,
+    bio:      barber.bio ?? '',
     photo_url: barber.photo_url ?? '',
     availability: days,
   };
@@ -632,7 +689,7 @@ export default function BookingPage() {
 
   /**
    * Updates a single day's is_available flag in a barber's form.
-   * Ensures there is at least one default slot when toggling on.
+   * Preserves existing work times and break when toggling back on.
    *
    * @param barberId  - UUID of the barber.
    * @param dow       - Day of week (0=Sun … 6=Sat).
@@ -648,12 +705,8 @@ export default function BookingPage() {
           availability: {
             ...prev[barberId].availability,
             [dow]: {
+              ...current,
               is_available: available,
-              time_slots: available
-                ? current.time_slots.length > 0
-                  ? current.time_slots
-                  : [{ start: '09:00', end: '17:00' }]
-                : [],
             },
           },
         },
@@ -663,28 +716,24 @@ export default function BookingPage() {
   }
 
   /**
-   * Updates a specific time slot for a day.
+   * Updates the working start or end time for a day.
    *
-   * @param barberId   - UUID of the barber.
-   * @param dow        - Day of week.
-   * @param slotIndex  - Index in the time_slots array.
-   * @param field      - 'start' or 'end'.
-   * @param value      - HH:MM value.
+   * @param barberId - UUID of the barber.
+   * @param dow      - Day of week.
+   * @param field    - 'work_start' or 'work_end'.
+   * @param value    - HH:MM value.
    */
-  function updateSlot(barberId: string, dow: number, slotIndex: number, field: 'start' | 'end', value: string): void {
+  function setWorkTime(barberId: string, dow: number, field: 'work_start' | 'work_end', value: string): void {
     setBarberForms((prev) => {
       const day = prev[barberId]?.availability[dow];
       if (!day) return prev;
-      const newSlots = day.time_slots.map((slot, i) =>
-        i === slotIndex ? { ...slot, [field]: value } : slot
-      );
       return {
         ...prev,
         [barberId]: {
           ...prev[barberId],
           availability: {
             ...prev[barberId].availability,
-            [dow]: { ...day, time_slots: newSlots },
+            [dow]: { ...day, [field]: value },
           },
         },
       };
@@ -693,12 +742,38 @@ export default function BookingPage() {
   }
 
   /**
-   * Adds a new time slot to a day (for the "+ Add break" button).
+   * Updates the break start or end time for a day.
+   *
+   * @param barberId - UUID of the barber.
+   * @param dow      - Day of week.
+   * @param field    - 'break_start' or 'break_end'.
+   * @param value    - HH:MM value.
+   */
+  function setBreakTime(barberId: string, dow: number, field: 'break_start' | 'break_end', value: string): void {
+    setBarberForms((prev) => {
+      const day = prev[barberId]?.availability[dow];
+      if (!day) return prev;
+      return {
+        ...prev,
+        [barberId]: {
+          ...prev[barberId],
+          availability: {
+            ...prev[barberId].availability,
+            [dow]: { ...day, [field]: value },
+          },
+        },
+      };
+    });
+    scheduleBarberSave(barberId);
+  }
+
+  /**
+   * Adds a break to a day by setting default break times (13:00–14:00).
    *
    * @param barberId - UUID of the barber.
    * @param dow      - Day of week.
    */
-  function addSlot(barberId: string, dow: number): void {
+  function addBreak(barberId: string, dow: number): void {
     setBarberForms((prev) => {
       const day = prev[barberId]?.availability[dow];
       if (!day) return prev;
@@ -708,10 +783,7 @@ export default function BookingPage() {
           ...prev[barberId],
           availability: {
             ...prev[barberId].availability,
-            [dow]: {
-              ...day,
-              time_slots: [...day.time_slots, { start: '13:00', end: '17:00' }],
-            },
+            [dow]: { ...day, break_start: '13:00', break_end: '14:00' },
           },
         },
       };
@@ -720,29 +792,54 @@ export default function BookingPage() {
   }
 
   /**
-   * Removes a time slot from a day (the "× Remove" button).
-   * Prevents removal of the last slot.
+   * Removes the break from a day by clearing break_start and break_end.
    *
-   * @param barberId   - UUID of the barber.
-   * @param dow        - Day of week.
-   * @param slotIndex  - Index to remove.
+   * @param barberId - UUID of the barber.
+   * @param dow      - Day of week.
    */
-  function removeSlot(barberId: string, dow: number, slotIndex: number): void {
+  function removeBreak(barberId: string, dow: number): void {
     setBarberForms((prev) => {
       const day = prev[barberId]?.availability[dow];
-      if (!day || day.time_slots.length <= 1) return prev; // keep at least 1 slot
+      if (!day) return prev;
       return {
         ...prev,
         [barberId]: {
           ...prev[barberId],
           availability: {
             ...prev[barberId].availability,
-            [dow]: {
-              ...day,
-              time_slots: day.time_slots.filter((_, i) => i !== slotIndex),
-            },
+            [dow]: { ...day, break_start: null, break_end: null },
           },
         },
+      };
+    });
+    scheduleBarberSave(barberId);
+  }
+
+  /**
+   * Copies the break from the source day to all other days where is_available=true.
+   * Only copies if the source day has a break set (break_start !== null).
+   *
+   * @param barberId  - UUID of the barber.
+   * @param sourceDow - Day of week to copy break from.
+   */
+  function copyBreakToAllDays(barberId: string, sourceDow: number): void {
+    setBarberForms((prev) => {
+      const form = prev[barberId];
+      if (!form) return prev;
+      const sourceDay = form.availability[sourceDow];
+      // Only proceed if the source day actually has a break.
+      if (!sourceDay || sourceDay.break_start === null) return prev;
+
+      const { break_start, break_end } = sourceDay;
+      const newAvailability = { ...form.availability };
+      for (let dow = 0; dow <= 6; dow++) {
+        const day = form.availability[dow];
+        if (!day || !day.is_available) continue;
+        newAvailability[dow] = { ...day, break_start, break_end };
+      }
+      return {
+        ...prev,
+        [barberId]: { ...form, availability: newAvailability },
       };
     });
     scheduleBarberSave(barberId);
@@ -1146,12 +1243,28 @@ export default function BookingPage() {
         prev.map((b) => (b.id === barberId ? barber : b)).sort((a, b) => a.name.localeCompare(b.name))
       );
 
-      // 2. Save all 7 days of availability — use time_slots (primary).
-      const days = Object.entries(form.availability).map(([dowStr, day]) => ({
-        day_of_week: parseInt(dowStr, 10),
-        is_available: day.is_available,
-        time_slots: day.is_available ? day.time_slots : [],
-      }));
+      // 2. Save all 7 days of availability.
+      // Convert DayState break model → time_slots array for the DB:
+      //   No break:   [{ start: work_start, end: work_end }]
+      //   With break: [{ start: work_start, end: break_start }, { start: break_end, end: work_end }]
+      const days = Object.entries(form.availability).map(([dowStr, day]) => {
+        let timeSlots: { start: string; end: string }[] = [];
+        if (day.is_available) {
+          if (day.break_start !== null && day.break_end !== null) {
+            timeSlots = [
+              { start: day.work_start, end: day.break_start },
+              { start: day.break_end,  end: day.work_end    },
+            ];
+          } else {
+            timeSlots = [{ start: day.work_start, end: day.work_end }];
+          }
+        }
+        return {
+          day_of_week:  parseInt(dowStr, 10),
+          is_available: day.is_available,
+          time_slots:   timeSlots,
+        };
+      });
 
       const availRes = await fetch('/api/staff-availability', {
         method: 'POST',
@@ -1452,6 +1565,7 @@ export default function BookingPage() {
   /**
    * Toggles a service assignment for a barber (optimistic update + server sync).
    * Replaces the entire assignment set for the barber on each change.
+   * Preserves existing price/duration overrides for retained assignments.
    *
    * @param barberId  - The barber to update.
    * @param serviceId - The salon-level service to toggle.
@@ -1462,27 +1576,32 @@ export default function BookingPage() {
     serviceId: string,
     checked: boolean,
   ): Promise<void> {
-    // Compute new list of service IDs for this barber.
-    const currentServiceIds = barberServiceAssignments
-      .filter((ba) => ba.barber_id === barberId)
-      .map((ba) => ba.service_id);
+    // Retained assignments: existing assignments for this barber, minus the toggled one.
+    const retainedAssignments = barberServiceAssignments.filter(
+      (ba) => ba.barber_id === barberId && ba.service_id !== serviceId
+    );
 
-    const newServiceIds = checked
-      ? [...currentServiceIds.filter((id) => id !== serviceId), serviceId]
-      : currentServiceIds.filter((id) => id !== serviceId);
+    // Build the new assignments list with overrides preserved for retained entries.
+    const newAssignments: BarberService[] = checked
+      ? [
+          ...retainedAssignments,
+          {
+            id:                       `tmp-${barberId}-${serviceId}`,
+            salon_id:                 '',
+            barber_id:                barberId,
+            service_id:               serviceId,
+            price_override:           null,
+            duration_minutes_override: null,
+            created_at:               '',
+          },
+        ]
+      : retainedAssignments;
 
     // Optimistic update: reflect the change immediately in the UI.
-    setBarberServiceAssignments((prev) => {
-      const withoutBarber = prev.filter((ba) => ba.barber_id !== barberId);
-      const newEntries: BarberService[] = newServiceIds.map((sid) => ({
-        id: `tmp-${barberId}-${sid}`,
-        salon_id: '',
-        barber_id: barberId,
-        service_id: sid,
-        created_at: '',
-      }));
-      return [...withoutBarber, ...newEntries];
-    });
+    setBarberServiceAssignments((prev) => [
+      ...prev.filter((ba) => ba.barber_id !== barberId),
+      ...newAssignments,
+    ]);
 
     setSavingBarberServiceId(barberId);
 
@@ -1490,10 +1609,24 @@ export default function BookingPage() {
       const res = await fetch('/api/barber-services', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ barber_id: barberId, service_ids: newServiceIds }),
+        body: JSON.stringify({
+          barber_id: barberId,
+          assignments: newAssignments.map((ba) => ({
+            service_id:               ba.service_id,
+            price_override:           ba.price_override,
+            duration_minutes_override: ba.duration_minutes_override,
+          })),
+        }),
       });
 
-      if (!res.ok) {
+      if (res.ok) {
+        // Sync from server response to get real IDs for newly inserted rows.
+        const data = (await res.json()) as { barberServices: BarberService[] };
+        setBarberServiceAssignments((prev) => [
+          ...prev.filter((ba) => ba.barber_id !== barberId),
+          ...data.barberServices,
+        ]);
+      } else {
         // On failure, reload actual state from server to undo the optimistic update.
         const assignRes = await fetch('/api/barber-services');
         if (assignRes.ok) {
@@ -1503,6 +1636,78 @@ export default function BookingPage() {
       }
     } catch (err) {
       console.error('[BookingPage] handleToggleBarberService error:', err);
+    } finally {
+      setSavingBarberServiceId(null);
+    }
+  }
+
+  /**
+   * Updates price or duration override for a barber-service assignment in local state.
+   * Call handleSaveBarberServiceOverrides (onBlur) to persist to the server.
+   *
+   * @param barberId  - UUID of the barber.
+   * @param serviceId - UUID of the service.
+   * @param field     - 'price_override' or 'duration_minutes_override'.
+   * @param rawValue  - Raw string from the number input (empty = null).
+   */
+  function updateBarberServiceOverride(
+    barberId: string,
+    serviceId: string,
+    field: 'price_override' | 'duration_minutes_override',
+    rawValue: string,
+  ): void {
+    const parsed = rawValue === '' ? null : parseFloat(rawValue);
+    // Reject NaN; round to integer for duration, leave decimal for price.
+    const value: number | null =
+      parsed === null || isNaN(parsed)
+        ? null
+        : field === 'duration_minutes_override'
+          ? Math.round(parsed)
+          : parsed;
+
+    setBarberServiceAssignments((prev) =>
+      prev.map((ba) =>
+        ba.barber_id === barberId && ba.service_id === serviceId
+          ? { ...ba, [field]: value }
+          : ba
+      )
+    );
+  }
+
+  /**
+   * Saves all price/duration overrides for a barber's service assignments via PUT /api/barber-services.
+   * Called on blur of the override number inputs — saves the full assignments list for the barber.
+   *
+   * @param barberId - UUID of the barber whose overrides should be saved.
+   */
+  async function handleSaveBarberServiceOverrides(barberId: string): Promise<void> {
+    const assignments = barberServiceAssignments
+      .filter((ba) => ba.barber_id === barberId)
+      .map((ba) => ({
+        service_id:               ba.service_id,
+        price_override:           ba.price_override,
+        duration_minutes_override: ba.duration_minutes_override,
+      }));
+
+    setSavingBarberServiceId(barberId);
+
+    try {
+      const res = await fetch('/api/barber-services', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barber_id: barberId, assignments }),
+      });
+
+      if (res.ok) {
+        // Sync returned rows to get canonical DB values.
+        const data = (await res.json()) as { barberServices: BarberService[] };
+        setBarberServiceAssignments((prev) => [
+          ...prev.filter((ba) => ba.barber_id !== barberId),
+          ...data.barberServices,
+        ]);
+      }
+    } catch (err) {
+      console.error('[BookingPage] handleSaveBarberServiceOverrides error:', err);
     } finally {
       setSavingBarberServiceId(null);
     }
@@ -2155,31 +2360,70 @@ export default function BookingPage() {
                         </p>
                         <p className="text-xs text-[#8A8680] mb-3">
                           When checked, this staff member will be available for these services.
+                          Optionally override the price or duration per staff member.
                         </p>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {salonServices.map((svc) => {
-                            const isAssigned = barberServiceAssignments.some(
+                            const assignment = barberServiceAssignments.find(
                               (ba) => ba.barber_id === barber.id && ba.service_id === svc.id
                             );
+                            const isAssigned = !!assignment;
                             const isSavingAssignments = savingBarberServiceId === barber.id;
                             return (
-                              <label
-                                key={svc.id}
-                                className="flex items-center gap-2.5 cursor-pointer select-none group"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isAssigned}
-                                  disabled={isSavingAssignments}
-                                  onChange={(e) =>
-                                    void handleToggleBarberService(barber.id, svc.id, e.target.checked)
-                                  }
-                                  className="h-4 w-4 rounded border-[#E5E2DB] accent-[#1B4332] cursor-pointer disabled:opacity-50"
-                                />
-                                <span className="text-sm text-[#1A1A1A] group-hover:text-[#1B4332] transition-colors">
-                                  {svc.name}
-                                </span>
-                              </label>
+                              <div key={svc.id} className="space-y-2">
+                                <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+                                  <input
+                                    type="checkbox"
+                                    checked={isAssigned}
+                                    disabled={isSavingAssignments}
+                                    onChange={(e) =>
+                                      void handleToggleBarberService(barber.id, svc.id, e.target.checked)
+                                    }
+                                    className="h-4 w-4 rounded border-[#E5E2DB] accent-[#1B4332] cursor-pointer disabled:opacity-50"
+                                  />
+                                  <span className="text-sm text-[#1A1A1A] group-hover:text-[#1B4332] transition-colors">
+                                    {svc.name}
+                                  </span>
+                                </label>
+
+                                {/* Override fields — shown only when this service is assigned to this barber */}
+                                {isAssigned && assignment && (
+                                  <div className="ml-6 flex gap-3 flex-wrap">
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs text-[#8A8680]">Price override</label>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        step={0.01}
+                                        value={assignment.price_override ?? ''}
+                                        onChange={(e) =>
+                                          updateBarberServiceOverride(barber.id, svc.id, 'price_override', e.target.value)
+                                        }
+                                        onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                        placeholder={svc.price != null ? `Default: ${svc.price}` : 'Default (none)'}
+                                        disabled={isSavingAssignments}
+                                        className="h-8 w-24 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                      />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs text-[#8A8680]">Duration override (min)</label>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={assignment.duration_minutes_override ?? ''}
+                                        onChange={(e) =>
+                                          updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
+                                        }
+                                        onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                        placeholder={svc.duration_minutes != null ? `Default: ${svc.duration_minutes}` : 'Default (none)'}
+                                        disabled={isSavingAssignments}
+                                        className="h-8 w-28 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -2218,44 +2462,77 @@ export default function BookingPage() {
                                 </div>
 
                                 {day.is_available ? (
-                                  <div className="flex-1 space-y-1.5">
-                                    {day.time_slots.map((slot, slotIndex) => (
-                                      <div key={slotIndex} className="flex items-center gap-2 flex-wrap">
+                                  <div className="flex-1 space-y-2">
+                                    {/* Working hours section */}
+                                    <div>
+                                      <p className="text-xs text-[#8A8680] font-medium mb-1">Working hours</p>
+                                      <div className="flex items-center gap-2 flex-wrap">
                                         <input
                                           type="time"
-                                          value={slot.start}
-                                          onChange={(e) => updateSlot(barber.id, dow, slotIndex, 'start', e.target.value)}
+                                          value={day.work_start}
+                                          onChange={(e) => setWorkTime(barber.id, dow, 'work_start', e.target.value)}
                                           disabled={isSaving}
                                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
                                         <span className="text-xs text-[#8A8680]">to</span>
                                         <input
                                           type="time"
-                                          value={slot.end}
-                                          onChange={(e) => updateSlot(barber.id, dow, slotIndex, 'end', e.target.value)}
+                                          value={day.work_end}
+                                          onChange={(e) => setWorkTime(barber.id, dow, 'work_end', e.target.value)}
                                           disabled={isSaving}
                                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
-                                        {/* Remove slot button — hidden for the last slot */}
-                                        {day.time_slots.length > 1 && (
+                                      </div>
+                                    </div>
+
+                                    {/* Break section — shown when a break is set */}
+                                    {day.break_start !== null ? (
+                                      <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2 space-y-1.5">
+                                        <p className="text-xs text-amber-700 font-medium">Break</p>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <input
+                                            type="time"
+                                            value={day.break_start ?? ''}
+                                            onChange={(e) => setBreakTime(barber.id, dow, 'break_start', e.target.value)}
+                                            disabled={isSaving}
+                                            className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                          />
+                                          <span className="text-xs text-[#8A8680]">to</span>
+                                          <input
+                                            type="time"
+                                            value={day.break_end ?? ''}
+                                            onChange={(e) => setBreakTime(barber.id, dow, 'break_end', e.target.value)}
+                                            disabled={isSaving}
+                                            className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                          />
+                                        </div>
+                                        <div className="flex items-center gap-3 pt-0.5">
                                           <button
                                             type="button"
-                                            onClick={() => removeSlot(barber.id, dow, slotIndex)}
-                                            className="text-xs text-[#8A8680] hover:text-red-500 transition-colors"
+                                            onClick={() => removeBreak(barber.id, dow)}
+                                            className="text-xs text-amber-600 hover:text-amber-800 transition-colors"
                                           >
-                                            ×
+                                            × Remove break
                                           </button>
-                                        )}
+                                          <button
+                                            type="button"
+                                            onClick={() => copyBreakToAllDays(barber.id, dow)}
+                                            className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                                          >
+                                            Apply to all working days
+                                          </button>
+                                        </div>
                                       </div>
-                                    ))}
-                                    {/* Add break button */}
-                                    <button
-                                      type="button"
-                                      onClick={() => addSlot(barber.id, dow)}
-                                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors mt-0.5"
-                                    >
-                                      + Add break
-                                    </button>
+                                    ) : (
+                                      /* + Add break button — shown when no break is set */
+                                      <button
+                                        type="button"
+                                        onClick={() => addBreak(barber.id, dow)}
+                                        className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors mt-1"
+                                      >
+                                        + Add break
+                                      </button>
+                                    )}
                                   </div>
                                 ) : (
                                   <p className="text-xs text-[#8A8680] pt-0.5">Not available</p>

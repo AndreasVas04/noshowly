@@ -4,12 +4,13 @@
  * GET  /api/barber-services
  *   Returns all barber_services assignment rows for the authenticated salon.
  *   Used by the appointment modal to filter the staff dropdown, and by the
- *   booking page to render the service-assignment checkboxes.
+ *   booking page to render the service-assignment checkboxes with overrides.
  *
  * PUT  /api/barber-services
  *   Replaces all service assignments for a single barber.
- *   Body: { barber_id: string, service_ids: string[] }
+ *   Body: { barber_id: string, assignments: { service_id, price_override?, duration_minutes_override? }[] }
  *   Deletes existing assignments for the barber and creates new ones atomically.
+ *   Returns the freshly inserted rows so the client can sync real IDs.
  *
  * Security:
  *  - Authentication is verified on every request before anything else.
@@ -74,19 +75,31 @@ export async function GET(): Promise<Response> {
 // PUT — replace all service assignments for a single barber
 // ---------------------------------------------------------------------------
 
+/** Shape of a single assignment in the PUT request body. */
+type AssignmentInput = {
+  service_id: string;
+  price_override?: number | null;
+  duration_minutes_override?: number | null;
+};
+
 /**
  * Replaces all service assignments for the specified barber.
+ * Supports per-barber price and duration overrides per service.
  *
  * Request body:
  * {
- *   barber_id:   string,    // UUID of the barber to update
- *   service_ids: string[],  // UUIDs of services to assign (empty = no assignments)
+ *   barber_id:   string,           // UUID of the barber to update
+ *   assignments: {                  // Services to assign (empty = no assignments)
+ *     service_id:                 string,
+ *     price_override?:            number | null,
+ *     duration_minutes_override?: number | null,
+ *   }[]
  * }
  *
  * Implementation: deletes all existing rows for barber_id, then inserts the
  * new set. This is simpler and safer than diffing — the list is always small.
  *
- * @returns 200 { success: true }
+ * @returns 200 { success: true, barberServices: BarberService[] }
  * @returns 400 { error: string }       — validation failure
  * @returns 401 { error: "Unauthorized" }
  * @returns 404 { error: "Salon not found" | "Barber not found" }
@@ -116,19 +129,39 @@ export async function PUT(request: Request): Promise<Response> {
   if (typeof raw.barber_id !== 'string' || !raw.barber_id.trim()) {
     return Response.json({ error: 'barber_id is required' }, { status: 400 });
   }
-  if (!Array.isArray(raw.service_ids)) {
-    return Response.json({ error: 'service_ids must be an array' }, { status: 400 });
+  if (!Array.isArray(raw.assignments)) {
+    return Response.json({ error: 'assignments must be an array' }, { status: 400 });
   }
 
   const barberId = raw.barber_id.trim();
-  const serviceIds = raw.service_ids as string[];
+  const rawAssignments = raw.assignments as Record<string, unknown>[];
 
-  // Validate each service_id is a non-empty string.
-  for (const sid of serviceIds) {
-    if (typeof sid !== 'string' || !sid.trim()) {
-      return Response.json({ error: 'Each service_id must be a non-empty string' }, { status: 400 });
+  // Validate and normalise each assignment entry.
+  const assignments: AssignmentInput[] = [];
+  for (const a of rawAssignments) {
+    if (typeof a.service_id !== 'string' || !a.service_id.trim()) {
+      return Response.json({ error: 'Each assignment must have a non-empty service_id string' }, { status: 400 });
     }
+    // price_override: number | null | undefined — validate if present.
+    if (a.price_override !== undefined && a.price_override !== null && typeof a.price_override !== 'number') {
+      return Response.json({ error: 'price_override must be a number or null' }, { status: 400 });
+    }
+    // duration_minutes_override: integer | null | undefined — validate if present.
+    if (
+      a.duration_minutes_override !== undefined &&
+      a.duration_minutes_override !== null &&
+      typeof a.duration_minutes_override !== 'number'
+    ) {
+      return Response.json({ error: 'duration_minutes_override must be a number or null' }, { status: 400 });
+    }
+    assignments.push({
+      service_id: a.service_id.trim(),
+      price_override: (a.price_override as number | null | undefined) ?? null,
+      duration_minutes_override: (a.duration_minutes_override as number | null | undefined) ?? null,
+    });
   }
+
+  const serviceIds = assignments.map((a) => a.service_id);
 
   // Step 3: Resolve salon — salon_id always comes from session.
   const { data: salon, error: salonError } = await supabase
@@ -184,14 +217,16 @@ export async function PUT(request: Request): Promise<Response> {
     return Response.json({ error: 'Failed to update assignments' }, { status: 500 });
   }
 
-  if (serviceIds.length > 0) {
+  if (assignments.length > 0) {
     const { error: insertError } = await supabase
       .from('barber_services')
       .insert(
-        serviceIds.map((sid) => ({
+        assignments.map((a) => ({
           salon_id: salon.id,
           barber_id: barberId,
-          service_id: sid,
+          service_id: a.service_id,
+          price_override: a.price_override ?? null,
+          duration_minutes_override: a.duration_minutes_override ?? null,
         }))
       );
 
@@ -201,5 +236,18 @@ export async function PUT(request: Request): Promise<Response> {
     }
   }
 
-  return Response.json({ success: true }, { status: 200 });
+  // Step 7: Fetch and return the freshly inserted rows so the client can sync real IDs.
+  const { data: freshRows, error: fetchError } = await supabase
+    .from('barber_services')
+    .select('*')
+    .eq('barber_id', barberId)
+    .eq('salon_id', salon.id);
+
+  if (fetchError) {
+    console.error('[PUT /api/barber-services] Fetch-back error:', fetchError.message);
+    // Non-fatal: return success without fresh rows — client can refetch.
+    return Response.json({ success: true, barberServices: [] }, { status: 200 });
+  }
+
+  return Response.json({ success: true, barberServices: (freshRows ?? []) as BarberService[] }, { status: 200 });
 }
