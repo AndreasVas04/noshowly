@@ -124,11 +124,6 @@ export default function PrivacyPage() {
           <Section number="03" title="Who we share it with">
             <p>We share data with a small number of services needed to run Noshowly.</p>
             <p>
-              <strong className="font-semibold text-[#1A1A1A]">Twilio</strong>{' '}
-              is our phone messaging provider. If your plan includes phone-based messaging,
-              your client&apos;s phone number and reminder text may be shared with Twilio for delivery.
-            </p>
-            <p>
               <strong className="font-semibold text-[#1A1A1A]">Resend</strong>{' '}
               receives your client&apos;s email address and the reminder content to deliver email
               reminders.

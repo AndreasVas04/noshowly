@@ -4,7 +4,7 @@
  * Single source of truth for Noshowly's subscription plan configuration.
  *
  * Public plan (the ONLY plan available via checkout and pricing UI for MVP):
- *  - Basic — Unlimited email reminders (2,000/month internal fair-use cap), no SMS. $19/month.
+ *  - Basic — Unlimited email reminders (2,000/month internal fair-use cap). $19/month.
  *
  * Internal/legacy plans (kept for DB compatibility — NOT available via public checkout or pricing UI):
  *  - pro          — Internal/future plan. Hidden from public UI and checkout.
@@ -12,29 +12,19 @@
  *  - starter      — Legacy alias for Basic. Backward-compatible with existing DB values.
  *  - professional — Legacy alias for Pro. Backward-compatible with existing DB values.
  *
- * SMS policy for MVP:
- *  - SMS is not offered publicly. Basic has sms: 0.
- *  - Do not mention SMS in any public UI, pricing page, or landing page.
- *  - SMS infrastructure remains in the codebase for future plans but is disabled for all public plans.
- *
  * RULES (never violate):
  *  - Email limits are internal fair-use caps — never shown publicly. Public copy says "Unlimited email reminders".
- *  - Never increase SMS limits without checking real SMS provider costs per country first.
- *  - Never price SMS add-ons at break-even or below cost.
  *
  * Every part of the codebase that touches plan limits, reminder caps, or
  * geo-blocking MUST import from this file — never hardcode these values.
  */
 
 // ---------------------------------------------------------------------------
-// Plan limits — { sms, email } caps per month
+// Plan limits — { email } caps per month
 // ---------------------------------------------------------------------------
 
 /**
  * Monthly reminder caps per subscription plan.
- *
- * SMS caps:
- *  - 0 means SMS is not available on this plan. Never offer unlimited SMS.
  *
  * Email caps:
  *  - Internal fair-use caps. Public-facing copy always says "Unlimited email reminders".
@@ -46,21 +36,21 @@
  */
 export const PLAN_LIMITS = {
   // Trial — no reminders; user must upgrade to activate messaging.
-  trial:        { sms: 0,   email: 0 },
+  trial:        { email: 0 },
 
-  // Basic ($19/month) — unlimited email (internal fair-use cap: 2,000/month), no SMS.
-  basic:        { sms: 0,   email: 2000 },
+  // Basic ($19/month) — unlimited email (internal fair-use cap: 2,000/month).
+  basic:        { email: 2000 },
 
-  // Pro ($39/month) — 100 SMS/month + unlimited email (internal fair-use cap: 5,000/month).
-  pro:          { sms: 100, email: 5000 },
+  // Pro — internal/future use only. NOT available via public checkout or pricing UI.
+  pro:          { email: 5000 },
 
   // Business — internal/future use only. NOT available via public checkout or pricing UI.
-  business:     { sms: 1000, email: 10000 },
+  business:     { email: 10000 },
 
   // ---- Legacy aliases — backward-compatible with existing database values ----
   // Do not use these for new code; use basic/pro instead.
-  starter:      { sms: 0,   email: 2000 },   // same as basic
-  professional: { sms: 100, email: 5000 },   // same as pro
+  starter:      { email: 2000 },   // same as basic
+  professional: { email: 5000 },   // same as pro
 } as const;
 
 /**
@@ -129,47 +119,15 @@ export const EMAIL_FAIR_USE_CAPS: Record<PlanType, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// SMS add-on
-// ---------------------------------------------------------------------------
-
-/**
- * Price (USD/month) for the SMS add-on: adds SMS_ADDON_AMOUNT additional reminders.
- *
- * Pricing rule: the add-on price must always be higher than the real SMS provider
- * cost per country. Never price SMS add-ons at break-even or below cost.
- * (Example: 100 SMS in Cyprus via Twilio costs ~$8.64 before Stripe fees and overhead,
- * so $8/month would lose money.)
- *
- * This add-on is NOT automated — users contact support at noshowly@gmail.com.
- * Never offer unlimited SMS.
- */
-export const SMS_ADDON_PRICE  = 12 as const;
-
-/**
- * Number of additional SMS reminders per add-on unit purchased.
- */
-export const SMS_ADDON_AMOUNT = 100 as const;
-
-// ---------------------------------------------------------------------------
 // Geo-blocking
 // ---------------------------------------------------------------------------
 
 /**
- * Maximum SMS cost (in USD) we accept for a signup region.
- * Countries where Twilio charges more than this per outbound SMS are blocked
- * at registration to protect margin.
- */
-export const MAX_SMS_COST_USD = 0.08 as const;
-
-/**
- * ISO 3166-1 alpha-2 country codes where Twilio SMS costs < $0.08/msg.
+ * ISO 3166-1 alpha-2 country codes where Noshowly is available.
  * Signups from countries NOT in this list are blocked at registration.
  *
  * Includes: US, Canada, UK, Ireland, Australia, NZ, Japan, Singapore,
  * and all EU member states + EEA (Norway, Iceland, Liechtenstein) + Switzerland.
- *
- * Blocked examples: most of Africa, some Pacific islands, Afghanistan —
- * anywhere Twilio charges > $0.08/SMS outbound.
  */
 export const ALLOWED_REGIONS = [
   // North America & Pacific
@@ -202,43 +160,15 @@ export type AllowedRegion = (typeof ALLOWED_REGIONS)[number];
 export const HOURLY_REMINDER_RATE_LIMIT = 20 as const;
 
 /**
- * Appointment time window (hours from now) that triggers an SMS reminder.
- * pg_cron runs every hour; any appointment falling in the [minHours, maxHours]
- * window gets an SMS. The 2-hour window absorbs cron jitter.
- */
-export const SMS_REMINDER_WINDOW = { minHours: 23, maxHours: 25 } as const;
-
-/**
  * Appointment time window (hours from now) that triggers an email reminder.
- * Sent 24 h before (same window as SMS); the 2-hour window absorbs cron jitter.
+ * pg_cron runs every hour; any appointment falling in the [minHours, maxHours]
+ * window gets a reminder. The 2-hour window absorbs cron jitter.
  */
 export const EMAIL_REMINDER_WINDOW = { minHours: 23, maxHours: 25 } as const;
 
 // ---------------------------------------------------------------------------
 // Plan utility functions
 // ---------------------------------------------------------------------------
-
-/**
- * Returns the monthly SMS reminder limit for a given plan.
- *
- * Returns 0 for 'cancelled' accounts — they cannot send any reminders.
- * Returns 0 for trial, basic, and starter — SMS is not available on those plans.
- *
- * @param plan - The user's current subscription plan.
- * @returns The maximum number of SMS reminders allowed per month.
- *
- * @example
- * getPlanSMSLimit('pro')          // → 100
- * getPlanSMSLimit('professional') // → 100 (legacy alias for pro)
- * getPlanSMSLimit('business')     // → 1000 (internal plan)
- * getPlanSMSLimit('basic')        // → 0  (email-only plan)
- * getPlanSMSLimit('trial')        // → 0
- * getPlanSMSLimit('cancelled')    // → 0
- */
-export function getPlanSMSLimit(plan: UserPlan): number {
-  if (plan === 'cancelled') return 0;
-  return PLAN_LIMITS[plan].sms;
-}
 
 /**
  * Returns the monthly email reminder fair-use cap for a given plan.
@@ -262,29 +192,6 @@ export function getPlanSMSLimit(plan: UserPlan): number {
 export function getPlanEmailLimit(plan: UserPlan): number {
   if (plan === 'cancelled') return 0;
   return PLAN_LIMITS[plan].email;
-}
-
-/**
- * Returns true if the given plan allows SMS reminders to be sent.
- *
- * Only 'pro', 'professional' (legacy), and 'business' (internal) plans include SMS.
- * Trial, basic, starter, and cancelled plans return false.
- *
- * @param plan - The user's current subscription plan.
- * @returns true if SMS reminders are permitted on this plan.
- *
- * @example
- * planAllowsSMS('pro')          // → true
- * planAllowsSMS('professional') // → true (legacy alias for pro)
- * planAllowsSMS('business')     // → true (internal plan)
- * planAllowsSMS('basic')        // → false (email-only plan)
- * planAllowsSMS('starter')      // → false (legacy alias for basic)
- * planAllowsSMS('trial')        // → false
- * planAllowsSMS('cancelled')    // → false
- */
-export function planAllowsSMS(plan: UserPlan): boolean {
-  if (plan === 'cancelled') return false;
-  return PLAN_LIMITS[plan].sms > 0;
 }
 
 /**

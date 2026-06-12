@@ -556,7 +556,7 @@ export default function AddAppointmentModal({
     if (!form.clientPhone.trim()) {
       errors.clientPhone = 'Phone number is required';
     } else if (!form.clientPhone.trim().startsWith('+')) {
-      // Country code required for Twilio international SMS routing.
+      // Country code required for international routing.
       errors.clientPhone = 'Phone must include country code (e.g. +357 99 123 456)';
     }
     if (!form.date) errors.date = 'Date is required';

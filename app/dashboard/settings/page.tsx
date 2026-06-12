@@ -5,17 +5,16 @@
  *
  * Sections (in order):
  *  1. Business info — name, phone, timezone, currency. Auto-saves with 800 ms debounce.
- *  2. Reminder settings — SMS/email confirmation toggles, plan-gated. Auto-saves.
- *  3. Message templates — SMS template + full email template customisation. Auto-saves.
- *  4. Business hours — opening and closing time. Auto-saves (skipped on invalid range).
+ *  2. Business hours — opening and closing time. Auto-saves (skipped on invalid range).
+ *  3. Reminder settings — email confirmation toggle, plan-gated. Auto-saves.
+ *  4. Message templates — full email template customisation. Auto-saves.
  *  5. Delete account — typed confirmation.
  *
  * Every section saves independently; there are no "Save changes" buttons.
  * A subtle "Saving…" → "Saved ✓" indicator appears in the top-right of each
  * section header while the request is in flight / just completed.
  *
- * The SMS and email confirmation toggles are plan-gated:
- *  - SMS: disabled on trial and basic (no SMS on those plans).
+ * The email confirmation toggle is plan-gated:
  *  - Email: disabled on trial (email reminders require a paid plan).
  *
  * Team, Services, and Online Booking are managed in /dashboard/booking.
@@ -31,7 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { planAllowsSMS, planAllowsEmail } from '@/lib/plans';
+import { planAllowsEmail } from '@/lib/plans';
 import type { UserPlan } from '@/lib/plans';
 import type { Salon } from '@/types';
 
@@ -129,10 +128,6 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
 ] as const;
 
-/** Default SMS template — matches lib/reminder-templates.ts DEFAULT_SMS_TEMPLATE. */
-const DEFAULT_SMS_TEMPLATE =
-  'Hi {client_name}, reminder from {business_name}: your {service} is tomorrow at {time}. Reply YES to confirm or NO to cancel. See you soon!';
-
 /** Default email footer — matches lib/reminder-templates.ts DEFAULT_EMAIL_FOOTER. */
 const DEFAULT_EMAIL_FOOTER = 'If you have questions, contact {business_name} directly.';
 
@@ -142,7 +137,7 @@ const DEFAULT_EMAIL_GREETING = 'Hi {client_name},';
 const DEFAULT_EMAIL_BODY     = 'This is a reminder for your upcoming appointment.';
 const DEFAULT_EMAIL_CLOSING  = 'We look forward to seeing you.';
 
-/** Template variables supported across SMS and email fields. */
+/** Template variables supported in email fields. */
 const TEMPLATE_VARIABLES = [
   '{client_name}',
   '{business_name}',
@@ -228,9 +223,8 @@ export default function SettingsPage() {
   const salonInfoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -------------------------------------------------------------------------
-  // Section 2: Reminder confirmation toggles (plan-gated)
+  // Section 3: Reminder confirmation toggles (plan-gated)
   // -------------------------------------------------------------------------
-  const [smsConfirmationEnabled, setSmsConfirmationEnabled]     = useState(true);
   const [emailConfirmationEnabled, setEmailConfirmationEnabled] = useState(true);
   const [confirmSaveStatus, setConfirmSaveStatus] = useState<SaveStatus>('idle');
   const [confirmError, setConfirmError]           = useState('');
@@ -238,9 +232,8 @@ export default function SettingsPage() {
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -------------------------------------------------------------------------
-  // Section 3: Message templates
+  // Section 4: Message templates
   // -------------------------------------------------------------------------
-  const [smsTemplate,    setSmsTemplate]    = useState('');
   const [emailFooter,    setEmailFooter]    = useState('');
   const [emailSubject,   setEmailSubject]   = useState('');
   const [emailGreeting,  setEmailGreeting]  = useState('');
@@ -251,12 +244,11 @@ export default function SettingsPage() {
   /** Debounce timer for the message templates section. */
   const templatesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Textarea / input refs for cursor-position variable insertion.
-  const smsTextareaRef      = useRef<HTMLTextAreaElement>(null);
+  // Textarea / input ref for cursor-position variable insertion.
   const emailBodyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // -------------------------------------------------------------------------
-  // Section 4: Business hours
+  // Section 2: Business hours
   // -------------------------------------------------------------------------
   const [openingTime, setOpeningTime] = useState('09:00');
   const [closingTime, setClosingTime] = useState('20:00');
@@ -266,7 +258,7 @@ export default function SettingsPage() {
   const hoursTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -------------------------------------------------------------------------
-  // Section 5: Account deletion
+  // Section 5: Account deletion (section number unchanged for consistency)
   // -------------------------------------------------------------------------
   const [showDeleteDialog, setShowDeleteDialog]   = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -298,9 +290,7 @@ export default function SettingsPage() {
         setPhone(salon.phone ?? '');
         setTimezone(salon.timezone ?? 'UTC');
         setCurrency(salon.currency ?? 'USD');
-        setSmsConfirmationEnabled(salon.sms_confirmation_enabled ?? true);
         setEmailConfirmationEnabled(salon.email_confirmation_enabled ?? true);
-        setSmsTemplate(salon.sms_template ?? '');
         setEmailFooter(salon.email_footer ?? '');
         setEmailSubject(salon.email_subject ?? '');
         setEmailGreeting(salon.email_greeting ?? '');
@@ -420,11 +410,10 @@ export default function SettingsPage() {
   /**
    * Executes the PUT /api/salon request for the confirmation toggle section.
    *
-   * @param smsEnabled   - Current SMS confirmation toggle value.
    * @param emailEnabled - Current email confirmation toggle value.
    */
   async function doConfirmationSave(
-    smsEnabled: boolean, emailEnabled: boolean
+    emailEnabled: boolean
   ): Promise<void> {
     setConfirmError('');
     setConfirmSaveStatus('saving');
@@ -434,7 +423,6 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sms_confirmation_enabled: smsEnabled,
           email_confirmation_enabled: emailEnabled,
         }),
       });
@@ -457,14 +445,13 @@ export default function SettingsPage() {
   /**
    * Schedules a debounced save for the confirmation toggles section.
    *
-   * @param smsEnabled   - Latest SMS confirmation toggle value.
    * @param emailEnabled - Latest email confirmation toggle value.
    */
-  function scheduleConfirmationSave(smsEnabled: boolean, emailEnabled: boolean): void {
+  function scheduleConfirmationSave(emailEnabled: boolean): void {
     if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
     setConfirmSaveStatus('idle');
     confirmTimerRef.current = setTimeout(() => {
-      void doConfirmationSave(smsEnabled, emailEnabled);
+      void doConfirmationSave(emailEnabled);
     }, 800);
   }
 
@@ -473,9 +460,8 @@ export default function SettingsPage() {
   // -------------------------------------------------------------------------
 
   /**
-   * Executes the PUT /api/salon request for all message template fields.
+   * Executes the PUT /api/salon request for all email template fields.
    *
-   * @param smsTmpl    - Current SMS template value.
    * @param footer     - Current email footer value.
    * @param subject    - Current email subject value.
    * @param greeting   - Current email greeting value.
@@ -483,7 +469,6 @@ export default function SettingsPage() {
    * @param closing    - Current email closing value.
    */
   async function doTemplatesSave(
-    smsTmpl: string,
     footer: string,
     subject: string,
     greeting: string,
@@ -498,7 +483,6 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sms_template:    smsTmpl.trim()   || null,
           email_footer:    footer.trim()    || null,
           email_subject:   subject.trim()   || null,
           email_greeting:  greeting.trim()  || null,
@@ -523,10 +507,9 @@ export default function SettingsPage() {
   }
 
   /**
-   * Schedules a debounced save for the message templates section.
+   * Schedules a debounced save for the email templates section.
    */
   function scheduleTemplatesSave(
-    smsTmpl: string,
     footer: string,
     subject: string,
     greeting: string,
@@ -536,7 +519,7 @@ export default function SettingsPage() {
     if (templatesTimerRef.current !== null) clearTimeout(templatesTimerRef.current);
     setTemplatesSaveStatus('idle');
     templatesTimerRef.current = setTimeout(() => {
-      void doTemplatesSave(smsTmpl, footer, subject, greeting, body, closing);
+      void doTemplatesSave(footer, subject, greeting, body, closing);
     }, 800);
   }
 
@@ -705,10 +688,6 @@ export default function SettingsPage() {
 
   const previewBusiness = PREVIEW_VARS.business_name;
 
-  // SMS preview
-  const activeTemplate = smsTemplate.trim() || DEFAULT_SMS_TEMPLATE;
-  const previewSMSText = renderPreview(activeTemplate, PREVIEW_VARS);
-
   // Email preview (live — updates as the owner types)
   const activeEmailSubject  = emailSubject.trim()  || DEFAULT_EMAIL_SUBJECT;
   const activeEmailGreeting = emailGreeting.trim() || DEFAULT_EMAIL_GREETING;
@@ -723,7 +702,6 @@ export default function SettingsPage() {
   const previewEmailClosingText  = renderPreview(activeEmailClosing,  PREVIEW_VARS);
 
   // Plan-gated feature availability.
-  const smsAllowed   = planAllowsSMS(plan);
   const emailAllowed = planAllowsEmail(plan);
 
   // -------------------------------------------------------------------------
@@ -898,7 +876,7 @@ export default function SettingsPage() {
 
         {/* ================================================================
             SECTION 3: Reminder settings
-            Plan-gated: SMS disabled on trial/basic; email disabled on trial.
+            Plan-gated: email disabled on trial.
             Auto-saves 800 ms after any toggle change.
         ================================================================ */}
         <section>
@@ -911,41 +889,6 @@ export default function SettingsPage() {
           </p>
 
           <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
-
-            {/* SMS confirmation toggle */}
-            <div className="flex items-start gap-4">
-              <label
-                className={`relative inline-flex items-center mt-0.5 shrink-0 ${
-                  smsAllowed ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={smsConfirmationEnabled}
-                  onChange={(e) => {
-                    if (!smsAllowed) return;
-                    const v = e.target.checked;
-                    setSmsConfirmationEnabled(v);
-                    scheduleConfirmationSave(v, emailConfirmationEnabled);
-                  }}
-                  disabled={!smsAllowed || confirmSaveStatus === 'saving'}
-                  className="sr-only peer"
-                />
-                <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1B4332] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
-              </label>
-              <div>
-                <p className="text-sm font-medium text-[#1A1A1A]">Request SMS confirmation (YES/NO)</p>
-                {smsAllowed ? (
-                  <p className="text-xs text-[#8A8680] mt-0.5 font-body">
-                    When off, SMS reminders are sent without asking for a reply.
-                  </p>
-                ) : (
-                  <p className="text-xs text-amber-600 mt-0.5">
-                    SMS reminders are not included in your current plan. Upgrade to Pro to enable SMS reminders.
-                  </p>
-                )}
-              </div>
-            </div>
 
             {/* Email confirmation toggle */}
             <div className="flex items-start gap-4">
@@ -961,7 +904,7 @@ export default function SettingsPage() {
                     if (!emailAllowed) return;
                     const v = e.target.checked;
                     setEmailConfirmationEnabled(v);
-                    scheduleConfirmationSave(smsConfirmationEnabled, v);
+                    scheduleConfirmationSave(v);
                   }}
                   disabled={!emailAllowed || confirmSaveStatus === 'saving'}
                   className="sr-only peer"
@@ -992,8 +935,8 @@ export default function SettingsPage() {
         </section>
 
         {/* ================================================================
-            SECTION 3: Message templates
-            Includes live reminder preview and full SMS + email customisation.
+            SECTION 4: Message templates
+            Includes live email preview and full email customisation.
             Auto-saves 800 ms after any field change.
         ================================================================ */}
         <section>
@@ -1002,39 +945,20 @@ export default function SettingsPage() {
             <SaveIndicator status={templatesSaveStatus} />
           </div>
           <p className="text-sm text-[#8A8680] mb-4 font-body">
-            Customise the reminder text sent to your clients. Leave blank to use the default.
+            Customise the reminder email sent to your clients. Leave blank to use the default.
           </p>
 
-          {/* ---- Live reminder preview ---- */}
+          {/* ---- Live email preview ---- */}
           <div className="mb-6">
             <p className="text-sm text-[#8A8680] mb-3 font-body">
               Preview (updates as you type)
             </p>
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-
-              {/* SMS preview */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">SMS · 24h before</p>
-                <div className="bg-[#1A1A1A] rounded-2xl p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-medium text-white/30 uppercase tracking-widest">Message</span>
-                    <div className="flex gap-1">
-                      <div className="w-1 h-1 rounded-full bg-white/20" />
-                      <div className="w-1 h-1 rounded-full bg-white/20" />
-                      <div className="w-1 h-1 rounded-full bg-white/20" />
-                    </div>
-                  </div>
-                  <div className="bg-white/10 rounded-xl rounded-tl-sm px-4 py-3">
-                    <p className="text-sm text-white leading-relaxed">{previewSMSText}</p>
-                  </div>
-                  <p className="text-[10px] text-white/25 text-right">Delivered</p>
-                </div>
-              </div>
+            <div className="max-w-sm">
 
               {/* Email preview */}
               <div className="space-y-2">
-                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">Email · 48h before</p>
+                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">Email · 24h before</p>
                 <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
                   {/* Email header */}
                   <div className="bg-[#1A1A1A]/3 border-b border-[#E5E2DB] px-4 py-3 space-y-1">
@@ -1071,62 +995,8 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* ---- Template fields ---- */}
+          {/* ---- Email template fields ---- */}
           <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-8">
-
-            {/* SMS template */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-[#8A8680] uppercase tracking-widest mb-2 font-body">SMS</p>
-              <FieldLabel htmlFor="sms-template">SMS template</FieldLabel>
-              <textarea
-                id="sms-template"
-                ref={smsTextareaRef}
-                value={smsTemplate}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSmsTemplate(v);
-                  scheduleTemplatesSave(v, emailFooter, emailSubject, emailGreeting, emailBody, emailClosing);
-                }}
-                placeholder={DEFAULT_SMS_TEMPLATE}
-                rows={3}
-                maxLength={500}
-                className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none transition-colors"
-              />
-
-              {/* Variable chips for SMS */}
-              <div className="flex flex-wrap gap-1.5">
-                {TEMPLATE_VARIABLES.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => {
-                      insertAtCursor(smsTextareaRef, v, smsTemplate, setSmsTemplate);
-                      scheduleTemplatesSave(
-                        smsTextareaRef.current?.value ?? smsTemplate,
-                        emailFooter, emailSubject, emailGreeting, emailBody, emailClosing
-                      );
-                    }}
-                    className="inline-block font-mono text-[11px] bg-[#1A1A1A]/5 hover:bg-[#1A1A1A]/10 active:bg-[#1A1A1A]/15 text-[#1A1A1A] px-2 py-1 rounded-md transition-colors"
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-
-              {/* Character counter */}
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-xs text-[#8A8680] font-body">
-                  Actual message length depends on variable values. A single SMS segment is 160 chars.
-                </p>
-                <p className={`text-xs font-medium tabular-nums shrink-0 ${
-                  activeTemplate.length > 160 ? 'text-red-500' : 'text-[#8A8680]'
-                }`}>
-                  {activeTemplate.length}/160
-                </p>
-              </div>
-            </div>
-
-            <div className="border-t border-[#E5E2DB]" />
 
             {/* Email template fields */}
             <div className="space-y-5">
@@ -1142,7 +1012,7 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailSubject(v);
-                    scheduleTemplatesSave(smsTemplate, emailFooter, v, emailGreeting, emailBody, emailClosing);
+                    scheduleTemplatesSave(emailFooter, v, emailGreeting, emailBody, emailClosing);
                   }}
                   placeholder={DEFAULT_EMAIL_SUBJECT}
                   maxLength={200}
@@ -1163,7 +1033,7 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailGreeting(v);
-                    scheduleTemplatesSave(smsTemplate, emailFooter, emailSubject, v, emailBody, emailClosing);
+                    scheduleTemplatesSave(emailFooter, emailSubject, v, emailBody, emailClosing);
                   }}
                   placeholder={DEFAULT_EMAIL_GREETING}
                   maxLength={200}
@@ -1184,7 +1054,7 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailBody(v);
-                    scheduleTemplatesSave(smsTemplate, emailFooter, emailSubject, emailGreeting, v, emailClosing);
+                    scheduleTemplatesSave(emailFooter, emailSubject, emailGreeting, v, emailClosing);
                   }}
                   placeholder={DEFAULT_EMAIL_BODY}
                   rows={3}
@@ -1201,7 +1071,7 @@ export default function SettingsPage() {
                       onClick={() => {
                         insertAtCursor(emailBodyTextareaRef, v, emailBody, setEmailBody);
                         scheduleTemplatesSave(
-                          smsTemplate, emailFooter, emailSubject, emailGreeting,
+                          emailFooter, emailSubject, emailGreeting,
                           emailBodyTextareaRef.current?.value ?? emailBody,
                           emailClosing
                         );
@@ -1224,7 +1094,7 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailClosing(v);
-                    scheduleTemplatesSave(smsTemplate, emailFooter, emailSubject, emailGreeting, emailBody, v);
+                    scheduleTemplatesSave(emailFooter, emailSubject, emailGreeting, emailBody, v);
                   }}
                   placeholder={DEFAULT_EMAIL_CLOSING}
                   maxLength={200}
@@ -1245,7 +1115,7 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailFooter(v);
-                    scheduleTemplatesSave(smsTemplate, v, emailSubject, emailGreeting, emailBody, emailClosing);
+                    scheduleTemplatesSave(v, emailSubject, emailGreeting, emailBody, emailClosing);
                   }}
                   placeholder={DEFAULT_EMAIL_FOOTER}
                   maxLength={300}

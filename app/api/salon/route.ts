@@ -69,7 +69,6 @@ export async function GET(): Promise<Response> {
  *    timezone?:         string  — IANA timezone string, max 60 chars
  *    opening_time?:     string  — HH:MM 24-hour format, e.g. "09:00", or null to clear
  *    closing_time?:     string  — HH:MM 24-hour format, e.g. "20:00", or null to clear
- *    sms_template?:     string  — custom SMS template with {variable} placeholders, max 500 chars, or null to reset to default
  *    email_footer?:     string  — custom email footer text, max 300 chars, or null to reset to default
  *    email_subject?:    string  — custom email subject line, max 200 chars, or null to reset to default
  *    email_greeting?:   string  — custom email greeting line, max 200 chars, or null to reset to default
@@ -124,14 +123,12 @@ export async function PUT(request: Request): Promise<Response> {
     timezone?: string;
     opening_time?: string | null;
     closing_time?: string | null;
-    sms_template?: string | null;
     email_footer?: string | null;
     email_subject?: string | null;
     email_greeting?: string | null;
     email_body?: string | null;
     email_closing?: string | null;
     currency?: string;
-    sms_confirmation_enabled?: boolean;
     email_confirmation_enabled?: boolean;
   } = {};
 
@@ -217,25 +214,6 @@ export async function PUT(request: Request): Promise<Response> {
       updates.closing_time = raw.closing_time;
     } else {
       updates.closing_time = null;
-    }
-  }
-
-  // Validate sms_template (if provided — null resets to application default)
-  if ('sms_template' in raw) {
-    if (raw.sms_template !== null && typeof raw.sms_template !== 'string') {
-      return Response.json({ error: 'sms_template must be a string or null' }, { status: 400 });
-    }
-    if (typeof raw.sms_template === 'string') {
-      const tmpl = raw.sms_template.trim();
-      if (tmpl.length > 500) {
-        return Response.json(
-          { error: 'SMS template must be 500 characters or fewer' },
-          { status: 400 }
-        );
-      }
-      updates.sms_template = tmpl || null; // empty string → null (use default)
-    } else {
-      updates.sms_template = null;
     }
   }
 
@@ -344,14 +322,6 @@ export async function PUT(request: Request): Promise<Response> {
       return Response.json({ error: 'Unsupported currency code' }, { status: 400 });
     }
     updates.currency = currency;
-  }
-
-  // Validate sms_confirmation_enabled (if provided — must be a boolean).
-  if ('sms_confirmation_enabled' in raw) {
-    if (typeof raw.sms_confirmation_enabled !== 'boolean') {
-      return Response.json({ error: 'sms_confirmation_enabled must be a boolean' }, { status: 400 });
-    }
-    updates.sms_confirmation_enabled = raw.sms_confirmation_enabled;
   }
 
   // Validate email_confirmation_enabled (if provided — must be a boolean).

@@ -1,20 +1,19 @@
 /**
  * lib/reminder-templates.ts
  *
- * Generates the SMS text and HTML email body for appointment reminders.
+ * Generates the HTML email body for appointment reminders.
  *
  * Key requirements (CLAUDE.md §7 + §12):
  *  - Noshowly branding must be COMPLETELY INVISIBLE to the end client.
  *    The client sees only the salon's name — never "Noshowly".
- *  - SMS must stay under 160 characters when possible (single SMS segment).
  *  - Email uses big YES / NO buttons linking to the confirm endpoint.
  *  - All times are displayed in the salon's configured IANA timezone.
  *
  * Custom templates:
- *  - Salon owners can supply custom sms_template / email_footer values stored
- *    on the salons row. Both are optional; null falls back to the defaults
+ *  - Salon owners can supply custom email_footer and other email field values stored
+ *    on the salons row. All are optional; null falls back to the defaults
  *    exported from this module.
- *  - Supported SMS variables: {client_name}, {business_name}, {service},
+ *  - Supported template variables: {client_name}, {business_name}, {service},
  *    {time}, {date}.
  *  - Supported email footer variable: {business_name}.
  *
@@ -25,13 +24,6 @@
 // ---------------------------------------------------------------------------
 // Defaults — exported so the settings UI can show them as placeholders.
 // ---------------------------------------------------------------------------
-
-/**
- * Default SMS reminder template used when no custom template is set.
- * Kept under 160 characters (single SMS segment) with typical name lengths.
- */
-export const DEFAULT_SMS_TEMPLATE =
-  'Hi {client_name}, reminder from {business_name}: your {service} is tomorrow at {time}. Reply YES to confirm or NO to cancel. See you soon!';
 
 /**
  * Default email footer text used when no custom footer is set.
@@ -135,66 +127,6 @@ function formatDateTime(datetime: string, timezone: string): string {
   } catch {
     return new Date(datetime).toUTCString();
   }
-}
-
-// ---------------------------------------------------------------------------
-// SMS template
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the SMS reminder text sent to the client 24 hours before their
- * appointment.
- *
- * If `customTemplate` is provided it is used as-is after variable substitution.
- * If null/undefined the DEFAULT_SMS_TEMPLATE is used.
- *
- * Supported variables: {client_name}, {business_name}, {service}, {time}, {date}.
- *
- * Noshowly is never mentioned — the salon's name or sms_sender_name is used.
- *
- * @param salonName               - The salon display name shown to the client.
- * @param clientName              - The client's first name (or full name).
- * @param serviceType             - The appointment service, e.g. "Haircut". Null → "appointment".
- * @param datetime                - UTC ISO timestamp of the appointment.
- * @param timezone                - IANA timezone for the time display.
- * @param customTemplate          - Optional custom template overriding the default. Null → default.
- * @param smsConfirmationEnabled  - When false, the YES/NO reply instruction is stripped. Default true.
- * @returns                       SMS body string.
- *
- * @example
- * getSMSTemplate('Salon Elena', 'Maria', 'Haircut', '2026-04-07T10:00:00Z', 'Europe/Nicosia')
- * // → "Hi Maria, reminder from Salon Elena: your Haircut is tomorrow at 10:00 AM.
- * //    Reply YES to confirm or NO to cancel. See you soon!"
- */
-export function getSMSTemplate(
-  salonName: string,
-  clientName: string,
-  serviceType: string | null,
-  datetime: string,
-  timezone: string,
-  customTemplate?: string | null,
-  smsConfirmationEnabled?: boolean,
-): string {
-  const service  = serviceType?.trim() || 'appointment';
-  const time     = formatTime(datetime, timezone);
-  const date     = formatDate(datetime, timezone);
-  const template = customTemplate?.trim() || DEFAULT_SMS_TEMPLATE;
-
-  let result = applyTemplate(template, {
-    client_name:   clientName,
-    business_name: salonName,
-    service,
-    time,
-    date,
-  });
-
-  // When confirmation is disabled, strip the standard YES/NO reply instruction.
-  // This applies regardless of whether a custom template or the default is used.
-  if (smsConfirmationEnabled === false) {
-    result = result.replace(' Reply YES to confirm or NO to cancel.', '').trim();
-  }
-
-  return result;
 }
 
 // ---------------------------------------------------------------------------

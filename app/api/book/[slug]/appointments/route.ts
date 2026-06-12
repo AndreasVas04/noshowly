@@ -9,7 +9,7 @@
  *  3. Find or create the client by phone number (deduplication).
  *  4. Check for scheduling conflicts (±30 min window per CLAUDE.md §12).
  *  5. Create the appointment.
- *  6. Create pending reminder records (SMS and email both 24 h before).
+ *  6. Create pending email reminder record (24 h before).
  *  7. Send a booking confirmation email to the client (if email provided).
  *
  * Security:
@@ -233,7 +233,7 @@ function localToUTC(dateStr: string, timeStr: string, timezone: string): string 
  *    date:           string   — YYYY-MM-DD in the salon's timezone
  *    time:           string   — HH:MM 24-hour in the salon's timezone
  *    client_name:    string   — 1–100 chars
- *    client_phone:   string   — must start with + (country code required for Twilio)
+ *    client_phone:   string   — must start with + (country code required for international routing)
  *    client_email?:  string   — optional; used for email reminders
  *    notes?:         string   — optional client note to barber
  *  }
@@ -307,7 +307,7 @@ async function handleBookingPost(
     return Response.json({ error: 'client_name must be 100 characters or fewer' }, { status: 400 });
   }
 
-  // Validate client_phone — optional but must start with + if provided (for Twilio routing).
+  // Validate client_phone — optional but must start with + if provided (for international routing).
   let clientPhone: string | null = null;
   if (raw.client_phone !== null && raw.client_phone !== undefined && raw.client_phone !== '') {
     if (typeof raw.client_phone !== 'string' || !raw.client_phone.trim().startsWith('+')) {
@@ -634,31 +634,17 @@ async function handleBookingPost(
   const appointmentId = appointment.id;
   const appointmentTime = new Date(datetimeUTC).getTime();
 
-  // Step 8: Create pending reminder records.
-  // SMS reminder — scheduled 24 hours before the appointment (if client has a phone).
-  // Email reminder — scheduled 48 hours before (if client has an email).
+  // Step 8: Create pending email reminder record (24 h before appointment).
+  // Only created if the client supplied an email address.
   const remindersToInsert: Array<{
     appointment_id: string;
-    type: 'sms' | 'email';
+    type: 'email';
     send_at: string;
     status: 'pending';
     token: string;
   }> = [];
 
-  // SMS: only if the client supplied a phone number.
-  if (clientPhone) {
-    const smsToken = crypto.randomUUID();
-    remindersToInsert.push({
-      appointment_id: appointmentId,
-      type:           'sms',
-      send_at:        new Date(appointmentTime - 24 * 60 * 60 * 1000).toISOString(),
-      status:         'pending',
-      token:          smsToken,
-    });
-  }
-
-  // Email: only if the client supplied an email address.
-  // Send 24 h before (same window as SMS, per lib/plans.ts EMAIL_REMINDER_WINDOW).
+  // Email: only if the client supplied an email address (per lib/plans.ts EMAIL_REMINDER_WINDOW).
   if (clientEmail) {
     const emailToken = crypto.randomUUID();
     remindersToInsert.push({

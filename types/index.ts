@@ -90,7 +90,7 @@ export type User = {
   plan: UserPlan;
   /** ISO timestamp when the trial expires. */
   trial_ends_at: string;
-  /** Monthly SMS reminder counter. Enforced against getPlanSMSLimit(plan). */
+  /** Legacy monthly SMS reminder counter. No longer incremented — kept for DB compatibility. */
   reminders_used_this_month: number;
   /** Monthly email reminder counter. Enforced against getPlanEmailLimit(plan). */
   email_reminders_used_this_month: number;

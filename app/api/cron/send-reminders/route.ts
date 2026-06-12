@@ -4,16 +4,16 @@
  * POST /api/cron/send-reminders
  *
  * Hourly reminder dispatch job — called by Supabase pg_cron (or Vercel cron)
- * once per hour. Finds appointments in the 23–25 hour window and sends both
- * SMS and email reminders 24 h before the appointment.
+ * once per hour. Finds appointments in the 23–25 hour window and sends email
+ * reminders 24 h before the appointment.
  *
  * Safety rules (CLAUDE.md §7 + §6):
  *  1. Appointment must be in the future (datetime > NOW()). Never remind for
  *     past appointments — the window check handles this but we re-verify explicitly.
  *  2. Appointment must not be cancelled.
  *  3. Deduplication: skip if a reminder with status='sent' already exists for
- *     the same appointment + type. Prevents duplicate SMS/email on retries.
- *  4. Monthly plan limit check: block when reminders_used_this_month ≥ plan cap.
+ *     the same appointment + type. Prevents duplicate email on retries.
+ *  4. Monthly plan limit check: block when email_reminders_used_this_month ≥ plan cap.
  *  5. Per-salon hourly rate limit: alert and block if > HOURLY_REMINDER_RATE_LIMIT
  *     reminders have been sent for this salon in the last 60 minutes.
  *
@@ -26,18 +26,14 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types';
 import {
-  getPlanSMSLimit,
   getPlanEmailLimit,
-  planAllowsSMS,
   planAllowsEmail,
   HOURLY_REMINDER_RATE_LIMIT,
-  SMS_REMINDER_WINDOW,
   EMAIL_REMINDER_WINDOW,
 } from '@/lib/plans';
 import type { UserPlan } from '@/lib/plans';
-import { sendSMS } from '@/lib/twilio';
 import { sendEmail } from '@/lib/resend';
-import { getSMSTemplate, getEmailHTML, getEmailSubject } from '@/lib/reminder-templates';
+import { getEmailHTML, getEmailSubject } from '@/lib/reminder-templates';
 
 // ---------------------------------------------------------------------------
 // Service role client — bypasses RLS to query across all salons.
@@ -80,10 +76,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const now = new Date();
 
-  // Build time windows for SMS (24 h) and email (48 h) reminders.
+  // Build the time window for email reminders (24 h before the appointment).
   // Window constants are defined in lib/plans.ts so they're the single source of truth.
-  const smsWindowStart   = new Date(now.getTime() + SMS_REMINDER_WINDOW.minHours   * 60 * 60 * 1000).toISOString();
-  const smsWindowEnd     = new Date(now.getTime() + SMS_REMINDER_WINDOW.maxHours   * 60 * 60 * 1000).toISOString();
   const emailWindowStart = new Date(now.getTime() + EMAIL_REMINDER_WINDOW.minHours * 60 * 60 * 1000).toISOString();
   const emailWindowEnd   = new Date(now.getTime() + EMAIL_REMINDER_WINDOW.maxHours * 60 * 60 * 1000).toISOString();
 
@@ -91,42 +85,15 @@ export async function POST(request: Request): Promise<Response> {
   let totalSkipped = 0;
 
   try {
-    // Step 2: Fetch all active (non-cancelled) appointments due for SMS reminders.
+    // Step 2: Fetch appointments due for email reminders.
     // datetime > NOW() ensures we never send for past appointments.
     // status = 'scheduled' ensures we skip cancelled and already-confirmed slots.
-    const { data: smsAppointments, error: smsError } = await adminSupabase
-      .from('appointments')
-      .select(`
-        id, salon_id, client_id, datetime, service_type, status,
-        clients (name, phone),
-        salons (name, timezone, user_id, sms_template, email_footer, email_subject, email_greeting, email_body, email_closing, sms_confirmation_enabled, email_confirmation_enabled)
-      `)
-      .eq('status', 'scheduled')
-      .gt('datetime', now.toISOString())
-      .gte('datetime', smsWindowStart)
-      .lte('datetime', smsWindowEnd);
-
-    if (smsError) {
-      console.error('[cron/send-reminders] Failed to fetch SMS appointments:', smsError.message);
-      return Response.json({ error: 'Failed to query appointments' }, { status: 500 });
-    }
-
-    // Step 3: Process each SMS appointment independently.
-    // Each call is wrapped in a try/catch inside processReminder so one
-    // failing appointment never aborts the rest of the batch.
-    for (const appt of (smsAppointments ?? []) as unknown as AppointmentRow[]) {
-      const result = await processReminder(appt, 'sms', now);
-      if (result === 'sent') totalSent++;
-      else totalSkipped++;
-    }
-
-    // Step 4: Fetch appointments due for email reminders (24 h window — same as SMS).
     const { data: emailAppointments, error: emailError } = await adminSupabase
       .from('appointments')
       .select(`
         id, salon_id, client_id, datetime, service_type, status,
         clients (name, phone, email),
-        salons (name, timezone, user_id, sms_template, email_footer, email_subject, email_greeting, email_body, email_closing, sms_confirmation_enabled, email_confirmation_enabled)
+        salons (name, timezone, user_id, email_footer, email_subject, email_greeting, email_body, email_closing, email_confirmation_enabled)
       `)
       .eq('status', 'scheduled')
       .gt('datetime', now.toISOString())
@@ -135,12 +102,14 @@ export async function POST(request: Request): Promise<Response> {
 
     if (emailError) {
       console.error('[cron/send-reminders] Failed to fetch email appointments:', emailError.message);
-      // Don't abort — SMS processing already completed successfully above.
+      return Response.json({ error: 'Failed to query appointments' }, { status: 500 });
     }
 
-    // Step 5: Process each email appointment independently.
+    // Step 3: Process each email appointment independently.
+    // Each call is wrapped in a try/catch inside processReminder so one
+    // failing appointment never aborts the rest of the batch.
     for (const appt of (emailAppointments ?? []) as unknown as AppointmentRow[]) {
-      const result = await processReminder(appt, 'email', now);
+      const result = await processReminder(appt, now);
       if (result === 'sent') totalSent++;
       else totalSkipped++;
     }
@@ -173,19 +142,17 @@ type AppointmentRow = {
     name: string;
     timezone: string;
     user_id: string;
-    sms_template: string | null;
     email_footer: string | null;
     email_subject: string | null;
     email_greeting: string | null;
     email_body: string | null;
     email_closing: string | null;
-    sms_confirmation_enabled: boolean;
     email_confirmation_enabled: boolean;
   } | null;
 };
 
 /**
- * Attempts to send a single reminder for one appointment.
+ * Attempts to send a single email reminder for one appointment.
  *
  * All safety checks run in sequence; any failure returns 'skipped' without
  * throwing. A try/catch wraps the entire body so an unexpected runtime error
@@ -194,25 +161,23 @@ type AppointmentRow = {
  * Safety checks:
  *  1. Appointment is in the future.
  *  2. Appointment is not cancelled.
- *  3. Deduplication: no existing 'sent' reminder for this appt + type.
+ *  3. Deduplication: no existing 'sent' email reminder for this appointment.
  *  4. Monthly plan limit.
  *  5. Per-salon hourly rate limit (HOURLY_REMINDER_RATE_LIMIT from lib/plans.ts).
- *  6. Create 'pending' reminder record, dispatch message, mark 'sent'.
+ *  6. Create 'pending' reminder record, dispatch email, mark 'sent'.
  *
  * Privacy: client phone/email and client name are NEVER written to logs.
  * Only the appointment ID and salon name are logged.
  *
  * @param appt - The appointment row with joined client and salon data.
- * @param type - 'sms' or 'email'.
  * @param now  - Reference time (passed in for consistency within the job run).
  * @returns 'sent' if the reminder was dispatched, 'skipped' otherwise.
  */
 async function processReminder(
   appt: AppointmentRow,
-  type: 'sms' | 'email',
   now: Date
 ): Promise<'sent' | 'skipped'> {
-  const logPrefix = `[cron/send-reminders] appt=${appt.id} type=${type}`;
+  const logPrefix = `[cron/send-reminders] appt=${appt.id} type=email`;
 
   // Wrap the entire function body in try/catch so an unexpected error for
   // one appointment never throws into the outer batch loop and aborts it.
@@ -233,13 +198,13 @@ async function processReminder(
       return 'skipped';
     }
 
-    // Guard 3: Deduplication — skip if a 'sent' reminder already exists.
+    // Guard 3: Deduplication — skip if a 'sent' email reminder already exists.
     // Prevents sending duplicates on cron retries or parallel executions.
     const { data: existingReminder } = await adminSupabase
       .from('reminders')
       .select('id')
       .eq('appointment_id', appt.id)
-      .eq('type', type)
+      .eq('type', 'email')
       .eq('status', 'sent')
       .maybeSingle();
 
@@ -258,7 +223,7 @@ async function processReminder(
 
     const { data: user } = await adminSupabase
       .from('users')
-      .select('plan, reminders_used_this_month, email_reminders_used_this_month, reminders_reset_at')
+      .select('plan, email_reminders_used_this_month, reminders_reset_at')
       .eq('id', userId)
       .single();
 
@@ -267,18 +232,13 @@ async function processReminder(
       return 'skipped';
     }
 
-    // Check channel availability — plans with sms=0 never send SMS,
-    // plans with email=0 never send email (enforces the channel split).
-    if (type === 'sms' && !planAllowsSMS(user.plan as UserPlan)) {
-      console.log(`${logPrefix} SKIP — plan '${user.plan}' does not allow SMS`);
-      return 'skipped';
-    }
-    if (type === 'email' && !planAllowsEmail(user.plan as UserPlan)) {
+    // Check channel availability — plans with email=0 never send email reminders.
+    if (!planAllowsEmail(user.plan as UserPlan)) {
       console.log(`${logPrefix} SKIP — plan '${user.plan}' does not allow email`);
       return 'skipped';
     }
 
-    // Reset both monthly counters if the reset date has passed.
+    // Reset monthly counter if the reset date has passed.
     const resetAt = new Date(user.reminders_reset_at);
     if (now >= resetAt) {
       const nextResetAt = new Date(
@@ -298,22 +258,8 @@ async function processReminder(
         // Log but don't abort — stale counter is better than a missed reminder.
         console.error(`${logPrefix} WARN — failed to reset monthly counters:`, resetError.message);
       } else {
-        user.reminders_used_this_month = 0;
         user.email_reminders_used_this_month = 0;
       }
-    }
-
-    // Enforce per-channel monthly limits separately.
-    const smsMonthlyLimit = getPlanSMSLimit(user.plan as UserPlan);
-    if (type === 'sms' && user.reminders_used_this_month >= smsMonthlyLimit) {
-      // SMS allowance exhausted — skip this SMS but email processing continues
-      // in the separate email batch (batches are independent).
-      console.warn(
-        `${logPrefix} SKIP — monthly SMS allowance exhausted for salon=${appt.salon_id} ` +
-        `plan=${user.plan} (used=${user.reminders_used_this_month} limit=${smsMonthlyLimit}). ` +
-        `Email reminders will still be sent if the appointment is in the email window.`
-      );
-      return 'skipped';
     }
 
     // Email fair-use cap check (internal only — never expose this limit publicly).
@@ -321,7 +267,7 @@ async function processReminder(
     // TODO: Add admin notification when a salon exceeds 80% of their email fair-use cap.
     //       Implement as a separate monitoring job querying email_reminders_used_this_month.
     const emailMonthlyLimit = getPlanEmailLimit(user.plan as UserPlan);
-    if (type === 'email' && user.email_reminders_used_this_month >= emailMonthlyLimit) {
+    if (user.email_reminders_used_this_month >= emailMonthlyLimit) {
       console.warn(
         `${logPrefix} SKIP — email fair-use cap reached for salon=${appt.salon_id} ` +
         `plan=${user.plan} (internal cap: ${emailMonthlyLimit}/month). ` +
@@ -375,7 +321,7 @@ async function processReminder(
       .from('reminders')
       .insert({
         appointment_id: appt.id,
-        type,
+        type: 'email',
         send_at: sendAt,
         status: 'pending',
         token,
@@ -399,94 +345,48 @@ async function processReminder(
       `datetime=${appt.datetime}`
     );
 
-    let dispatched = false;
-
-    if (type === 'sms') {
-      // SMS: send 24 h before using Twilio.
-      // Guard: client must have a phone number (not all clients do).
-      const phone = appt.clients?.phone;
-      if (!phone) {
-        console.log(`${logPrefix} SKIP — client has no phone number`);
-        // Clean up the pending reminder we just inserted.
-        await adminSupabase.from('reminders').delete().eq('id', reminder.id);
-        return 'skipped';
-      }
-
-      // Pass the salon's custom template and confirmation flag.
-      // sms_confirmation_enabled defaults to true if the column is missing on older rows.
-      const body   = getSMSTemplate(
-        salonDisplayName,
-        clientName,
-        appt.service_type,
-        appt.datetime,
-        timezone,
-        appt.salons?.sms_template,
-        appt.salons?.sms_confirmation_enabled ?? true,
-      );
-      const result = await sendSMS(phone, body);
-
-      if (!result.success) {
-        console.error(`${logPrefix} SMS send failed:`, result.error);
-        // Mark as failed so we can audit missed sends — do not block the counter.
-        await adminSupabase
-          .from('reminders')
-          .update({ status: 'failed' })
-          .eq('id', reminder.id);
-        return 'skipped';
-      }
-
-      dispatched = true;
-
-    } else {
-      // Email: send 24 h before using Resend (same window as SMS).
-      // Guard: client must have an email address (optional field).
-      const email = appt.clients?.email;
-      if (!email) {
-        console.log(`${logPrefix} SKIP — client has no email address`);
-        // Clean up the pending reminder we just inserted.
-        await adminSupabase.from('reminders').delete().eq('id', reminder.id);
-        return 'skipped';
-      }
-
-      const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? '';
-      const confirmUrl = `${appUrl}/api/confirm/${token}?response=yes`;
-      const cancelUrl  = `${appUrl}/api/confirm/${token}?response=no`;
-
-      // Build subject using custom template if set, falling back to the application default.
-      const subject = getEmailSubject(salonDisplayName, appt.salons?.email_subject);
-
-      // Pass all custom email template fields; each falls back to its default when null.
-      // email_confirmation_enabled defaults to true if the column is missing on older rows.
-      const html = getEmailHTML(
-        salonDisplayName,
-        clientName,
-        appt.service_type,
-        appt.datetime,
-        timezone,
-        confirmUrl,
-        cancelUrl,
-        appt.salons?.email_footer,
-        appt.salons?.email_confirmation_enabled ?? true,
-        appt.salons?.email_greeting,
-        appt.salons?.email_body,
-        appt.salons?.email_closing,
-      );
-
-      const result = await sendEmail(email, subject, html);
-
-      if (!result.success) {
-        console.error(`${logPrefix} Email send failed:`, result.error);
-        await adminSupabase
-          .from('reminders')
-          .update({ status: 'failed' })
-          .eq('id', reminder.id);
-        return 'skipped';
-      }
-
-      dispatched = true;
+    // Email: send 24 h before using Resend.
+    // Guard: client must have an email address (optional field).
+    const email = appt.clients?.email;
+    if (!email) {
+      console.log(`${logPrefix} SKIP — client has no email address`);
+      // Clean up the pending reminder we just inserted.
+      await adminSupabase.from('reminders').delete().eq('id', reminder.id);
+      return 'skipped';
     }
 
-    if (!dispatched) {
+    const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const confirmUrl = `${appUrl}/api/confirm/${token}?response=yes`;
+    const cancelUrl  = `${appUrl}/api/confirm/${token}?response=no`;
+
+    // Build subject using custom template if set, falling back to the application default.
+    const subject = getEmailSubject(salonDisplayName, appt.salons?.email_subject);
+
+    // Pass all custom email template fields; each falls back to its default when null.
+    // email_confirmation_enabled defaults to true if the column is missing on older rows.
+    const html = getEmailHTML(
+      salonDisplayName,
+      clientName,
+      appt.service_type,
+      appt.datetime,
+      timezone,
+      confirmUrl,
+      cancelUrl,
+      appt.salons?.email_footer,
+      appt.salons?.email_confirmation_enabled ?? true,
+      appt.salons?.email_greeting,
+      appt.salons?.email_body,
+      appt.salons?.email_closing,
+    );
+
+    const result = await sendEmail(email, subject, html);
+
+    if (!result.success) {
+      console.error(`${logPrefix} Email send failed:`, result.error);
+      await adminSupabase
+        .from('reminders')
+        .update({ status: 'failed' })
+        .eq('id', reminder.id);
       return 'skipped';
     }
 
@@ -502,30 +402,15 @@ async function processReminder(
       // delivery failure. Log and return 'sent' so the counter increments.
     }
 
-    // Increment the appropriate monthly usage counter.
-    // SMS and email are tracked independently against their per-plan caps.
-    if (type === 'sms') {
-      const { error: counterError } = await adminSupabase
-        .from('users')
-        .update({ reminders_used_this_month: user.reminders_used_this_month + 1 })
-        .eq('id', userId);
+    // Increment the monthly email usage counter.
+    const { error: counterError } = await adminSupabase
+      .from('users')
+      .update({ email_reminders_used_this_month: user.email_reminders_used_this_month + 1 })
+      .eq('id', userId);
 
-      if (counterError) {
-        // Log but don't block — reminder already sent. Drift corrected at next reset.
-        console.error(`${logPrefix} WARN — failed to increment SMS monthly counter:`, counterError.message);
-      }
-    }
-
-    if (type === 'email') {
-      const { error: counterError } = await adminSupabase
-        .from('users')
-        .update({ email_reminders_used_this_month: user.email_reminders_used_this_month + 1 })
-        .eq('id', userId);
-
-      if (counterError) {
-        // Log but don't block — reminder already sent. Drift corrected at next reset.
-        console.error(`${logPrefix} WARN — failed to increment email monthly counter:`, counterError.message);
-      }
+    if (counterError) {
+      // Log but don't block — reminder already sent. Drift corrected at next reset.
+      console.error(`${logPrefix} WARN — failed to increment email monthly counter:`, counterError.message);
     }
 
     console.log(`${logPrefix} SENT — reminder_id=${reminder.id}`);

@@ -1752,7 +1752,7 @@ export default function BookingPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-[#1A1A1A]">Require phone number</p>
-                        <p className="text-xs text-[#8A8680] mt-0.5">Needed for SMS reminders.</p>
+                        <p className="text-xs text-[#8A8680] mt-0.5">Used for client contact.</p>
                       </div>
                       <Toggle
                         checked={requirePhone}

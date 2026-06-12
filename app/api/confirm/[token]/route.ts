@@ -119,7 +119,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   }
 
   // Guard: appointment must still be scheduled — if already confirmed/cancelled
-  // through another channel (e.g. SMS reply), honour the existing state.
+  // through another channel (e.g. a duplicate email click), honour the existing state.
   if (appointment.status !== 'scheduled') {
     return htmlResponse(pageAlreadyUsed(isConfirm), 200);
   }

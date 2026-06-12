@@ -130,7 +130,7 @@ export async function GET(request: Request): Promise<Response> {
  * Request body:
  * {
  *   name:   string,          // required — client display name
- *   phone:  string | null,   // required — needed for SMS reminders
+ *   phone:  string | null,   // required — used for client contact
  *   email?: string | null,   // optional — used for email reminders
  *   notes?: string | null,   // optional — free-text notes for the barber
  * }
@@ -196,7 +196,7 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 }
     );
   }
-  // Phone must start with + (country code required for Twilio international SMS routing).
+  // Phone must start with + (country code required for international routing).
   if (!phone.startsWith('+')) {
     return Response.json(
       { error: 'Phone must include country code (e.g. +357 99 123 456)' },

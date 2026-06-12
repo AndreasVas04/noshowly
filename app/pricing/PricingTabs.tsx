@@ -5,7 +5,6 @@
  *
  * Only Basic ($19/month) is shown publicly for MVP.
  * Pro and Business are hidden from public UI.
- * SMS is not offered publicly — do not mention SMS anywhere here.
  *
  * Design: Calm Professional palette, Playfair Display headings, shadcn Card.
  */
@@ -21,7 +20,7 @@ import type { UserPlan } from '@/lib/plans';
 // Plan configuration
 // ---------------------------------------------------------------------------
 
-/** Features shown on the Basic plan card. No SMS mentioned. */
+/** Features shown on the Basic plan card. */
 const BASIC_FEATURES: string[] = [
   'Online booking page',
   'Unlimited email reminders',
