@@ -7,7 +7,7 @@
  *  - Booking page metadata (slug, description, custom_title, custom_intro,
  *    allow_no_preference_*, require_phone, require_email)
  *  - Salon info (name, timezone, phone, currency)
- *  - Active barbers (id, name, bio, photo_url) with their staff_services
+ *  - Active barbers (id, name, bio, photo_url)
  *  - Optionally: booked time slots for a specific date (?date=YYYY-MM-DD)
  *    returned as { time: "HH:MM", barberId: string | null }[] in the salon timezone
  *  - Staff availability records
@@ -21,7 +21,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type { Salon, Barber, BookingPage, StaffAvailability, StaffService } from '@/types';
+import type { Salon, Barber, BookingPage, Service, StaffAvailability, BarberService } from '@/types';
 
 /**
  * Converts a UTC ISO string to a local HH:MM time string in the given IANA timezone.
@@ -44,13 +44,8 @@ function utcToLocalTime(utcIso: string, timezone: string): string {
   return `${h === '24' ? '00' : h}:${m}`;
 }
 
-/**
- * Shape returned for an active staff member on the public booking page.
- * Includes their personal services so the booking flow can filter by staff.
- */
-type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'> & {
-  staffServices: Pick<StaffService, 'id' | 'name' | 'duration_minutes' | 'price'>[];
-};
+/** Shape returned for an active staff member on the public booking page. */
+type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'>;
 
 /** A booked appointment slot: local time + which barber is booked. */
 type BookedSlot = {
@@ -59,6 +54,12 @@ type BookedSlot = {
   /** UUID of the barber assigned to this appointment, or null if unassigned. */
   barberId: string | null;
 };
+
+/** Global service available on the booking page. */
+type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
+
+/** Links a barber to a service they can perform. */
+type BarberServiceLink = Pick<BarberService, 'barber_id' | 'service_id'>;
 
 /**
  * Full response shape for GET /api/book/[slug].
@@ -69,7 +70,6 @@ type BookingPageResponse = {
     | 'slug'
     | 'description'
     | 'allow_no_preference_staff'
-    | 'allow_no_preference_service'
     | 'custom_title'
     | 'custom_intro'
     | 'require_phone'
@@ -77,6 +77,10 @@ type BookingPageResponse = {
   >;
   salon: Pick<Salon, 'name' | 'timezone' | 'phone' | 'currency'>;
   barbers: PublicBarber[];
+  /** Active global services for this salon. */
+  globalServices: PublicService[];
+  /** Links barbers to the services they can perform. */
+  barberServiceAssignments: BarberServiceLink[];
   /** Booked slots for the requested date (?date=YYYY-MM-DD), in salon local time. */
   bookedSlots: BookedSlot[];
   /** Staff availability records for all active barbers. */
@@ -122,7 +126,7 @@ export async function GET(
   const { data: bookingPage, error: bpError } = await supabase
     .from('booking_pages')
     .select(
-      'id, salon_id, slug, description, allow_no_preference_staff, allow_no_preference_service, custom_title, custom_intro, require_phone, require_email'
+      'id, salon_id, slug, description, allow_no_preference_staff, custom_title, custom_intro, require_phone, require_email'
     )
     .eq('slug', slug)
     .eq('is_active', true)
@@ -156,49 +160,51 @@ export async function GET(
 
   const barbers = barbersResult.data ?? [];
 
-  // Step 3: Fetch staff availability and staff services for active barbers in parallel.
+  // Step 3: Fetch staff availability, global services, and barber_services assignments in parallel.
   let staffAvailability: BookingPageResponse['staffAvailability'] = [];
-  let barberServicesMap: Record<string, Pick<StaffService, 'id' | 'name' | 'duration_minutes' | 'price'>[]> = {};
+  let globalServices: PublicService[] = [];
+  let barberServiceAssignments: BarberServiceLink[] = [];
 
   if (barbers.length > 0) {
     const barberIds = barbers.map((b) => b.id);
 
-    const [availResult, servicesResult] = await Promise.all([
+    const [availResult, servicesResult, assignmentsResult] = await Promise.all([
       supabase
         .from('staff_availability')
         .select('barber_id, day_of_week, is_available, time_slots, start_time_1, end_time_1, start_time_2, end_time_2')
         .in('barber_id', barberIds),
       supabase
-        .from('staff_services')
-        .select('id, barber_id, name, duration_minutes, price')
-        .in('barber_id', barberIds)
+        .from('services')
+        .select('id, name, duration_minutes, price')
+        .eq('salon_id', salonId)
         .eq('active', true)
         .order('name', { ascending: true }),
+      supabase
+        .from('barber_services')
+        .select('barber_id, service_id')
+        .in('barber_id', barberIds),
     ]);
 
     if (availResult.data) staffAvailability = availResult.data as BookingPageResponse['staffAvailability'];
-
-    // Build a map of barber_id → staff services for efficient lookup.
-    if (servicesResult.data) {
-      for (const svc of servicesResult.data) {
-        if (!barberServicesMap[svc.barber_id]) barberServicesMap[svc.barber_id] = [];
-        barberServicesMap[svc.barber_id].push({
-          id: svc.id,
-          name: svc.name,
-          duration_minutes: svc.duration_minutes,
-          price: svc.price,
-        });
-      }
-    }
+    if (servicesResult.data) globalServices = servicesResult.data as PublicService[];
+    if (assignmentsResult.data) barberServiceAssignments = assignmentsResult.data as BarberServiceLink[];
+  } else {
+    // No barbers — still fetch global services so the page can display them.
+    const { data: svcData } = await supabase
+      .from('services')
+      .select('id, name, duration_minutes, price')
+      .eq('salon_id', salonId)
+      .eq('active', true)
+      .order('name', { ascending: true });
+    if (svcData) globalServices = svcData as PublicService[];
   }
 
-  // Attach staff services to each barber.
+  // Build public barbers list (no embedded services — those are now global).
   const publicBarbers: PublicBarber[] = barbers.map((b) => ({
     id: b.id,
     name: b.name,
     bio: b.bio,
     photo_url: b.photo_url,
-    staffServices: barberServicesMap[b.id] ?? [],
   }));
 
   // Step 4: Optionally fetch booked slots for a specific date.
@@ -249,14 +255,13 @@ export async function GET(
 
   const response: BookingPageResponse = {
     bookingPage: {
-      slug:                          bookingPage.slug,
-      description:                   bookingPage.description,
-      allow_no_preference_staff:     bookingPage.allow_no_preference_staff ?? false,
-      allow_no_preference_service:   bookingPage.allow_no_preference_service ?? false,
-      custom_title:                  bookingPage.custom_title ?? null,
-      custom_intro:                  bookingPage.custom_intro ?? null,
-      require_phone:                 bookingPage.require_phone ?? true,
-      require_email:                 bookingPage.require_email ?? true,
+      slug:                      bookingPage.slug,
+      description:               bookingPage.description,
+      allow_no_preference_staff: bookingPage.allow_no_preference_staff ?? false,
+      custom_title:              bookingPage.custom_title ?? null,
+      custom_intro:              bookingPage.custom_intro ?? null,
+      require_phone:             bookingPage.require_phone ?? true,
+      require_email:             bookingPage.require_email ?? true,
     },
     salon: {
       name:     salonResult.data.name,
@@ -265,6 +270,8 @@ export async function GET(
       currency: salonResult.data.currency ?? 'USD',
     },
     barbers: publicBarbers,
+    globalServices,
+    barberServiceAssignments,
     bookedSlots,
     staffAvailability,
   };

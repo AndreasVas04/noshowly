@@ -283,7 +283,6 @@ export async function PUT(request: Request): Promise<Response> {
     description?: string | null;
     is_active?: boolean;
     allow_no_preference_staff?: boolean;
-    allow_no_preference_service?: boolean;
     custom_title?: string | null;
     custom_intro?: string | null;
     require_phone?: boolean;
@@ -333,13 +332,6 @@ export async function PUT(request: Request): Promise<Response> {
       return Response.json({ error: 'allow_no_preference_staff must be a boolean' }, { status: 400 });
     }
     updates.allow_no_preference_staff = raw.allow_no_preference_staff;
-  }
-
-  if ('allow_no_preference_service' in raw) {
-    if (typeof raw.allow_no_preference_service !== 'boolean') {
-      return Response.json({ error: 'allow_no_preference_service must be a boolean' }, { status: 400 });
-    }
-    updates.allow_no_preference_service = raw.allow_no_preference_service;
   }
 
   if ('custom_title' in raw) {
@@ -395,7 +387,7 @@ export async function PUT(request: Request): Promise<Response> {
 
   if (Object.keys(updates).length === 0) {
     return Response.json(
-      { error: 'At least one field (slug, description, is_active, allow_no_preference_staff, allow_no_preference_service, custom_title, custom_intro, require_phone, require_email) is required' },
+      { error: 'At least one field (slug, description, is_active, allow_no_preference_staff, custom_title, custom_intro, require_phone, require_email) is required' },
       { status: 400 }
     );
   }

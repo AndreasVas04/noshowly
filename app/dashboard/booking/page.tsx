@@ -4,10 +4,11 @@
  * Online Booking management page — /dashboard/booking.
  *
  * This is the centralised place for all booking-related configuration:
- *  1. Booking page — slug, description, no-preference toggles, live status.
- *  2. Staff — add/remove staff members, update name/photo (file upload)/bio,
- *     per-staff services (add/edit/delete), weekly availability (unlimited breaks).
- *  3. Publish — CTA to go live or take offline.
+ *  1. Booking page — slug, description, no-preference staff toggle, live status.
+ *  2. Services — global service catalogue (add/edit/delete/toggle active).
+ *  3. Staff — add/remove staff members, update name/photo/bio,
+ *     service assignments (barber_services), weekly availability.
+ *  4. Publish — CTA to go live or take offline.
  *
  * Design: brand-dark palette, shadcn Input + Button.
  * Security: all mutations go through API routes.
@@ -20,7 +21,7 @@ import { Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Barber, BarberService, BookingPage, Service, StaffAvailability, StaffService } from '@/types';
+import type { Barber, BarberService, BookingPage, Service, StaffAvailability } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Local types
@@ -49,15 +50,8 @@ type BarberFormState = {
   availability: Record<number, DayState>;
 };
 
-/** In-memory form state for editing a staff service inline. */
-type StaffServiceEditForm = {
-  name: string;
-  duration: string;
-  price: string;
-};
-
-/** State for the add-new-service form per barber. */
-type AddStaffServiceForm = {
+/** In-memory form state for adding/editing a global service. */
+type ServiceEditForm = {
   name: string;
   duration: string;
   price: string;
@@ -255,7 +249,6 @@ export default function BookingPage() {
   const [requireEmail, setRequireEmail] = useState(true);
   const [requireFieldsError, setRequireFieldsError] = useState('');
   const [allowNoPreferenceStaff, setAllowNoPreferenceStaff] = useState(false);
-  const [allowNoPreferenceService, setAllowNoPreferenceService] = useState(false);
   const [bookingSaveStatus, setBookingSaveStatus] = useState<SaveStatus>('idle');
   const [bookingError, setBookingError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -336,21 +329,16 @@ export default function BookingPage() {
   const [savingBarberServiceId, setSavingBarberServiceId] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
-  // Per-staff services
+  // Global Services section state
   // -------------------------------------------------------------------------
-  /** Map of barberId → list of that barber's staff services. */
-  const [staffServices, setStaffServices] = useState<Record<string, StaffService[]>>({});
-  /** Which barber's "add service" form is open (barberId or null). */
-  const [addingServiceForId, setAddingServiceForId] = useState<string | null>(null);
-  /** The add-service form state per barberId. */
-  const [addServiceForms, setAddServiceForms] = useState<Record<string, AddStaffServiceForm>>({});
-  const [savingAddServiceId, setSavingAddServiceId] = useState<string | null>(null);
-  const [addServiceErrors, setAddServiceErrors] = useState<Record<string, string>>({});
-  /** Which staff service is being inline-edited (serviceId or null). */
-  const [editingStaffServiceId, setEditingStaffServiceId] = useState<string | null>(null);
-  const [staffServiceEditForms, setStaffServiceEditForms] = useState<Record<string, StaffServiceEditForm>>({});
-  const [savingStaffServiceId, setSavingStaffServiceId] = useState<string | null>(null);
-  const [deletingStaffServiceId, setDeletingStaffServiceId] = useState<string | null>(null);
+  const [showAddSvcForm, setShowAddSvcForm] = useState(false);
+  const [addSvcForm, setAddSvcForm] = useState<ServiceEditForm>({ name: '', duration: '', price: '' });
+  const [addingSvc, setAddingSvc] = useState(false);
+  const [addSvcError, setAddSvcError] = useState('');
+  const [editingSvcId, setEditingSvcId] = useState<string | null>(null);
+  const [svcEditForms, setSvcEditForms] = useState<Record<string, ServiceEditForm>>({});
+  const [savingSvcId, setSavingSvcId] = useState<string | null>(null);
+  const [deletingSvcId, setDeletingSvcId] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Initial data load
@@ -363,25 +351,21 @@ export default function BookingPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [bookingRes, barbersRes, staffServicesRes, availabilityRes, salonServicesRes, barberServicesRes] = await Promise.all([
+        const [bookingRes, barbersRes, availabilityRes, salonServicesRes, barberServicesRes] = await Promise.all([
           fetch('/api/booking-page'),
           fetch('/api/barbers'),
-          fetch('/api/staff-services'),
           fetch('/api/staff-availability'),
           fetch('/api/services'),
           fetch('/api/barber-services'),
         ]);
 
-        const [bookingData, barbersData, staffServicesData, availData, salonServicesData, barberServicesData] = await Promise.all([
+        const [bookingData, barbersData, availData, salonServicesData, barberServicesData] = await Promise.all([
           bookingRes.ok
             ? (bookingRes.json() as Promise<{ bookingPage: BookingPage | null }>)
             : Promise.resolve({ bookingPage: null }),
           barbersRes.ok
             ? (barbersRes.json() as Promise<{ barbers: Barber[] }>)
             : Promise.resolve({ barbers: [] }),
-          staffServicesRes.ok
-            ? (staffServicesRes.json() as Promise<{ staffServices: StaffService[] }>)
-            : Promise.resolve({ staffServices: [] }),
           availabilityRes.ok
             ? (availabilityRes.json() as Promise<{ availability: StaffAvailability[] }>)
             : Promise.resolve({ availability: [] }),
@@ -403,26 +387,18 @@ export default function BookingPage() {
           setRequirePhone(bp.require_phone ?? true);
           setRequireEmail(bp.require_email ?? true);
           setAllowNoPreferenceStaff(bp.allow_no_preference_staff ?? false);
-          setAllowNoPreferenceService(bp.allow_no_preference_service ?? false);
         }
 
         const loadedBarbers = barbersData.barbers ?? [];
         const loadedAvailability = availData.availability ?? [];
-        const loadedServices = staffServicesData.staffServices ?? [];
-        const loadedSalonServices = (salonServicesData.services ?? []).filter((s: Service) => s.active);
+        // Load all services (active and inactive) so the admin can manage them.
+        const loadedSalonServices = salonServicesData.services ?? [];
         const loadedBarberServices = barberServicesData.barberServices ?? [];
 
         setBarbers(loadedBarbers);
         setStaffAvailability(loadedAvailability);
         setSalonServices(loadedSalonServices);
         setBarberServiceAssignments(loadedBarberServices);
-
-        // Build per-barber services map.
-        const servicesMap: Record<string, StaffService[]> = {};
-        for (const barber of loadedBarbers) {
-          servicesMap[barber.id] = loadedServices.filter((s) => s.barber_id === barber.id);
-        }
-        setStaffServices(servicesMap);
 
         // Initialise per-barber form state from DB data.
         const forms: Record<string, BarberFormState> = {};
@@ -478,7 +454,6 @@ export default function BookingPage() {
           require_phone: requirePhone,
           require_email: requireEmail,
           allow_no_preference_staff: allowNoPreferenceStaff,
-          allow_no_preference_service: allowNoPreferenceService,
           ...(bookingPage ? {} : { is_active: false }),
         }),
       });
@@ -499,7 +474,6 @@ export default function BookingPage() {
       setRequirePhone(data.bookingPage.require_phone ?? true);
       setRequireEmail(data.bookingPage.require_email ?? true);
       setAllowNoPreferenceStaff(data.bookingPage.allow_no_preference_staff ?? false);
-      setAllowNoPreferenceService(data.bookingPage.allow_no_preference_service ?? false);
       setBookingSaveStatus('saved');
       setTimeout(() => setBookingSaveStatus('idle'), 2000);
     } catch {
@@ -582,7 +556,6 @@ export default function BookingPage() {
           require_phone:              requirePhone,
           require_email:              requireEmail,
           allow_no_preference_staff:  allowNoPreferenceStaff,
-          allow_no_preference_service: allowNoPreferenceService,
         }),
       });
 
@@ -601,7 +574,6 @@ export default function BookingPage() {
       setRequirePhone(data.bookingPage.require_phone ?? true);
       setRequireEmail(data.bookingPage.require_email ?? true);
       setAllowNoPreferenceStaff(data.bookingPage.allow_no_preference_staff ?? false);
-      setAllowNoPreferenceService(data.bookingPage.allow_no_preference_service ?? false);
       setBookingSaveStatus('saved');
       setTimeout(() => setBookingSaveStatus('idle'), 2000);
     } catch {
@@ -1248,7 +1220,6 @@ export default function BookingPage() {
         ...prev,
         [barber.id]: buildBarberForm(barber, staffAvailability),
       }));
-      setStaffServices((prev) => ({ ...prev, [barber.id]: [] }));
       setAddBarberName('');
     } catch {
       setAddBarberError('Something went wrong. Please try again.');
@@ -1281,11 +1252,6 @@ export default function BookingPage() {
         delete next[barberId];
         return next;
       });
-      setStaffServices((prev) => {
-        const next = { ...prev };
-        delete next[barberId];
-        return next;
-      });
       setStaffAvailability((prev) => prev.filter((a) => a.barber_id !== barberId));
     } catch {
       alert('Something went wrong. Please try again.');
@@ -1295,98 +1261,79 @@ export default function BookingPage() {
   }
 
   // -------------------------------------------------------------------------
-  // Per-staff service handlers
+  // Global Services handlers
   // -------------------------------------------------------------------------
 
   /**
-   * Adds a new staff service for a specific barber via POST /api/staff-services.
-   *
-   * @param barberId - UUID of the barber.
+   * Adds a new global service via POST /api/services.
    */
-  async function handleAddStaffService(barberId: string): Promise<void> {
-    const form = addServiceForms[barberId];
-    if (!form) return;
+  async function handleAddGlobalService(): Promise<void> {
+    const trimmedName = addSvcForm.name.trim();
+    if (!trimmedName) { setAddSvcError('Service name is required.'); return; }
+    if (trimmedName.length > 50) { setAddSvcError('Name must be 50 characters or fewer.'); return; }
 
-    const trimmedName = form.name.trim();
-    if (!trimmedName) {
-      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Service name is required.' }));
-      return;
+    const durationNum = addSvcForm.duration ? parseInt(addSvcForm.duration, 10) : null;
+    if (addSvcForm.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
+      setAddSvcError('Duration must be a positive number of minutes.'); return;
+    }
+    const priceNum = addSvcForm.price ? parseFloat(addSvcForm.price) : null;
+    if (addSvcForm.price && (isNaN(priceNum!) || priceNum! < 0)) {
+      setAddSvcError('Price must be a non-negative number.'); return;
     }
 
-    const durationNum = form.duration ? parseInt(form.duration, 10) : null;
-    if (form.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
-      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Duration must be a positive number of minutes.' }));
-      return;
-    }
-
-    const priceNum = form.price ? parseFloat(form.price) : null;
-    if (form.price && (isNaN(priceNum!) || priceNum! < 0)) {
-      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Price must be a non-negative number.' }));
-      return;
-    }
-
-    setSavingAddServiceId(barberId);
-    setAddServiceErrors((prev) => ({ ...prev, [barberId]: '' }));
+    setAddingSvc(true);
+    setAddSvcError('');
 
     try {
-      const res = await fetch('/api/staff-services', {
+      const res = await fetch('/api/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          barber_id: barberId,
-          name: trimmedName,
-          duration_minutes: durationNum,
-          price: priceNum,
-        }),
+        body: JSON.stringify({ name: trimmedName, duration_minutes: durationNum, price: priceNum }),
       });
 
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
-        setAddServiceErrors((prev) => ({ ...prev, [barberId]: data.error ?? 'Failed to add service. Please try again.' }));
+        setAddSvcError(data.error ?? 'Failed to add service. Please try again.');
         return;
       }
 
-      const { staffService: service } = (await res.json()) as { staffService: StaffService };
-      setStaffServices((prev) => ({
-        ...prev,
-        [barberId]: [...(prev[barberId] ?? []), service].sort((a, b) => a.name.localeCompare(b.name)),
-      }));
-      setAddingServiceForId(null);
-      setAddServiceForms((prev) => ({ ...prev, [barberId]: { name: '', duration: '', price: '' } }));
+      const { service } = (await res.json()) as { service: Service };
+      setSalonServices((prev) => [...prev, service].sort((a, b) => a.name.localeCompare(b.name)));
+      setAddSvcForm({ name: '', duration: '', price: '' });
+      setShowAddSvcForm(false);
     } catch {
-      setAddServiceErrors((prev) => ({ ...prev, [barberId]: 'Something went wrong. Please try again.' }));
+      setAddSvcError('Something went wrong. Please try again.');
     } finally {
-      setSavingAddServiceId(null);
+      setAddingSvc(false);
     }
   }
 
   /**
-   * Saves inline edits for a staff service via PUT /api/staff-services/[id].
+   * Saves inline edits for a global service via PUT /api/services/[id].
    *
-   * @param serviceId - UUID of the staff service being edited.
-   * @param barberId  - UUID of the owning barber (to update local state).
+   * @param serviceId - UUID of the service being edited.
    */
-  async function handleSaveStaffServiceEdit(serviceId: string, barberId: string): Promise<void> {
-    const form = staffServiceEditForms[serviceId];
+  async function handleSaveGlobalServiceEdit(serviceId: string): Promise<void> {
+    const form = svcEditForms[serviceId];
     if (!form) return;
 
     const trimmedName = form.name.trim();
     if (!trimmedName) { alert('Service name is required.'); return; }
+    if (trimmedName.length > 50) { alert('Name must be 50 characters or fewer.'); return; }
 
     const durationNum = form.duration ? parseInt(form.duration, 10) : null;
     if (form.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
       alert('Duration must be a positive number of minutes.'); return;
     }
-
     const priceNum = form.price ? parseFloat(form.price) : null;
     if (form.price && (isNaN(priceNum!) || priceNum! < 0)) {
       alert('Price must be a non-negative number.'); return;
     }
 
-    setSavingStaffServiceId(serviceId);
+    setSavingSvcId(serviceId);
 
     try {
-      const res = await fetch(`/api/staff-services/${serviceId}`, {
+      const res = await fetch(`/api/services/${serviceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmedName, duration_minutes: durationNum, price: priceNum }),
@@ -1398,31 +1345,27 @@ export default function BookingPage() {
         return;
       }
 
-      const { service } = (await res.json()) as { service: StaffService };
-      setStaffServices((prev) => ({
-        ...prev,
-        [barberId]: (prev[barberId] ?? [])
-          .map((s) => (s.id === serviceId ? service : s))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      }));
-      setEditingStaffServiceId(null);
+      const { service } = (await res.json()) as { service: Service };
+      setSalonServices((prev) =>
+        prev.map((s) => (s.id === serviceId ? service : s)).sort((a, b) => a.name.localeCompare(b.name))
+      );
+      setEditingSvcId(null);
     } catch {
       alert('Something went wrong. Please try again.');
     } finally {
-      setSavingStaffServiceId(null);
+      setSavingSvcId(null);
     }
   }
 
   /**
-   * Toggles the active flag on a staff service via PUT /api/staff-services/[id].
+   * Toggles the active flag on a global service via PUT /api/services/[id].
    *
-   * @param serviceId - UUID of the staff service.
-   * @param barberId  - UUID of the owning barber.
+   * @param serviceId - UUID of the service.
    * @param active    - New active state.
    */
-  async function handleToggleStaffService(serviceId: string, barberId: string, active: boolean): Promise<void> {
+  async function handleToggleGlobalService(serviceId: string, active: boolean): Promise<void> {
     try {
-      const res = await fetch(`/api/staff-services/${serviceId}`, {
+      const res = await fetch(`/api/services/${serviceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active }),
@@ -1434,43 +1377,38 @@ export default function BookingPage() {
         return;
       }
 
-      const { service } = (await res.json()) as { service: StaffService };
-      setStaffServices((prev) => ({
-        ...prev,
-        [barberId]: (prev[barberId] ?? []).map((s) => (s.id === serviceId ? service : s)),
-      }));
+      const { service } = (await res.json()) as { service: Service };
+      setSalonServices((prev) => prev.map((s) => (s.id === serviceId ? service : s)));
     } catch {
       alert('Something went wrong. Please try again.');
     }
   }
 
   /**
-   * Deletes a staff service via DELETE /api/staff-services/[id].
+   * Deletes a global service via DELETE /api/services/[id].
    *
-   * @param serviceId   - UUID of the staff service.
-   * @param barberId    - UUID of the owning barber.
+   * @param serviceId   - UUID of the service.
    * @param serviceName - Used in the confirmation prompt.
    */
-  async function handleDeleteStaffService(serviceId: string, barberId: string, serviceName: string): Promise<void> {
+  async function handleDeleteGlobalService(serviceId: string, serviceName: string): Promise<void> {
     if (!window.confirm(`Remove "${serviceName}"? This cannot be undone.`)) return;
 
-    setDeletingStaffServiceId(serviceId);
+    setDeletingSvcId(serviceId);
 
     try {
-      const res = await fetch(`/api/staff-services/${serviceId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/services/${serviceId}`, { method: 'DELETE' });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
         alert(data.error ?? 'Failed to remove. Please try again.');
         return;
       }
-      setStaffServices((prev) => ({
-        ...prev,
-        [barberId]: (prev[barberId] ?? []).filter((s) => s.id !== serviceId),
-      }));
+      setSalonServices((prev) => prev.filter((s) => s.id !== serviceId));
+      // Also clean up any barber_services assignments for this service from local state.
+      setBarberServiceAssignments((prev) => prev.filter((ba) => ba.service_id !== serviceId));
     } catch {
       alert('Something went wrong. Please try again.');
     } finally {
-      setDeletingStaffServiceId(null);
+      setDeletingSvcId(null);
     }
   }
 
@@ -1578,8 +1516,8 @@ export default function BookingPage() {
     ? `${window.location.origin}/book/${bookingPage.slug}`
     : bookingPage ? `https://noshowly.com/book/${bookingPage.slug}` : null;
 
-  /** Whether at least one barber has at least one service. */
-  const hasAnyService = Object.values(staffServices).some((svcs) => svcs.length > 0);
+  /** Whether at least one active global service exists. */
+  const hasAnyService = salonServices.some((s) => s.active);
 
   // -------------------------------------------------------------------------
   // Render
@@ -1851,17 +1789,6 @@ export default function BookingPage() {
                         label="Allow no preference for staff"
                       />
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-[#1A1A1A]">Allow &quot;No preference&quot; for service</p>
-                        <p className="text-xs text-[#8A8680] mt-0.5">Clients can skip choosing a specific service.</p>
-                      </div>
-                      <Toggle
-                        checked={allowNoPreferenceService}
-                        onChange={(v) => { setAllowNoPreferenceService(v); scheduleBookingSave(); }}
-                        label="Allow no preference for service"
-                      />
-                    </div>
                   </div>
 
                   {bookingError && (
@@ -1877,7 +1804,209 @@ export default function BookingPage() {
         </section>
 
         {/* ==================================================================
-            SECTION 2: Staff
+            SECTION 2: Global Services
+        ================================================================== */}
+        <section>
+          <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Services</h2>
+          <p className="text-sm text-[#8A8680] mb-4">
+            Define the services you offer. Toggle &quot;Available on booking page&quot; to control what clients can book.
+          </p>
+
+          <SectionCard>
+            <div className="p-6 space-y-0">
+              {salonServices.length === 0 && !showAddSvcForm && (
+                <p className="text-sm text-[#8A8680] py-2">No services yet. Add your first service below.</p>
+              )}
+
+              {salonServices.length > 0 && (
+                <ul className="divide-y divide-[#E5E2DB]/30 mb-4">
+                  {salonServices.map((svc) => (
+                    <li key={svc.id} className="py-3">
+                      {editingSvcId === svc.id ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="col-span-1 space-y-1">
+                              <Label className="text-xs text-[#8A8680]">Name</Label>
+                              <Input
+                                value={svcEditForms[svc.id]?.name ?? ''}
+                                onChange={(e) => setSvcEditForms((prev) => ({ ...prev, [svc.id]: { ...prev[svc.id], name: e.target.value } }))}
+                                maxLength={50}
+                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-[#8A8680]">Min</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={svcEditForms[svc.id]?.duration ?? ''}
+                                onChange={(e) => setSvcEditForms((prev) => ({ ...prev, [svc.id]: { ...prev[svc.id], duration: e.target.value } }))}
+                                placeholder="30"
+                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-[#8A8680]">Price</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={svcEditForms[svc.id]?.price ?? ''}
+                                onChange={(e) => setSvcEditForms((prev) => ({ ...prev, [svc.id]: { ...prev[svc.id], price: e.target.value } }))}
+                                placeholder="25.00"
+                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              disabled={savingSvcId === svc.id}
+                              onClick={() => void handleSaveGlobalServiceEdit(svc.id)}
+                              className="bg-[#1B4332] hover:bg-[#16392A] text-white text-xs px-3 py-1.5 h-auto"
+                            >
+                              {savingSvcId === svc.id ? 'Saving…' : 'Save'}
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingSvcId(null)}
+                              className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>{svc.name}</p>
+                            {(svc.duration_minutes || svc.price != null) && (
+                              <p className="text-xs text-[#8A8680] mt-0.5">
+                                {[
+                                  svc.duration_minutes ? `${svc.duration_minutes} min` : null,
+                                  svc.price != null ? `$${Number(svc.price).toFixed(2)}` : null,
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                            <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer select-none w-fit">
+                              <input
+                                type="checkbox"
+                                checked={svc.active}
+                                onChange={(e) => void handleToggleGlobalService(svc.id, e.target.checked)}
+                                className="h-3.5 w-3.5 rounded border-[#E5E2DB] accent-[#1A1A1A] cursor-pointer"
+                              />
+                              <span className="text-xs text-[#8A8680]">Available on booking page</span>
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSvcId(svc.id);
+                                setSvcEditForms((prev) => ({
+                                  ...prev,
+                                  [svc.id]: {
+                                    name: svc.name,
+                                    duration: svc.duration_minutes?.toString() ?? '',
+                                    price: svc.price != null ? String(svc.price) : '',
+                                  },
+                                }));
+                              }}
+                              className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteGlobalService(svc.id, svc.name)}
+                              disabled={deletingSvcId === svc.id}
+                              className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
+                            >
+                              {deletingSvcId === svc.id ? 'Removing…' : 'Remove'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {showAddSvcForm ? (
+                <div className="space-y-2 pt-1">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-1 space-y-1">
+                      <Label className="text-xs text-[#8A8680]">Name *</Label>
+                      <Input
+                        type="text"
+                        value={addSvcForm.name}
+                        onChange={(e) => { setAddSvcForm((prev) => ({ ...prev, name: e.target.value })); if (addSvcError) setAddSvcError(''); }}
+                        placeholder="e.g. Haircut"
+                        maxLength={50}
+                        disabled={addingSvc}
+                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-[#8A8680]">Min</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={addSvcForm.duration}
+                        onChange={(e) => setAddSvcForm((prev) => ({ ...prev, duration: e.target.value }))}
+                        placeholder="30"
+                        disabled={addingSvc}
+                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-[#8A8680]">Price</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={addSvcForm.price}
+                        onChange={(e) => setAddSvcForm((prev) => ({ ...prev, price: e.target.value }))}
+                        placeholder="25.00"
+                        disabled={addingSvc}
+                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
+                      />
+                    </div>
+                  </div>
+                  {addSvcError && <p className="text-xs text-red-600">{addSvcError}</p>}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      disabled={addingSvc}
+                      onClick={() => void handleAddGlobalService()}
+                      className="bg-[#1B4332] hover:bg-[#16392A] text-white text-xs px-3 py-1.5 h-auto"
+                    >
+                      {addingSvc ? 'Adding…' : 'Add'}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowAddSvcForm(false); setAddSvcError(''); }}
+                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setShowAddSvcForm(true); setAddSvcForm({ name: '', duration: '', price: '' }); }}
+                  className="text-xs font-medium text-[#1A1A1A] hover:text-[#2D2D2D] transition-colors mt-2"
+                >
+                  + Add service
+                </button>
+              )}
+            </div>
+          </SectionCard>
+        </section>
+
+        {/* ==================================================================
+            SECTION 3: Staff
         ================================================================== */}
         <section>
           <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Staff</h2>
@@ -1904,11 +2033,6 @@ export default function BookingPage() {
               const isDeleting = deletingBarberId === barber.id;
               const isRemovingPhoto = removingPhotoForId === barber.id;
               const initials = barber.name.slice(0, 2).toUpperCase();
-              const services = staffServices[barber.id] ?? [];
-              const isAddingService = addingServiceForId === barber.id;
-              const addForm = addServiceForms[barber.id] ?? { name: '', duration: '', price: '' };
-              const addError = addServiceErrors[barber.id] ?? '';
-              const isSavingAdd = savingAddServiceId === barber.id;
 
               return (
                 <SectionCard key={barber.id}>
@@ -2023,229 +2147,14 @@ export default function BookingPage() {
                       </div>
                     </div>
 
-                    {/* Per-staff services */}
-                    <div>
-                      <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">Services</p>
-
-                      {services.length > 0 && (
-                        <ul className="divide-y divide-[#C8C8C8]/20 mb-2">
-                          {services.filter((svc): svc is NonNullable<typeof svc> => svc != null).map((svc) => (
-                            <li key={svc.id} className="py-2.5">
-                              {editingStaffServiceId === svc.id ? (
-                                <div className="space-y-2">
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div className="col-span-1 space-y-1">
-                                      <Label className="text-xs text-[#8A8680]">Name</Label>
-                                      <Input
-                                        value={staffServiceEditForms[svc.id]?.name ?? ''}
-                                        onChange={(e) =>
-                                          setStaffServiceEditForms((prev) => ({
-                                            ...prev,
-                                            [svc.id]: { ...prev[svc.id], name: e.target.value },
-                                          }))
-                                        }
-                                        maxLength={50}
-                                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
-                                      />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-[#8A8680]">Min</Label>
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        value={staffServiceEditForms[svc.id]?.duration ?? ''}
-                                        onChange={(e) =>
-                                          setStaffServiceEditForms((prev) => ({
-                                            ...prev,
-                                            [svc.id]: { ...prev[svc.id], duration: e.target.value },
-                                          }))
-                                        }
-                                        placeholder="30"
-                                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
-                                      />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-[#8A8680]">Price</Label>
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        step={0.01}
-                                        value={staffServiceEditForms[svc.id]?.price ?? ''}
-                                        onChange={(e) =>
-                                          setStaffServiceEditForms((prev) => ({
-                                            ...prev,
-                                            [svc.id]: { ...prev[svc.id], price: e.target.value },
-                                          }))
-                                        }
-                                        placeholder="25.00"
-                                        className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Button
-                                      type="button"
-                                      disabled={savingStaffServiceId === svc.id}
-                                      onClick={() => void handleSaveStaffServiceEdit(svc.id, barber.id)}
-                                      className="bg-[#1B4332] hover:bg-[#16392A] text-white text-xs px-3 py-1.5 h-auto"
-                                    >
-                                      {savingStaffServiceId === svc.id ? 'Saving…' : 'Save'}
-                                    </Button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingStaffServiceId(null)}
-                                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>{svc.name}</p>
-                                    {(svc.duration_minutes || svc.price != null) && (
-                                      <p className="text-xs text-[#8A8680] mt-0.5">
-                                        {[
-                                          svc.duration_minutes ? `${svc.duration_minutes} min` : null,
-                                          svc.price != null ? `$${svc.price.toFixed(2)}` : null,
-                                        ].filter(Boolean).join(' · ')}
-                                      </p>
-                                    )}
-                                    {/* Checkbox: controls whether service appears on the booking page */}
-                                    <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer select-none w-fit">
-                                      <input
-                                        type="checkbox"
-                                        checked={svc.active}
-                                        onChange={(e) => void handleToggleStaffService(svc.id, barber.id, e.target.checked)}
-                                        className="h-3.5 w-3.5 rounded border-[#E5E2DB] accent-[#1A1A1A] cursor-pointer"
-                                      />
-                                      <span className="text-xs text-[#8A8680]">Available on booking page</span>
-                                    </label>
-                                  </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingStaffServiceId(svc.id);
-                                        setStaffServiceEditForms((prev) => ({
-                                          ...prev,
-                                          [svc.id]: {
-                                            name: svc.name,
-                                            duration: svc.duration_minutes?.toString() ?? '',
-                                            price: svc.price?.toString() ?? '',
-                                          },
-                                        }));
-                                      }}
-                                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleDeleteStaffService(svc.id, barber.id, svc.name)}
-                                      disabled={deletingStaffServiceId === svc.id}
-                                      className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
-                                    >
-                                      {deletingStaffServiceId === svc.id ? 'Removing…' : 'Remove'}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      {/* Add service form / button */}
-                      {isAddingService ? (
-                        <div className="space-y-2 pt-1">
-                          <div className="grid grid-cols-3 gap-2">
-                            <div className="col-span-1 space-y-1">
-                              <Label className="text-xs text-[#8A8680]">Name *</Label>
-                              <Input
-                                type="text"
-                                value={addForm.name}
-                                onChange={(e) => {
-                                  setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, name: e.target.value } }));
-                                  if (addError) setAddServiceErrors((prev) => ({ ...prev, [barber.id]: '' }));
-                                }}
-                                placeholder="e.g. Haircut"
-                                maxLength={50}
-                                disabled={isSavingAdd}
-                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-[#8A8680]">Min</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={addForm.duration}
-                                onChange={(e) => setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, duration: e.target.value } }))}
-                                placeholder="30"
-                                disabled={isSavingAdd}
-                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-[#8A8680]">Price</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                value={addForm.price}
-                                onChange={(e) => setAddServiceForms((prev) => ({ ...prev, [barber.id]: { ...addForm, price: e.target.value } }))}
-                                placeholder="25.00"
-                                disabled={isSavingAdd}
-                                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-xs"
-                              />
-                            </div>
-                          </div>
-                          {addError && <p className="text-xs text-red-600">{addError}</p>}
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              disabled={isSavingAdd}
-                              onClick={() => void handleAddStaffService(barber.id)}
-                              className="bg-[#1B4332] hover:bg-[#16392A] text-white text-xs px-3 py-1.5 h-auto"
-                            >
-                              {isSavingAdd ? 'Adding…' : 'Add'}
-                            </Button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAddingServiceForId(null);
-                                setAddServiceErrors((prev) => ({ ...prev, [barber.id]: '' }));
-                              }}
-                              className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAddingServiceForId(barber.id);
-                            setAddServiceForms((prev) => ({ ...prev, [barber.id]: { name: '', duration: '', price: '' } }));
-                          }}
-                          className="text-xs font-medium text-[#1A1A1A] hover:text-[#2D2D2D] transition-colors"
-                        >
-                          + Add service
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Dashboard service assignments */}
+                    {/* Services this staff member can perform */}
                     {salonServices.length > 0 && (
                       <div>
                         <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-1">
-                          Services in appointments
+                          Services this staff member can perform
                         </p>
                         <p className="text-xs text-[#8A8680] mb-3">
-                          When checked, this staff member can be selected for these services in the appointment modal.
+                          When checked, this staff member will be available for these services.
                         </p>
                         <div className="space-y-2">
                           {salonServices.map((svc) => {
@@ -2447,7 +2356,7 @@ export default function BookingPage() {
                   )}
                   {!hasAnyService && (
                     <p className="text-sm text-amber-600">
-                      Add at least one service to a staff member before going live.
+                      Add at least one active service before going live.
                     </p>
                   )}
 

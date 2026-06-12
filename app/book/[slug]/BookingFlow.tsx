@@ -28,7 +28,7 @@ import { useState, useEffect, FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Barber, StaffAvailability, StaffService } from '@/types';
+import type { Barber, BarberService, Service, StaffAvailability } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,16 +36,16 @@ import type { Barber, StaffAvailability, StaffService } from '@/types';
 
 type TimeSlot = { start: string; end: string };
 
-type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'> & {
-  staffServices: Pick<StaffService, 'id' | 'name' | 'duration_minutes' | 'price'>[];
-};
+type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'>;
 
 type PublicAvailability = Pick<
   StaffAvailability,
   'barber_id' | 'day_of_week' | 'is_available' | 'time_slots' | 'start_time_1' | 'end_time_1' | 'start_time_2' | 'end_time_2'
 >;
 
-type PublicService = Pick<StaffService, 'id' | 'name' | 'duration_minutes' | 'price'>;
+type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
+
+type BarberServiceLink = Pick<BarberService, 'barber_id' | 'service_id'>;
 
 /** A booked appointment slot: local HH:MM time + which barber is assigned. */
 type BookedSlot = {
@@ -67,8 +67,6 @@ type Props = {
   requireEmail: boolean;
   /** Whether clients may choose "No preference" for staff. */
   allowNoPreferenceStaff: boolean;
-  /** Whether clients may choose "No preference" for service. */
-  allowNoPreferenceService: boolean;
   salon: {
     name: string;
     timezone: string;
@@ -79,6 +77,10 @@ type Props = {
     currency: string;
   };
   barbers: PublicBarber[];
+  /** Active global services for this salon, ordered by name. */
+  globalServices: PublicService[];
+  /** Links barbers to the services they can perform (from barber_services table). */
+  barberServiceAssignments: BarberServiceLink[];
   staffAvailability: PublicAvailability[];
 };
 
@@ -546,9 +548,10 @@ export default function BookingFlow({
   requirePhone,
   requireEmail,
   allowNoPreferenceStaff,
-  allowNoPreferenceService,
   salon,
   barbers,
+  globalServices,
+  barberServiceAssignments,
   staffAvailability,
 }: Props) {
   const currencySymbol = getCurrencySymbol(salon.currency);
@@ -603,39 +606,49 @@ export default function BookingFlow({
 
   /**
    * Returns the services available for the current barber selection.
-   * - Specific barber: returns their staffServices.
-   * - 'none' (no preference): returns union of all barbers' services, deduped by name.
-   * - null (no selection): returns empty.
+   * - Specific barber: returns global services they are assigned to (via barber_services).
+   *   If no assignments exist for this barber, returns all global services (backwards compat).
+   * - 'none' (no preference): returns all global services.
+   * - null (no selection): returns all global services (shown before staff is chosen).
    */
   const availableServices: PublicService[] = (() => {
-    if (!hasBarbers || selectedBarber === null) return [];
-
-    if (selectedBarber === 'none') {
-      const seen = new Set<string>();
-      const result: PublicService[] = [];
-      for (const b of barbers) {
-        for (const svc of b.staffServices) {
-          if (!seen.has(svc.name.toLowerCase())) {
-            seen.add(svc.name.toLowerCase());
-            result.push(svc);
-          }
-        }
-      }
-      return result.sort((a, b) => a.name.localeCompare(b.name));
+    if (selectedBarber === null || selectedBarber === 'none') {
+      return globalServices;
     }
 
-    return selectedBarber.staffServices ?? [];
+    // Specific barber: filter to services they are assigned to.
+    const assignedServiceIds = new Set(
+      barberServiceAssignments
+        .filter((ba) => ba.barber_id === selectedBarber.id)
+        .map((ba) => ba.service_id)
+    );
+
+    if (assignedServiceIds.size === 0) {
+      // No assignments → all global services available (backwards compatible).
+      return globalServices;
+    }
+
+    return globalServices.filter((svc) => assignedServiceIds.has(svc.id));
   })();
 
   // When "no preference" is selected and a service is chosen, restrict slot calculations
-  // to only barbers who offer that service. Prevents showing time slots (or calendar days)
-  // where the only available staff don't actually perform the selected service.
+  // to only barbers who are assigned to that service via barber_services.
+  // If no assignments exist for the service, all barbers are eligible (backwards compat).
   const effectiveBarbers: PublicBarber[] = (() => {
     if (selectedBarber !== 'none' || !selectedService) return barbers;
-    const serviceName = selectedService.name.toLowerCase();
-    return barbers.filter((b) =>
-      b.staffServices.some((svc) => svc.name.toLowerCase() === serviceName)
+
+    const assignedBarberIds = new Set(
+      barberServiceAssignments
+        .filter((ba) => ba.service_id === selectedService.id)
+        .map((ba) => ba.barber_id)
     );
+
+    if (assignedBarberIds.size === 0) {
+      // No assignments for this service → all barbers eligible.
+      return barbers;
+    }
+
+    return barbers.filter((b) => assignedBarberIds.has(b.id));
   })();
 
   // -------------------------------------------------------------------------
@@ -645,9 +658,9 @@ export default function BookingFlow({
   useEffect(() => {
     if (step === 'staff' && barbers.length === 1 && !allowNoPreferenceStaff) {
       setSelectedBarber(barbers[0]);
-      setStep(barbers[0].staffServices.length > 0 ? 'service' : 'datetime');
+      setStep(globalServices.length > 0 ? 'service' : 'datetime');
     }
-  }, [step, barbers, allowNoPreferenceStaff]);
+  }, [step, barbers, allowNoPreferenceStaff, globalServices]);
 
   // -------------------------------------------------------------------------
   // Fetch booked slots when the selected date changes
@@ -879,18 +892,18 @@ export default function BookingFlow({
   // Helper: select a barber and advance to next step
   // -------------------------------------------------------------------------
 
+  /**
+   * Selects a barber and advances to the next step.
+   * If global services exist, go to service step; otherwise skip to datetime.
+   *
+   * @param barber - The selected barber, or 'none' for no preference.
+   */
   function handleSelectBarber(barber: PublicBarber | 'none') {
     setSelectedBarber(barber);
     setSelectedService(null);
     setSelectedDate(null);
     setSelectedTime(null);
-
-    if (barber === 'none') {
-      const anyServices = barbers.some((b) => b.staffServices.length > 0);
-      setStep(anyServices ? 'service' : 'datetime');
-    } else {
-      setStep(barber.staffServices.length > 0 ? 'service' : 'datetime');
-    }
+    setStep(globalServices.length > 0 ? 'service' : 'datetime');
   }
 
   // -------------------------------------------------------------------------
@@ -1111,29 +1124,11 @@ export default function BookingFlow({
                 </div>
 
                 {availableServices.length === 0 ? (
-                  <div className="p-6 text-center space-y-4">
-                    <p className="font-body text-sm text-[#8A8680]">No services listed. Please continue to pick a time.</p>
-                    <Button
-                      type="button"
-                      onClick={() => setStep('datetime')}
-                      className="bg-[#1B4332] hover:bg-[#16392A] text-white px-6 py-2.5 h-auto font-body"
-                    >
-                      Continue &#8594;
-                    </Button>
+                  <div className="p-6 text-center">
+                    <p className="font-body text-sm text-[#8A8680]">No services are available for this selection.</p>
                   </div>
                 ) : (
                   <div className="p-5">
-                    {allowNoPreferenceService && (
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedService(null); setStep('datetime'); }}
-                        className="w-full text-left p-4 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#F5FAF7] transition-colors mb-4"
-                      >
-                        <p className="font-body text-sm font-semibold text-[#1A1A1A]">No preference</p>
-                        <p className="font-body text-xs text-[#8A8680] mt-0.5">Any available service</p>
-                      </button>
-                    )}
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {availableServices.map((svc) => (
                         <button

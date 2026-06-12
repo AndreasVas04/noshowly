@@ -392,46 +392,19 @@ async function handleBookingPost(
   }
 
   // Step 4: Resolve service name from service_id if provided.
-  // NOTE: service_id comes from the staff_services table (per-barber services),
-  // not the shared services table — look up in staff_services.
+  // service_id comes from the global services table (salon-level).
   let resolvedServiceName: string | null = serviceName;
   if (serviceId) {
     const { data: svc, error: svcError } = await supabase
-      .from('staff_services')
+      .from('services')
       .select('name')
       .eq('id', serviceId)
       .eq('active', true)
       .single();
     if (svcError) {
-      console.error('[POST /api/book/[slug]/appointments] staff_services lookup error — serviceId:', serviceId, '| error:', JSON.stringify(svcError));
+      console.error('[POST /api/book/[slug]/appointments] services lookup error — serviceId:', serviceId, '| error:', JSON.stringify(svcError));
     }
     if (svc) resolvedServiceName = svc.name;
-  }
-
-  // BUG 5 guard: if a barber was explicitly assigned and a service was requested,
-  // verify the barber actually offers that service. This catches invalid combinations
-  // that could arise from a race condition or a tampered request.
-  if (barberId && resolvedServiceName) {
-    const { data: barberOffersService } = await supabase
-      .from('staff_services')
-      .select('id')
-      .eq('barber_id', barberId)
-      .eq('name', resolvedServiceName)
-      .eq('active', true)
-      .maybeSingle();
-
-    if (!barberOffersService) {
-      console.error(
-        '[POST /api/book/[slug]/appointments] barber does not offer service — barberId:',
-        barberId,
-        '| service:', resolvedServiceName,
-        '| salonId:', salonId,
-      );
-      return Response.json(
-        { error: 'The selected staff member does not offer this service.' },
-        { status: 400 }
-      );
-    }
   }
 
   // Step 5: Find or create client. Deduplicate by phone first, then by email.
@@ -575,7 +548,7 @@ async function handleBookingPost(
   // "no preference", so we pick the best available member on their behalf.
   let resolvedBarberId: string | null = barberId;
   if (!barberId) {
-    // Fetch all active barbers for this salon so we can scope the staff_services query.
+    // Fetch all active barbers for this salon.
     const { data: activeBarbers } = await supabase
       .from('barbers')
       .select('id')
@@ -585,21 +558,34 @@ async function handleBookingPost(
     if (activeBarbers && activeBarbers.length > 0) {
       const allBarberIds = activeBarbers.map((b) => b.id);
 
-      // If a service was selected, narrow candidates to barbers who offer it via staff_services.
-      // If no staff_services rows exist for this service, all barbers are candidates (backwards compat).
+      // If a service was selected, narrow candidates to barbers who are assigned to it
+      // via barber_services. If no assignments exist, all barbers are candidates (backwards compat).
       let candidateBarberIds: string[] | null = null;
-      if (resolvedServiceName) {
-        const { data: svcRows } = await supabase
-          .from('staff_services')
-          .select('barber_id')
-          .in('barber_id', allBarberIds)
-          .eq('name', resolvedServiceName)
-          .eq('active', true);
-
-        if (svcRows && svcRows.length > 0) {
-          candidateBarberIds = svcRows.map((r) => r.barber_id);
+      if (serviceId || resolvedServiceName) {
+        // Look up the service record to get its ID (needed for barber_services join).
+        let resolvedServiceId = serviceId;
+        if (!resolvedServiceId && resolvedServiceName) {
+          const { data: svcRecord } = await supabase
+            .from('services')
+            .select('id')
+            .eq('salon_id', salonId)
+            .ilike('name', resolvedServiceName)
+            .maybeSingle();
+          resolvedServiceId = svcRecord?.id ?? null;
         }
-        // svcRows empty → no restriction → candidateBarberIds stays null (all barbers)
+
+        if (resolvedServiceId) {
+          const { data: svcRows } = await supabase
+            .from('barber_services')
+            .select('barber_id')
+            .eq('service_id', resolvedServiceId)
+            .in('barber_id', allBarberIds);
+
+          if (svcRows && svcRows.length > 0) {
+            candidateBarberIds = svcRows.map((r) => r.barber_id);
+          }
+          // svcRows empty → no restriction → candidateBarberIds stays null (all barbers)
+        }
       }
 
       const eligible = await findEligibleBarbers({
