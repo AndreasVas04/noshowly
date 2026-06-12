@@ -19,16 +19,6 @@ import PricingTabs from './PricingTabs';
 import PricingPageHeader from './PricingPageHeader';
 
 /**
- * Returns true if the user is already on a paid subscription.
- *
- * @param plan - The user's current plan.
- * @returns true if on a paid plan.
- */
-function isPaidPlan(plan: UserPlan): boolean {
-  return plan !== 'trial' && plan !== 'cancelled';
-}
-
-/**
  * Pricing page — fetches the authenticated user's plan, renders the tabbed
  * plan selector. Redirects to /login if not authenticated.
  *
@@ -47,7 +37,6 @@ export default async function PricingPage() {
     .single();
 
   const currentPlan: UserPlan = (user?.plan as UserPlan) ?? 'trial';
-  const onTrial     = currentPlan === 'trial';
   const onCancelled = currentPlan === 'cancelled';
 
   return (
@@ -57,19 +46,11 @@ export default async function PricingPage() {
 
       <div className="mx-auto max-w-5xl px-6 py-14">
 
-        {/* Trial or cancelled banner */}
-        {(onTrial || onCancelled) && (
-          <div
-            className={`mb-10 rounded-xl border px-6 py-5 ${
-              onCancelled
-                ? 'border-red-200 bg-red-50'
-                : 'border-[#C8C8C8]/40 bg-white'
-            }`}
-          >
-            <p className={`text-sm font-medium ${onCancelled ? 'text-red-800' : 'text-[#1A1A1A]'}`}>
-              {onCancelled
-                ? 'Your subscription has ended. Pick a plan below to reactivate your account and keep your data.'
-                : 'Activate your account with one simple plan.'}
+        {/* Cancelled banner */}
+        {onCancelled && (
+          <div className="mb-10 rounded-xl border border-red-200 bg-red-50 px-6 py-5">
+            <p className="text-sm font-medium text-red-800">
+              Your subscription has ended. Pick a plan below to reactivate your account and keep your data.
             </p>
           </div>
         )}

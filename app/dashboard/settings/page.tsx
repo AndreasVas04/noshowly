@@ -214,7 +214,6 @@ export default function SettingsPage() {
   // Section 1: Business info
   // -------------------------------------------------------------------------
   const [salonName, setSalonName] = useState('');
-  const [phone, setPhone]         = useState('');
   const [timezone, setTimezone]   = useState('UTC');
   const [currency, setCurrency]   = useState('USD');
   const [salonInfoSaveStatus, setSalonInfoSaveStatus] = useState<SaveStatus>('idle');
@@ -287,7 +286,6 @@ export default function SettingsPage() {
         const salon = salonData.salon;
 
         setSalonName(salon.name ?? '');
-        setPhone(salon.phone ?? '');
         setTimezone(salon.timezone ?? 'UTC');
         setCurrency(salon.currency ?? 'USD');
         setEmailConfirmationEnabled(salon.email_confirmation_enabled ?? true);
@@ -334,13 +332,12 @@ export default function SettingsPage() {
    * Captures field values from the closure at schedule time (no stale-closure
    * risk because `scheduleSalonInfoSave` is recreated on every render).
    *
-   * @param name     - Current business name value.
-   * @param ph       - Current phone value.
-   * @param tz       - Current timezone value.
-   * @param cur      - Current currency value.
+   * @param name - Current business name value.
+   * @param tz   - Current timezone value.
+   * @param cur  - Current currency value.
    */
   async function doSalonInfoSave(
-    name: string, ph: string, tz: string, cur: string
+    name: string, tz: string, cur: string
   ): Promise<void> {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -363,7 +360,6 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: trimmedName,
-          phone: ph.trim() || null,
           timezone: tz,
           currency: cur,
         }),
@@ -389,17 +385,16 @@ export default function SettingsPage() {
    * Clears any pending timer before scheduling a new one.
    *
    * @param name - Latest business name value.
-   * @param ph   - Latest phone value.
    * @param tz   - Latest timezone value.
    * @param cur  - Latest currency value.
    */
   function scheduleSalonInfoSave(
-    name: string, ph: string, tz: string, cur: string
+    name: string, tz: string, cur: string
   ): void {
     if (salonInfoTimerRef.current !== null) clearTimeout(salonInfoTimerRef.current);
     setSalonInfoSaveStatus('idle');
     salonInfoTimerRef.current = setTimeout(() => {
-      void doSalonInfoSave(name, ph, tz, cur);
+      void doSalonInfoSave(name, tz, cur);
     }, 800);
   }
 
@@ -742,32 +737,13 @@ export default function SettingsPage() {
                 onChange={(e) => {
                   const v = e.target.value;
                   setSalonName(v);
-                  scheduleSalonInfoSave(v, phone, timezone, currency);
+                  scheduleSalonInfoSave(v, timezone, currency);
                 }}
                 placeholder="e.g. City Dental Clinic"
                 maxLength={100}
                 className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
               />
               <p className="text-xs text-[#8A8680] font-body">This is the name your clients see in reminder messages.</p>
-            </div>
-
-            {/* Phone */}
-            <div className="space-y-1.5">
-              <FieldLabel htmlFor="salon-phone">Business phone (optional)</FieldLabel>
-              <Input
-                id="salon-phone"
-                type="text"
-                value={phone}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setPhone(v);
-                  scheduleSalonInfoSave(salonName, v, timezone, currency);
-                }}
-                placeholder="e.g. +1 555 000 0000"
-                maxLength={20}
-                className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
-              />
-              <p className="text-xs text-[#8A8680] font-body">Your business contact number. Not used for sending reminders.</p>
             </div>
 
             {/* Timezone */}
@@ -779,7 +755,7 @@ export default function SettingsPage() {
                 onChange={(e) => {
                   const v = e.target.value;
                   setTimezone(v);
-                  scheduleSalonInfoSave(salonName, phone, v, currency);
+                  scheduleSalonInfoSave(salonName, v, currency);
                 }}
                 className="w-full h-10 rounded-lg border border-[#E5E2DB] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1B4332] transition-colors"
               >
@@ -799,7 +775,7 @@ export default function SettingsPage() {
                 onChange={(e) => {
                   const v = e.target.value;
                   setCurrency(v);
-                  scheduleSalonInfoSave(salonName, phone, timezone, v);
+                  scheduleSalonInfoSave(salonName, timezone, v);
                 }}
                 className="w-full h-10 rounded-lg border border-[#E5E2DB] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1B4332] transition-colors"
               >
