@@ -570,6 +570,26 @@ export default function AddAppointmentModal({
   }
 
   /**
+   * Routes a 409 conflict error message to the appropriate field.
+   *
+   * Auto-assign errors ("No available staff", "Multiple staff") are shown
+   * under the staff dropdown so the owner can act on them directly.
+   * All other 409s (booking time conflicts) go under the time field.
+   *
+   * @param message - Error string from the API response.
+   */
+  function route409Error(message: string): void {
+    const isStaffAutoAssign =
+      message.startsWith('No available staff') ||
+      message.startsWith('Multiple staff');
+    if (isStaffAutoAssign) {
+      setFieldErrors((prev) => ({ ...prev, barberId: message }));
+    } else {
+      setFieldErrors((prev) => ({ ...prev, time: message }));
+    }
+  }
+
+  /**
    * Executes the API save after all validations pass.
    * Shared by handleSubmit (direct) and the warning dialog ("Yes, save").
    */
@@ -624,8 +644,7 @@ export default function AddAppointmentModal({
         if (!res.ok) {
           const payload = (await res.json()) as { error?: string };
           if (res.status === 409) {
-            // Booking conflict — show under the time field.
-            setFieldErrors((prev) => ({ ...prev, time: payload.error ?? 'Booking conflict' }));
+            route409Error(payload.error ?? 'Booking conflict');
             return;
           }
           throw new Error(payload.error ?? 'Failed to update appointment');
@@ -647,7 +666,7 @@ export default function AddAppointmentModal({
         if (!res.ok) {
           const payload = (await res.json()) as { error?: string };
           if (res.status === 409) {
-            setFieldErrors((prev) => ({ ...prev, time: payload.error ?? 'Booking conflict' }));
+            route409Error(payload.error ?? 'Booking conflict');
             return;
           }
           throw new Error(payload.error ?? 'Failed to create appointment');
@@ -1035,6 +1054,9 @@ export default function AddAppointmentModal({
                   <p className="text-xs text-[#8A8680]">
                     Showing {filteredBarbers.length} of {barbers.length} staff for this service.
                   </p>
+                )}
+                {fieldErrors.barberId && (
+                  <p className="text-xs text-red-600">{fieldErrors.barberId}</p>
                 )}
               </div>
             </div>

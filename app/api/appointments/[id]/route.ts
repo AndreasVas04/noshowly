@@ -16,6 +16,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { findEligibleBarbers } from '@/lib/appointment-helpers';
 import type {
   Appointment,
   AppointmentWithDetails,
@@ -267,10 +268,10 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'No valid fields provided to update' }, { status: 400 });
   }
 
-  // Step 3: Resolve salon for this user.
+  // Step 3: Resolve salon for this user. Include timezone for auto-assign availability checks.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
-    .select('id')
+    .select('id, timezone')
     .eq('user_id', session.user.id)
     .single();
 
@@ -386,6 +387,65 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
               { status: 400 }
             );
           }
+        }
+      }
+    }
+  }
+
+  // Step 5b: Auto-assign when rescheduling an appointment that has no barber.
+  // Only runs when:
+  //  - datetime is being updated (it's a reschedule — not a pure notes/status edit)
+  //  - barber_id is NOT in the update body (owner left the staff field unchanged)
+  //  - The existing appointment has barber_id = null
+  //  - The salon has at least one active barber
+  // findEligibleBarbers handles service restrictions, availability, and conflicts.
+  if (updates.datetime && !('barber_id' in updates)) {
+    const { data: existingForAssign } = await supabase
+      .from('appointments')
+      .select('barber_id, service_type')
+      .eq('id', id)
+      .eq('salon_id', salon.id)
+      .single();
+
+    if (existingForAssign?.barber_id === null) {
+      const { count: activeBarberCount } = await supabase
+        .from('barbers')
+        .select('id', { count: 'exact', head: true })
+        .eq('salon_id', salon.id)
+        .eq('active', true);
+
+      if (activeBarberCount && activeBarberCount > 0) {
+        // Use the updated service_type if being changed, otherwise the current one.
+        const serviceForCheck = ('service_type' in updates
+          ? updates.service_type
+          : existingForAssign.service_type) as string | null | undefined;
+
+        const eligible = await findEligibleBarbers({
+          supabase,
+          salonId: salon.id,
+          datetimeUTC: updates.datetime,
+          timezone: salon.timezone,
+          serviceTypeName: serviceForCheck ?? null,
+          excludeAppointmentId: id,
+          conflictWindowMinutes: 30,
+        });
+
+        if (eligible.length === 0) {
+          return Response.json(
+            { error: 'No available staff member can perform this service at this time.' },
+            { status: 409 }
+          );
+        }
+
+        if (eligible.length === 1) {
+          // Exactly one eligible — auto-assign.
+          updates.barber_id = eligible[0].id;
+        } else {
+          // Multiple eligible — require the owner to choose explicitly.
+          return Response.json(
+            { error: 'Multiple staff members are available. Please choose one.' },
+            { status: 409 }
+          );
         }
       }
     }

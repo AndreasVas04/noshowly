@@ -25,6 +25,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types';
 import { sendEmail } from '@/lib/resend';
+import { findEligibleBarbers } from '@/lib/appointment-helpers';
 
 // ---------------------------------------------------------------------------
 // Service-role Supabase client (server-side only — bypasses RLS)
@@ -567,13 +568,70 @@ async function handleBookingPost(
     );
   }
 
+  // Step 6b: Auto-assign staff when the client chose "no preference" (barberId is null)
+  // and the salon has active barbers. We use findEligibleBarbers to apply availability
+  // and conflict filters, then always assign to eligible[0] (alphabetical — deterministic).
+  // Unlike the dashboard POST, we never force the client to choose — they already said
+  // "no preference", so we pick the best available member on their behalf.
+  let resolvedBarberId: string | null = barberId;
+  if (!barberId) {
+    // Fetch all active barbers for this salon so we can scope the staff_services query.
+    const { data: activeBarbers } = await supabase
+      .from('barbers')
+      .select('id')
+      .eq('salon_id', salonId)
+      .eq('active', true);
+
+    if (activeBarbers && activeBarbers.length > 0) {
+      const allBarberIds = activeBarbers.map((b) => b.id);
+
+      // If a service was selected, narrow candidates to barbers who offer it via staff_services.
+      // If no staff_services rows exist for this service, all barbers are candidates (backwards compat).
+      let candidateBarberIds: string[] | null = null;
+      if (resolvedServiceName) {
+        const { data: svcRows } = await supabase
+          .from('staff_services')
+          .select('barber_id')
+          .in('barber_id', allBarberIds)
+          .eq('name', resolvedServiceName)
+          .eq('active', true);
+
+        if (svcRows && svcRows.length > 0) {
+          candidateBarberIds = svcRows.map((r) => r.barber_id);
+        }
+        // svcRows empty → no restriction → candidateBarberIds stays null (all barbers)
+      }
+
+      const eligible = await findEligibleBarbers({
+        supabase,
+        salonId,
+        datetimeUTC,
+        timezone: salon.timezone,
+        // Service filter already applied via candidateBarberIds — skip built-in filter.
+        serviceTypeName: null,
+        candidateBarberIds,
+        conflictWindowMinutes: 30,
+      });
+
+      if (eligible.length === 0) {
+        return Response.json(
+          { error: 'No staff available at this time. Please select a different time.' },
+          { status: 409 }
+        );
+      }
+
+      // Assign to first eligible (sorted alphabetically — deterministic).
+      resolvedBarberId = eligible[0].id;
+    }
+  }
+
   // Step 7: Create the appointment.
   const { data: appointment, error: apptError } = await supabase
     .from('appointments')
     .insert({
       salon_id:     salonId,
       client_id:    clientId,
-      barber_id:    barberId ?? null,
+      barber_id:    resolvedBarberId,
       datetime:     datetimeUTC,
       service_type: resolvedServiceName,
       notes:        notes,
@@ -642,11 +700,12 @@ async function handleBookingPost(
   if (clientEmail) {
     // Look up the staff member's name to include in the confirmation.
     let barberName: string | null = null;
-    if (barberId) {
+    if (resolvedBarberId) {
+      // Use resolvedBarberId — may differ from the request's barberId when auto-assigned.
       const { data: barberRow } = await supabase
         .from('barbers')
         .select('name')
-        .eq('id', barberId)
+        .eq('id', resolvedBarberId)
         .single();
       barberName = barberRow?.name ?? null;
     }

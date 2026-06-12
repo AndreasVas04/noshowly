@@ -31,6 +31,7 @@ import type {
   AppointmentWithDetails,
   AppointmentStatus,
 } from '@/types';
+import { findEligibleBarbers } from '@/lib/appointment-helpers';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -320,10 +321,10 @@ export async function POST(request: Request): Promise<Response> {
   const requestedStatus: AppointmentStatus =
     (raw.status as AppointmentStatus | undefined) ?? 'scheduled';
 
-  // Step 3: Resolve salon for this user.
+  // Step 3: Resolve salon for this user. Include timezone for availability checks.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
-    .select('id')
+    .select('id, timezone')
     .eq('user_id', session.user.id)
     .single();
 
@@ -418,6 +419,48 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
+  // Step 5b: Auto-assign or block when no staff selected and the salon has
+  // active barbers. findEligibleBarbers applies service + availability +
+  // conflict filters in one call.
+  // If the salon has no barbers, skip entirely — unassigned appointments allowed.
+  let resolvedBarberId: string | null = barberId;
+  if (!barberId) {
+    const { count: activeBarberCount } = await supabase
+      .from('barbers')
+      .select('id', { count: 'exact', head: true })
+      .eq('salon_id', salon.id)
+      .eq('active', true);
+
+    if (activeBarberCount && activeBarberCount > 0) {
+      const eligible = await findEligibleBarbers({
+        supabase,
+        salonId: salon.id,
+        datetimeUTC: datetimeParsed.toISOString(),
+        timezone: salon.timezone,
+        serviceTypeName,
+        conflictWindowMinutes: 30,
+      });
+
+      if (eligible.length === 0) {
+        return Response.json(
+          { error: 'No available staff member can perform this service at this time.' },
+          { status: 409 }
+        );
+      }
+
+      if (eligible.length === 1) {
+        // Exactly one eligible — auto-assign.
+        resolvedBarberId = eligible[0].id;
+      } else {
+        // Multiple eligible — owner must choose to avoid silent bias.
+        return Response.json(
+          { error: 'Multiple staff members are available. Please choose one.' },
+          { status: 409 }
+        );
+      }
+    }
+  }
+
   // Step 6: Insert the appointment.
   // salon_id is derived from session — never accepted from client request body.
   const { data: appointment, error: insertError } = await supabase
@@ -425,7 +468,7 @@ export async function POST(request: Request): Promise<Response> {
     .insert({
       salon_id: salon.id,
       client_id: clientId,
-      barber_id: barberId,
+      barber_id: resolvedBarberId,
       datetime: datetimeParsed.toISOString(),
       service_type: serviceTypeName,
       duration_minutes: (raw.duration_minutes as number | undefined) ?? 30,
