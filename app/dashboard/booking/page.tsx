@@ -2372,7 +2372,7 @@ export default function BookingPage() {
                           maxLength={300}
                           rows={2}
                           disabled={isSaving}
-                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none transition-colors"
+                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                         />
                       </div>
                     </div>
@@ -2415,7 +2415,7 @@ export default function BookingPage() {
                                 {isAssigned && assignment && (
                                   <div className="ml-6 mt-1.5 grid grid-cols-2 gap-2 max-w-xs">
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Price override</p>
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Your price</p>
                                       <div className="flex items-baseline gap-1">
                                         <span className="text-xs text-[#8A8680]">$</span>
                                         <input
@@ -2427,18 +2427,18 @@ export default function BookingPage() {
                                             updateBarberServiceOverride(barber.id, svc.id, 'price_override', e.target.value)
                                           }
                                           onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
-                                          placeholder={svc.price != null ? String(svc.price) : '—'}
+                                          placeholder={svc.price != null ? String(svc.price) : 'Same as service'}
                                           disabled={isSavingAssignments}
                                           className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                         />
                                       </div>
                                       {svc.price != null && (
-                                        <p className="text-[10px] text-[#C8C8C8]">Default: ${svc.price}</p>
+                                        <p className="text-[10px] text-[#C8C8C8]">Service default: ${svc.price}</p>
                                       )}
                                     </div>
 
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Duration override</p>
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Your duration</p>
                                       <div className="flex items-baseline gap-1">
                                         <input
                                           type="number"
@@ -2449,14 +2449,14 @@ export default function BookingPage() {
                                             updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
                                           }
                                           onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
-                                          placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : '—'}
+                                          placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
                                           disabled={isSavingAssignments}
                                           className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                         />
                                         <span className="text-xs text-[#8A8680] shrink-0">min</span>
                                       </div>
                                       {svc.duration_minutes != null && (
-                                        <p className="text-[10px] text-[#C8C8C8]">Default: {svc.duration_minutes} min</p>
+                                        <p className="text-[10px] text-[#C8C8C8]">Service default: {svc.duration_minutes} min</p>
                                       )}
                                     </div>
                                   </div>
