@@ -101,7 +101,7 @@ export default async function BookPage({ params }: PageProps) {
   const { data: bp } = await supabase
     .from('booking_pages')
     .select(
-      'id, slug, is_active, description, salon_id, allow_no_preference_staff, custom_title, custom_intro, require_phone, require_email'
+      'id, slug, is_active, description, salon_id, custom_title, custom_intro, require_phone, require_email'
     )
     .eq('slug', slug)
     .maybeSingle();
@@ -209,7 +209,6 @@ export default async function BookPage({ params }: PageProps) {
       customIntro={(bp.custom_intro as string | null) ?? null}
       requirePhone={(bp.require_phone as boolean | null) ?? true}
       requireEmail={(bp.require_email as boolean | null) ?? true}
-      allowNoPreferenceStaff={bp.allow_no_preference_staff ?? false}
       salon={{
         name:          salonResult.data.name,
         timezone:      salonResult.data.timezone,

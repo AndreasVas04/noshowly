@@ -73,8 +73,6 @@ type Props = {
   requirePhone: boolean;
   /** Whether clients must supply an email address. Controlled by booking page settings. */
   requireEmail: boolean;
-  /** Whether clients may choose "No preference" for staff. */
-  allowNoPreferenceStaff: boolean;
   salon: {
     name: string;
     timezone: string;
@@ -583,7 +581,6 @@ export default function BookingFlow({
   customIntro,
   requirePhone,
   requireEmail,
-  allowNoPreferenceStaff,
   salon,
   barbers,
   globalServices,
@@ -605,7 +602,7 @@ export default function BookingFlow({
   // -------------------------------------------------------------------------
 
   const [selectedBarber, setSelectedBarber] = useState<PublicBarber | null | 'none'>(
-    !hasBarbers ? null : (barbers.length === 1 && !allowNoPreferenceStaff) ? barbers[0] : null
+    !hasBarbers ? null : barbers.length === 1 ? barbers[0] : null
   );
   const [selectedService, setSelectedService] = useState<PublicService | null>(null);
   const [selectedDate,    setSelectedDate]    = useState<string | null>(null);
@@ -692,11 +689,11 @@ export default function BookingFlow({
   // -------------------------------------------------------------------------
 
   useEffect(() => {
-    if (step === 'staff' && barbers.length === 1 && !allowNoPreferenceStaff) {
+    if (step === 'staff' && barbers.length === 1) {
       setSelectedBarber(barbers[0]);
       setStep(globalServices.length > 0 ? 'service' : 'datetime');
     }
-  }, [step, barbers, allowNoPreferenceStaff, globalServices]);
+  }, [step, barbers, globalServices]);
 
   // -------------------------------------------------------------------------
   // Fetch booked slots when the selected date changes
@@ -775,24 +772,6 @@ export default function BookingFlow({
     }
 
     return false;
-  }
-
-  /**
-   * Returns the count of barbers still available (not booked) for a slot.
-   * Used to show "X available" on no-preference slot pills.
-   *
-   * @param slot - HH:MM slot string.
-   * @returns    Number of free barbers for this slot.
-   */
-  function getAvailableCount(slot: string): number {
-    if (!selectedDate || !selectedBarber || selectedBarber !== 'none') return 0;
-    const workingBarbers = getAvailableBarbersForSlot(
-      slot, selectedDate, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
-    );
-    const bookedBarberIds = new Set(
-      bookedSlots.filter((bs) => bs.time === slot).map((bs) => bs.barberId)
-    );
-    return workingBarbers.filter((b) => !bookedBarberIds.has(b.id)).length;
   }
 
   /**
@@ -946,8 +925,6 @@ export default function BookingFlow({
   // Render
   // -------------------------------------------------------------------------
 
-  const isNoPreference = selectedBarber === 'none';
-
   // Sidebar step list — only show Staff step when there are barbers.
   const FLOW_STEPS: { id: Step; label: string }[] = [
     ...(hasBarbers ? [{ id: 'staff' as Step, label: 'Staff member' }] : []),
@@ -982,16 +959,6 @@ export default function BookingFlow({
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
 
-      {/* ── MOBILE TOP BAR ─────────────────────────────────────────────────── */}
-      <div className="lg:hidden bg-[#1B4332] px-5 py-3 flex items-center justify-between sticky top-0 z-20">
-        <span className="font-heading text-white text-base font-semibold truncate">
-          {customTitle ?? salon.name}
-        </span>
-        <span className="font-body text-white/50 text-xs ml-4 shrink-0">
-          {currentStepLabel}
-        </span>
-      </div>
-
       {/* ── DESKTOP SIDEBAR ────────────────────────────────────────────────── */}
       <aside className="hidden lg:flex flex-col w-[240px] shrink-0 sticky top-0 self-start h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
         <div className="flex flex-col h-full p-7 gap-0">
@@ -1001,7 +968,7 @@ export default function BookingFlow({
             {customTitle ?? salon.name}
           </h1>
           {customIntro && (
-            <p className="mt-2 font-body text-white/40 text-[11px] leading-relaxed">
+            <p className="mt-2 font-body text-white/60 text-[12px] leading-relaxed">
               {customIntro}
             </p>
           )}
@@ -1077,6 +1044,18 @@ export default function BookingFlow({
         </div>
       </aside>
 
+      {/* ── MOBILE HERO ─────────────────────────────────────────────────────── */}
+      <div className="lg:hidden px-6 py-8" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
+        <h1 className="font-heading text-2xl font-bold text-white">
+          {customTitle ?? salon.name}
+        </h1>
+        {customIntro && (
+          <p className="font-body text-sm text-white/60 leading-relaxed mt-2">
+            {customIntro}
+          </p>
+        )}
+      </div>
+
       {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
       <main className="flex-1 bg-[#FAFAF8] min-h-screen">
         <div className="max-w-[560px] mx-auto px-5 lg:px-8 py-10 space-y-5">
@@ -1094,29 +1073,6 @@ export default function BookingFlow({
               </div>
 
               <div className="divide-y divide-[#E5E2DB]/60">
-                {/* No preference option */}
-                {allowNoPreferenceStaff && (
-                  <button
-                    type="button"
-                    onClick={() => handleSelectBarber('none')}
-                    className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
-                  >
-                    <div className="w-14 h-14 rounded-full bg-[#F5F3EF] border-2 border-[#E5E2DB] group-hover:border-[#1B4332]/20 flex items-center justify-center shrink-0 transition-colors">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#8A8680]">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                        <circle cx="9" cy="7" r="4"/>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="font-body text-sm font-semibold text-[#1A1A1A]">No preference</p>
-                      <p className="font-body text-xs text-[#8A8680] mt-0.5">Any available team member</p>
-                    </div>
-                    <span className="ml-auto text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
-                  </button>
-                )}
-
                 {barbers.map((b) => (
                   <button
                     key={b.id}
@@ -1251,9 +1207,8 @@ export default function BookingFlow({
                   ) : (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                       {timeSlots.map((slot) => {
-                        const blocked    = isSlotBlocked(slot);
-                        const isActive   = selectedTime === slot;
-                        const availCount = isNoPreference && !blocked ? getAvailableCount(slot) : 0;
+                        const blocked  = isSlotBlocked(slot);
+                        const isActive = selectedTime === slot;
 
                         return (
                           <button
@@ -1262,7 +1217,7 @@ export default function BookingFlow({
                             disabled={blocked}
                             onClick={() => setSelectedTime(slot)}
                             className={[
-                              'flex flex-col items-center justify-center py-3.5 px-3 rounded-xl border transition-all',
+                              'flex items-center justify-center py-3.5 px-3 rounded-xl border transition-all',
                               blocked
                                 ? 'text-[#8A8680]/40 border-[#E5E2DB]/40 cursor-not-allowed line-through'
                                 : isActive
@@ -1273,11 +1228,6 @@ export default function BookingFlow({
                             <span className="font-body text-xs font-semibold">
                               {formatTime12h(slot)}
                             </span>
-                            {isNoPreference && !blocked && availCount > 0 && (
-                              <span className={`font-body text-[10px] mt-0.5 ${isActive ? 'text-white/70' : 'text-[#8A8680]'}`}>
-                                {availCount} avail.
-                              </span>
-                            )}
                           </button>
                         );
                       })}

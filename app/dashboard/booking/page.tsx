@@ -298,7 +298,6 @@ export default function BookingPage() {
   const [requirePhone, setRequirePhone] = useState(true);
   const [requireEmail, setRequireEmail] = useState(true);
   const [requireFieldsError, setRequireFieldsError] = useState('');
-  const [allowNoPreferenceStaff, setAllowNoPreferenceStaff] = useState(false);
   const [bookingSaveStatus, setBookingSaveStatus] = useState<SaveStatus>('idle');
   const [bookingError, setBookingError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -438,7 +437,6 @@ export default function BookingPage() {
           setCustomIntro(bp.custom_intro ?? '');
           setRequirePhone(bp.require_phone ?? true);
           setRequireEmail(bp.require_email ?? true);
-          setAllowNoPreferenceStaff(bp.allow_no_preference_staff ?? false);
         }
 
         const loadedBarbers = barbersData.barbers ?? [];
@@ -517,7 +515,6 @@ export default function BookingPage() {
           custom_intro: customIntro.trim() || null,
           require_phone: requirePhone,
           require_email: requireEmail,
-          allow_no_preference_staff: allowNoPreferenceStaff,
           ...(bookingPage ? {} : { is_active: false }),
         }),
       });
@@ -537,7 +534,6 @@ export default function BookingPage() {
       setCustomIntro(data.bookingPage.custom_intro ?? '');
       setRequirePhone(data.bookingPage.require_phone ?? true);
       setRequireEmail(data.bookingPage.require_email ?? true);
-      setAllowNoPreferenceStaff(data.bookingPage.allow_no_preference_staff ?? false);
       setBookingSaveStatus('saved');
       setTimeout(() => setBookingSaveStatus('idle'), 2000);
     } catch {
@@ -619,7 +615,6 @@ export default function BookingPage() {
           custom_intro:               customIntro.trim() || null,
           require_phone:              requirePhone,
           require_email:              requireEmail,
-          allow_no_preference_staff:  allowNoPreferenceStaff,
         }),
       });
 
@@ -637,7 +632,6 @@ export default function BookingPage() {
       setCustomIntro(data.bookingPage.custom_intro ?? '');
       setRequirePhone(data.bookingPage.require_phone ?? true);
       setRequireEmail(data.bookingPage.require_email ?? true);
-      setAllowNoPreferenceStaff(data.bookingPage.allow_no_preference_staff ?? false);
       setBookingSaveStatus('saved');
       setTimeout(() => setBookingSaveStatus('idle'), 2000);
     } catch {
@@ -1998,21 +1992,6 @@ export default function BookingPage() {
                     {requireFieldsError && (
                       <p className="text-xs text-red-600">{requireFieldsError}</p>
                     )}
-                  </div>
-
-                  {/* No preference toggles */}
-                  <div className="space-y-3 pt-1">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-[#1A1A1A]">Allow &quot;No preference&quot; for staff</p>
-                        <p className="text-xs text-[#8A8680] mt-0.5">Clients can skip choosing a specific team member.</p>
-                      </div>
-                      <Toggle
-                        checked={allowNoPreferenceStaff}
-                        onChange={(v) => { setAllowNoPreferenceStaff(v); scheduleBookingSave(); }}
-                        label="Allow no preference for staff"
-                      />
-                    </div>
                   </div>
 
                   {bookingError && (
