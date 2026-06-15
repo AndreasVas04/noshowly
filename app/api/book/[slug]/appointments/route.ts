@@ -501,14 +501,6 @@ async function handleBookingPost(
       .neq('status', 'cancelled')
       .limit(5);
 
-    console.log(
-      '[POST /api/book/[slug]/appointments] barber conflict check:',
-      '| barberId:', barberId,
-      '| datetime:', datetimeUTC,
-      '| results:', JSON.stringify(barberConflicts),
-      '| error:', bcErr?.message ?? 'none'
-    );
-
     if (barberConflicts && barberConflicts.length > 0) {
       return Response.json(
         { error: 'This staff member is not available at that time.' },
@@ -525,14 +517,6 @@ async function handleBookingPost(
     .eq('datetime', datetimeUTC)
     .neq('status', 'cancelled')
     .limit(5);
-
-  console.log(
-    '[POST /api/book/[slug]/appointments] client conflict check:',
-    '| clientId:', clientId,
-    '| datetime:', datetimeUTC,
-    '| results:', JSON.stringify(clientConflicts),
-    '| error:', ccErr?.message ?? 'none'
-  );
 
   if (clientConflicts && clientConflicts.length > 0) {
     return Response.json(

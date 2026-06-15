@@ -268,26 +268,6 @@ export type StaffAvailability = {
 };
 
 /**
- * Row in the `staff_services` table — per-staff service definitions.
- * Used on the public booking page so clients see only the services each staff member offers.
- * Separate from the global `services` table which is used in the dashboard appointment modal.
- */
-export type StaffService = {
-  id: string;
-  /** FK → barbers.id */
-  barber_id: string;
-  /** Display name of the service, e.g. "Haircut". */
-  name: string;
-  /** Optional duration in minutes. Null if not set. */
-  duration_minutes: number | null;
-  /** Optional displayed price. Null means no price shown. */
-  price: number | null;
-  /** Whether this service is shown on the booking page. */
-  active: boolean;
-  created_at: string;
-};
-
-/**
  * Row in the `barber_services` table — links salon-level services to specific barbers.
  *
  * Used by the dashboard appointment modal to filter the staff dropdown to only
@@ -295,8 +275,7 @@ export type StaffService = {
  * server-side (if any assignments exist for a service, barbers not in that set
  * are rejected).
  *
- * Separate from `staff_services` (per-barber public-booking services with free-text
- * names). This table uses FKs to both barbers and services tables.
+ * Uses FKs to both the barbers and services tables.
  *
  * price_override and duration_minutes_override allow individual staff members to have
  * different pricing or duration for the same service. NULL means "use global default".
@@ -543,20 +522,6 @@ export type Database = {
           end_time_2?: string | null;
         };
         Update: Partial<Omit<StaffAvailability, 'id'>>;
-        Relationships: [];
-      };
-      staff_services: {
-        Row: StaffService;
-        Insert: {
-          id?: string;
-          barber_id: string;
-          name: string;
-          duration_minutes?: number | null;
-          price?: number | null;
-          active?: boolean;
-          created_at?: string;
-        };
-        Update: Partial<Omit<StaffService, 'id'>>;
         Relationships: [];
       };
       barber_services: {

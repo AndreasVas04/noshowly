@@ -76,7 +76,6 @@ type BookingPageResponse = {
     BookingPage,
     | 'slug'
     | 'description'
-    | 'allow_no_preference_staff'
     | 'custom_title'
     | 'custom_intro'
     | 'require_phone'
@@ -133,7 +132,7 @@ export async function GET(
   const { data: bookingPage, error: bpError } = await supabase
     .from('booking_pages')
     .select(
-      'id, salon_id, slug, description, allow_no_preference_staff, custom_title, custom_intro, require_phone, require_email'
+      'id, salon_id, slug, description, custom_title, custom_intro, require_phone, require_email'
     )
     .eq('slug', slug)
     .eq('is_active', true)
@@ -264,7 +263,6 @@ export async function GET(
     bookingPage: {
       slug:                      bookingPage.slug,
       description:               bookingPage.description,
-      allow_no_preference_staff: bookingPage.allow_no_preference_staff ?? false,
       custom_title:              bookingPage.custom_title ?? null,
       custom_intro:              bookingPage.custom_intro ?? null,
       require_phone:             bookingPage.require_phone ?? true,
