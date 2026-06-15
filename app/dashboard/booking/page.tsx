@@ -2451,7 +2451,7 @@ export default function BookingPage() {
                                           onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
                                           placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
                                           disabled={isSavingAssignments}
-                                          className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
+                                          className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                         />
                                         <span className="text-xs text-[#8A8680] shrink-0">min</span>
                                       </div>
