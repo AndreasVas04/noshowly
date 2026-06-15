@@ -3,7 +3,7 @@
  *
  * Generates the HTML email body for appointment reminders.
  *
- * Key requirements (CLAUDE.md §7 + §12):
+ * Key requirements:
  *  - Noshowly branding must be COMPLETELY INVISIBLE to the end client.
  *    The client sees only the salon's name — never "Noshowly".
  *  - Email uses big YES / NO buttons linking to the confirm endpoint.

@@ -270,7 +270,7 @@ export default function SettingsPage() {
 
   /**
    * Fetches salon data from the API and the user's plan via the browser
-   * Supabase client (RLS-enforced read, allowed per CLAUDE.md §11).
+   * Supabase client with RLS-enforced read access.
    */
   useEffect(() => {
     async function loadData() {

@@ -7,7 +7,7 @@
  *  1. Validate the slug and that the booking page is active.
  *  2. Validate all client-supplied fields.
  *  3. Find or create the client by phone number (deduplication).
- *  4. Check for scheduling conflicts (±30 min window per CLAUDE.md §12).
+ *  4. Check for scheduling conflicts using a ±30 min window.
  *  5. Create the appointment.
  *  6. Create pending email reminder record (24 h before).
  *  7. Send a booking confirmation email to the client (if email provided).

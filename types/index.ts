@@ -4,7 +4,7 @@
  * TypeScript types for all NoShowly database tables and the Supabase Database
  * generic used to type the Supabase client throughout the codebase.
  *
- * Keep these in sync with the SQL schema in CLAUDE.md whenever the schema changes.
+ * Keep these in sync with the SQL schema whenever the schema changes.
  * These types are the single source of truth for TypeScript — the DB is the source
  * of truth for the actual data.
  *

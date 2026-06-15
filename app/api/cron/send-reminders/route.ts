@@ -7,7 +7,7 @@
  * once per hour. Finds appointments in the 23–25 hour window and sends email
  * reminders 24 h before the appointment.
  *
- * Safety rules (CLAUDE.md §7 + §6):
+ * Safety rules:
  *  1. Appointment must be in the future (datetime > NOW()). Never remind for
  *     past appointments — the window check handles this but we re-verify explicitly.
  *  2. Appointment must not be cancelled.

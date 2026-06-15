@@ -6,7 +6,7 @@
  * that the rest of the application depends on.
  *
  * Why this route exists instead of doing it client-side:
- *  - CLAUDE.md rule: "All database calls go through API routes."
+ *  - All database calls go through API routes.
  *  - The `users` table has no client-accessible INSERT policy; we must use the
  *    service-role key, which must never be exposed to the browser.
  *  - Keeps the sign-up flow atomic from the client's perspective: one fetch()
