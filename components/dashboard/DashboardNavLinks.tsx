@@ -13,9 +13,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Calendar, CalendarDays, Globe, Settings } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Calendar, CalendarDays, Globe, Settings, LogOut } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 
 /** A single navigation entry. */
 interface NavItem {
@@ -71,15 +72,32 @@ export default function DashboardNavLinks() {
 
 /**
  * MobileBottomNav renders a fixed bottom tab bar for mobile screens (hidden on lg+).
- * Each tab shows an icon and a label. The active tab is highlighted in brand green.
+ * Shows 4 navigation tabs plus a Sign out tab.
+ * Active tab is highlighted in brand green; inactive tabs use warm grey.
  *
  * @returns A fixed nav element at the bottom of the viewport.
  */
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  /**
+   * Signs the user out via Supabase and navigates to /login.
+   * Errors are caught silently — middleware enforces auth on the next request.
+   */
+  async function handleSignOut(): Promise<void> {
+    try {
+      const supabase = createBrowserSupabaseClient();
+      await supabase.auth.signOut();
+    } catch {
+      // Sign-out network error — redirect anyway.
+    }
+    router.push('/login');
+    router.refresh();
+  }
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#E5E2DB]">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#FAFAF8] border-t border-[#E5E2DB]">
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map((item) => {
           const isActive =
@@ -94,7 +112,7 @@ export function MobileBottomNav() {
               key={item.href}
               href={item.href}
               className={[
-                'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors',
+                'flex-1 relative flex flex-col items-center justify-center gap-0.5 transition-colors',
                 isActive ? 'text-[#1B4332]' : 'text-[#8A8680]',
               ].join(' ')}
             >
@@ -106,12 +124,22 @@ export function MobileBottomNav() {
                 ].join(' ')}
               />
               <Icon className="w-5 h-5 shrink-0" strokeWidth={isActive ? 2.2 : 1.8} />
-              <span className={`text-[10px] font-medium leading-none ${isActive ? 'font-semibold' : ''}`}>
+              <span className={`text-[10px] leading-none ${isActive ? 'font-semibold' : 'font-medium'}`}>
                 {item.label}
               </span>
             </Link>
           );
         })}
+
+        {/* Sign out tab */}
+        <button
+          type="button"
+          onClick={() => { void handleSignOut(); }}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[#8A8680] transition-colors hover:text-[#1A1A1A]"
+        >
+          <LogOut className="w-5 h-5 shrink-0" strokeWidth={1.8} />
+          <span className="text-[10px] font-medium leading-none">Sign out</span>
+        </button>
       </div>
     </nav>
   );

@@ -243,8 +243,12 @@ export default function SettingsPage() {
   /** Debounce timer for the message templates section. */
   const templatesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Textarea / input ref for cursor-position variable insertion.
-  const emailBodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // Textarea refs — emailBodyTextareaRef also used for cursor-position variable insertion.
+  const emailBodyTextareaRef    = useRef<HTMLTextAreaElement>(null);
+  const emailSubjectTextareaRef  = useRef<HTMLTextAreaElement>(null);
+  const emailGreetingTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const emailClosingTextareaRef  = useRef<HTMLTextAreaElement>(null);
+  const emailFooterTextareaRef   = useRef<HTMLTextAreaElement>(null);
 
   // -------------------------------------------------------------------------
   // Section 2: Business hours
@@ -324,15 +328,23 @@ export default function SettingsPage() {
   }, []);
 
   /**
-   * Auto-resizes the email body textarea when its content changes (e.g. initial
-   * load or user edits). Runs after paint so scrollHeight is accurate.
+   * Auto-resizes all email template textareas when their content changes
+   * (e.g. initial data load or user edits). Runs after paint so scrollHeight is accurate.
    */
   useEffect(() => {
-    const el = emailBodyTextareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [emailBody]);
+    for (const ref of [
+      emailSubjectTextareaRef,
+      emailGreetingTextareaRef,
+      emailBodyTextareaRef,
+      emailClosingTextareaRef,
+      emailFooterTextareaRef,
+    ]) {
+      const el = ref.current;
+      if (!el) continue;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [emailSubject, emailGreeting, emailBody, emailClosing, emailFooter]);
 
   // -------------------------------------------------------------------------
   // Section 1 auto-save: business info
@@ -821,40 +833,36 @@ export default function SettingsPage() {
 
           <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
 
-            <div className="flex flex-row flex-wrap gap-5">
-              <div className="space-y-1.5">
+            <div className="flex flex-row flex-wrap gap-6">
+              <div className="flex flex-col gap-2">
                 <FieldLabel htmlFor="opening-time">Opening time</FieldLabel>
-                <div className="max-w-[140px]">
-                  <input
-                    id="opening-time"
-                    type="time"
-                    value={openingTime}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setOpeningTime(v);
-                      scheduleHoursSave(v, closingTime);
-                    }}
-                    style={{ paddingLeft: '0.75rem', paddingRight: '0.75rem' }}
-                    className="w-full h-9 rounded-lg border border-[#C8C8C8] text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                  />
-                </div>
+                <input
+                  id="opening-time"
+                  type="time"
+                  value={openingTime}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setOpeningTime(v);
+                    scheduleHoursSave(v, closingTime);
+                  }}
+                  style={{ paddingLeft: '12px', paddingRight: '12px' }}
+                  className="w-[140px] h-9 rounded-lg border border-[#C8C8C8] text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
+                />
               </div>
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel htmlFor="closing-time">Closing time</FieldLabel>
-                <div className="max-w-[140px]">
-                  <input
-                    id="closing-time"
-                    type="time"
-                    value={closingTime}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setClosingTime(v);
-                      scheduleHoursSave(openingTime, v);
-                    }}
-                    style={{ paddingLeft: '0.75rem', paddingRight: '0.75rem' }}
-                    className="w-full h-9 rounded-lg border border-[#C8C8C8] text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                  />
-                </div>
+                <input
+                  id="closing-time"
+                  type="time"
+                  value={closingTime}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setClosingTime(v);
+                    scheduleHoursSave(openingTime, v);
+                  }}
+                  style={{ paddingLeft: '12px', paddingRight: '12px' }}
+                  className="w-[140px] h-9 rounded-lg border border-[#C8C8C8] text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
+                />
               </div>
             </div>
 
@@ -961,14 +969,14 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex gap-2 text-xs">
                       <span className="text-[#8A8680] shrink-0">Subject:</span>
-                      <span className="text-[#1A1A1A] font-medium break-words">{previewEmailSubjectText}</span>
+                      <span className="text-[#1A1A1A] font-medium whitespace-pre-wrap break-words">{previewEmailSubjectText}</span>
                     </div>
                   </div>
                   {/* Email body */}
                   <div className="px-4 py-4 space-y-3">
                     <p className="font-heading text-base font-semibold text-[#1A1A1A]">{previewBusiness}</p>
-                    <p className="text-xs text-[#1A1A1A]">{previewEmailGreetingText}</p>
-                    <p className="text-xs text-[#8A8680] leading-relaxed">{previewEmailBodyText}</p>
+                    <p className="text-xs text-[#1A1A1A] whitespace-pre-wrap break-words">{previewEmailGreetingText}</p>
+                    <p className="text-xs text-[#8A8680] leading-relaxed whitespace-pre-wrap break-words">{previewEmailBodyText}</p>
                     <div className="bg-[#1A1A1A]/4 rounded-lg px-3 py-2.5 space-y-0.5">
                       <p className="text-xs text-[#8A8680] font-body">Haircut &middot; Tomorrow at 10:30 AM</p>
                     </div>
@@ -978,9 +986,9 @@ export default function SettingsPage() {
                         <span className="inline-block border border-[#E5E2DB] text-[#1A1A1A] text-xs font-medium px-4 py-1.5 rounded-lg">NO</span>
                       </div>
                     ) : (
-                      <p className="text-xs text-[#8A8680] italic font-body">{previewEmailClosingText}</p>
+                      <p className="text-xs text-[#8A8680] italic font-body whitespace-pre-wrap break-words">{previewEmailClosingText}</p>
                     )}
-                    <p className="text-xs text-[#8A8680] border-t border-[#E5E2DB] pt-3 font-body">{previewEmailFooterText}</p>
+                    <p className="text-xs text-[#8A8680] border-t border-[#E5E2DB] pt-3 font-body whitespace-pre-wrap break-words">{previewEmailFooterText}</p>
                   </div>
                 </div>
               </div>
@@ -998,18 +1006,24 @@ export default function SettingsPage() {
               {/* Email subject */}
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="email-subject">Email subject</FieldLabel>
-                <Input
+                <textarea
                   id="email-subject"
-                  type="text"
+                  ref={emailSubjectTextareaRef}
                   value={emailSubject}
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailSubject(v);
                     scheduleTemplatesSave(emailFooter, v, emailGreeting, emailBody, emailClosing);
                   }}
+                  onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   placeholder={DEFAULT_EMAIL_SUBJECT}
+                  rows={1}
                   maxLength={200}
-                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
+                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
                 <p className="text-xs text-[#8A8680] font-body">
                   Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}to insert your business name.
@@ -1019,18 +1033,24 @@ export default function SettingsPage() {
               {/* Email greeting */}
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="email-greeting">Email greeting</FieldLabel>
-                <Input
+                <textarea
                   id="email-greeting"
-                  type="text"
+                  ref={emailGreetingTextareaRef}
                   value={emailGreeting}
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailGreeting(v);
                     scheduleTemplatesSave(emailFooter, emailSubject, v, emailBody, emailClosing);
                   }}
+                  onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   placeholder={DEFAULT_EMAIL_GREETING}
+                  rows={1}
                   maxLength={200}
-                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
+                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
                 <p className="text-xs text-[#8A8680] font-body">
                   Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{client_name}'}</span>{' '}to personalise the greeting.
@@ -1085,18 +1105,24 @@ export default function SettingsPage() {
               {/* Email closing */}
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="email-closing">Email closing message</FieldLabel>
-                <Input
+                <textarea
                   id="email-closing"
-                  type="text"
+                  ref={emailClosingTextareaRef}
                   value={emailClosing}
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailClosing(v);
                     scheduleTemplatesSave(emailFooter, emailSubject, emailGreeting, emailBody, v);
                   }}
+                  onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   placeholder={DEFAULT_EMAIL_CLOSING}
+                  rows={1}
                   maxLength={200}
-                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
+                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
                 <p className="text-xs text-[#8A8680] font-body">
                   Shown at the bottom of the email when confirmation buttons are disabled.
@@ -1106,18 +1132,24 @@ export default function SettingsPage() {
               {/* Email footer */}
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="email-footer">Email footer</FieldLabel>
-                <Input
+                <textarea
                   id="email-footer"
-                  type="text"
+                  ref={emailFooterTextareaRef}
                   value={emailFooter}
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmailFooter(v);
                     scheduleTemplatesSave(v, emailSubject, emailGreeting, emailBody, emailClosing);
                   }}
+                  onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   placeholder={DEFAULT_EMAIL_FOOTER}
+                  rows={1}
                   maxLength={300}
-                  className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]/70"
+                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
                 <p className="text-xs text-[#8A8680] font-body">
                   Small text at the very bottom of reminder emails. Use{' '}
