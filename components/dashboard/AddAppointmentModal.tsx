@@ -452,6 +452,17 @@ export default function AddAppointmentModal({
     return () => { if (phoneSearchTimerRef.current) clearTimeout(phoneSearchTimerRef.current); };
   }, [form.clientPhone, searchByPhone]);
 
+  // In create mode, default barberId to the first barber once the list loads.
+  // Uses the functional form of setForm so barbers[0].id can be read without
+  // listing form.barberId as a dependency (avoids overwriting a user's selection).
+  useEffect(() => {
+    if (isEditMode || barbers.length === 0) return;
+    setForm((prev) => {
+      if (prev.barberId) return prev; // Keep initialBarberId or user's own selection.
+      return { ...prev, barberId: barbers[0].id };
+    });
+  }, [barbers, isEditMode]);
+
   // Clear staff selection when the selected service changes and the current barber
   // is no longer in the filtered list for that service.
   useEffect(() => {
@@ -545,7 +556,7 @@ export default function AddAppointmentModal({
 
   /**
    * Validates the form. Sets per-field errors and returns false on failure.
-   * Staff is always optional. Business hours constraints are soft warnings only.
+   * Staff is required when barbers exist. Business hours constraints are soft warnings only.
    *
    * @returns true if all required fields pass.
    */
@@ -563,6 +574,10 @@ export default function AddAppointmentModal({
     if (!form.time) errors.time = 'Time is required';
     if (form.clientEmail && !form.clientEmail.includes('@')) {
       errors.clientEmail = 'Enter a valid email address';
+    }
+    // Staff is required when the salon has barbers configured.
+    if (barbers.length > 0 && !form.barberId) {
+      errors.barberId = 'Please select a staff member.';
     }
 
     setFieldErrors(errors);
@@ -1033,10 +1048,13 @@ export default function AddAppointmentModal({
                 )}
               </div>
 
-              {/* Staff — always optional; filtered by service assignment */}
+              {/* Staff — required when barbers exist; filtered by service assignment */}
               <div className="space-y-1.5">
                 <Label htmlFor="modal-staff" className={labelClass}>
-                  Staff <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span>
+                  {barbers.length > 0
+                    ? 'Staff'
+                    : <span>Staff <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span></span>
+                  }
                 </Label>
                 <select
                   id="modal-staff"
@@ -1045,7 +1063,8 @@ export default function AddAppointmentModal({
                   disabled={isLoadingBarbers}
                   className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-60 transition-colors"
                 >
-                  <option value="">No staff assigned</option>
+                  {/* Placeholder option only shown when no barbers are configured. */}
+                  {barbers.length === 0 && <option value="">No staff assigned</option>}
                   {filteredBarbers.map((b) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
