@@ -810,7 +810,7 @@ export default function SettingsPage() {
 
           <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="opening-time">Opening time</FieldLabel>
                 <input

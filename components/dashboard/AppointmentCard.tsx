@@ -117,11 +117,11 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
         <span className="font-heading text-sm font-semibold text-[#1A1A1A] tabular-nums">{time}</span>
       </div>
 
-      {/* Divider */}
-      <div className="w-px h-8 bg-[#E5E2DB] shrink-0" />
+      {/* Divider — hidden on very small screens to give badge room */}
+      <div className="hidden sm:block w-px h-8 bg-[#E5E2DB] shrink-0" />
 
-      {/* Client initial avatar */}
-      <div className="w-8 h-8 rounded-full bg-[#E8F2EC] flex items-center justify-center shrink-0">
+      {/* Client initial avatar — hidden on very small screens to give badge room */}
+      <div className="hidden sm:flex w-8 h-8 rounded-full bg-[#E8F2EC] items-center justify-center shrink-0">
         <span className="text-[10px] font-semibold text-[#1B4332]">
           {clientInitials(appointment.client_name)}
         </span>

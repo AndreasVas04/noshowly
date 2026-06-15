@@ -318,6 +318,9 @@ export default function BookingPage() {
   const photoInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   /** Refs to bio textarea elements, keyed by barberId — used for auto-resize on data load. */
   const bioTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  /** Refs to the booking page description/intro textareas — used for auto-resize. */
+  const customIntroRef = useRef<HTMLTextAreaElement | null>(null);
+  const bookingDescRef = useRef<HTMLTextAreaElement | null>(null);
 
   /** Debounce timer for booking page settings auto-save. */
   const bookingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -477,6 +480,18 @@ export default function BookingPage() {
       el.style.height = el.scrollHeight + 'px';
     }
   }, [barberForms]);
+
+  /**
+   * Auto-resizes the booking page description and intro textareas whenever
+   * their content changes (e.g. initial data load or user edits).
+   */
+  useEffect(() => {
+    for (const el of [customIntroRef.current, bookingDescRef.current]) {
+      if (!el) continue;
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    }
+  }, [customIntro, bookingDescription]);
 
   // -------------------------------------------------------------------------
   // Section 1 handlers: Booking page settings
@@ -1778,19 +1793,19 @@ export default function BookingPage() {
 
               {/* Live/Offline badge + toggle */}
               {bookingPage && (
-                <div className="flex items-center justify-between py-1">
-                  <div className="space-y-1">
+                <div className="flex items-start gap-3 justify-between py-1">
+                  <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`inline-block h-2 w-2 rounded-full ${bookingPage.is_active ? 'bg-emerald-500' : 'bg-[#E5E2DB]'}`} />
+                      <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${bookingPage.is_active ? 'bg-emerald-500' : 'bg-[#E5E2DB]'}`} />
                       <span className="text-sm font-medium text-[#1A1A1A]">
                         {bookingPage.is_active ? 'Live' : 'Offline'}
                       </span>
                     </div>
                     {bookingUrl && (
-                      <p className="text-xs text-[#8A8680] font-mono">{bookingUrl}</p>
+                      <p className="text-xs text-[#8A8680] font-mono truncate">{bookingUrl}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 shrink-0 mt-0.5">
                     {bookingPage.is_active && bookingUrl && (
                       <>
                         <button
@@ -1913,13 +1928,19 @@ export default function BookingPage() {
                         </Label>
                         <textarea
                           id="booking-custom-intro"
+                          ref={customIntroRef}
                           value={customIntro}
                           onChange={(e) => { setCustomIntro(e.target.value); scheduleBookingSave(); }}
+                          onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                            const el = e.currentTarget;
+                            el.style.height = 'auto';
+                            el.style.height = `${el.scrollHeight}px`;
+                          }}
                           placeholder="e.g. We offer haircuts, coloring and more. Book your slot online in seconds."
                           maxLength={800}
                           rows={3}
                           disabled={bookingSaveStatus === 'saving'}
-                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none transition-colors"
+                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                         />
                         <p className="text-xs text-[#8A8680]">A short description shown below the headline. Leave blank to skip.</p>
                       </div>
@@ -1930,31 +1951,40 @@ export default function BookingPage() {
                         </Label>
                         <textarea
                           id="booking-description"
+                          ref={bookingDescRef}
                           value={bookingDescription}
                           onChange={(e) => { setBookingDescription(e.target.value); scheduleBookingSave(); }}
+                          onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                            const el = e.currentTarget;
+                            el.style.height = 'auto';
+                            el.style.height = `${el.scrollHeight}px`;
+                          }}
                           placeholder="e.g. Book your appointment online. We confirm within 24 hours."
                           maxLength={500}
                           rows={2}
                           disabled={bookingSaveStatus === 'saving'}
-                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none transition-colors"
+                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                         />
                         <p className="text-xs text-[#8A8680]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
                       </div>
                     </div>
 
-                    {/* Right: live preview */}
+                    {/* Right: live preview — matches the real public booking page hero */}
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Preview</p>
-                      <div className="bg-[#1A1A1A] rounded-2xl p-10 flex flex-col items-center justify-center text-center min-h-[220px] space-y-4">
-                        <h3 className="font-heading text-4xl font-bold text-white leading-tight">
+                      <div
+                        className="rounded-2xl px-6 py-8 flex flex-col justify-start min-h-[180px] space-y-2"
+                        style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}
+                      >
+                        <h3 className="font-heading text-2xl font-bold text-white leading-snug">
                           {customPageTitle.trim() || (
                             <span className="text-white/30 italic">Your headline</span>
                           )}
                         </h3>
                         {customIntro.trim() ? (
-                          <p className="text-sm text-white/60 leading-relaxed max-w-xs">{customIntro.trim()}</p>
+                          <p className="font-body text-sm text-white/60 leading-relaxed">{customIntro.trim()}</p>
                         ) : (
-                          <p className="text-sm text-white/20 italic">Description will appear here</p>
+                          <p className="font-body text-sm text-white/20 italic">Description will appear here</p>
                         )}
                       </div>
                     </div>

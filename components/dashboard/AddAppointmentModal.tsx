@@ -1005,7 +1005,8 @@ export default function AddAppointmentModal({
                   onChange={(e) => setField('time', e.target.value)}
                   min={salonOpeningTime}
                   max={salonClosingTime}
-                  className={`w-full h-10 px-3 rounded-lg border text-sm text-[#1A1A1A] outline-none transition-colors ${
+                  style={{ paddingLeft: '0.75rem', paddingRight: '0.75rem' }}
+                  className={`w-full h-10 rounded-lg border text-sm text-[#1A1A1A] outline-none transition-colors ${
                     fieldErrors.time ? 'border-red-400' : 'border-[#C8C8C8] focus:border-[#1A1A1A]'
                   }`}
                 />
@@ -1138,7 +1139,10 @@ export default function AddAppointmentModal({
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            {/* flex-wrap keeps all buttons inside the modal on small screens.
+                ml-auto on the Close/Save group pushes them right on wider screens;
+                on narrow screens they wrap to their own row, right-aligned. */}
+            <div className="flex flex-wrap items-center gap-2">
 
             {/* Cancel appointment (edit mode, not already cancelled) */}
             {isEditMode && appointment?.status !== 'cancelled' && (
@@ -1150,7 +1154,7 @@ export default function AddAppointmentModal({
                   px-3 py-2 rounded-lg text-xs font-medium
                   text-red-600 border border-red-200 hover:bg-red-50
                   disabled:opacity-50 disabled:cursor-not-allowed
-                  transition-colors
+                  transition-colors shrink-0
                 "
               >
                 {isCancelling ? 'Cancelling...' : 'Cancel appointment'}
@@ -1167,15 +1171,15 @@ export default function AddAppointmentModal({
                   px-3 py-2 rounded-lg text-xs font-medium
                   text-[#1B4332] border border-[#1B4332]/30 hover:bg-[#E8F2EC]
                   disabled:opacity-50 disabled:cursor-not-allowed
-                  transition-colors
+                  transition-colors shrink-0
                 "
               >
                 {isSendingTestReminder ? 'Sending...' : 'Send test reminder'}
               </button>
             )}
 
-            {/* Flexible spacer — pushes Close + Save to the right */}
-            <div className="flex-1" />
+            {/* ml-auto pushes Close + Save to the right; wraps to its own row on small screens */}
+            <div className="flex items-center gap-2 ml-auto">
 
             {/* Close */}
             <Button
@@ -1197,7 +1201,8 @@ export default function AddAppointmentModal({
               {isSubmitting ? 'Saving...' : 'Save'}
             </Button>
 
-            </div>
+            </div>{/* end Close+Save group */}
+            </div>{/* end flex-wrap row */}
           </div>
         </form>
 

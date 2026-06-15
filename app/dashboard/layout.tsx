@@ -63,7 +63,7 @@ export default async function DashboardLayout({
           SIDEBAR — hidden on mobile, visible as left column on lg+
       ================================================================== */}
       <aside
-        className="hidden lg:flex lg:flex-col w-60 shrink-0 min-h-screen sticky top-0"
+        className="hidden lg:flex lg:flex-col w-60 shrink-0 h-screen overflow-hidden sticky top-0"
         style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}
       >
         {/* Brand logo */}
@@ -114,6 +114,9 @@ export default async function DashboardLayout({
 
         {/* Horizontal nav — client component for active-state detection */}
         <MobileNavLinks />
+
+        {/* Visual separator between nav and logout */}
+        <div className="w-px h-5 bg-white/20 shrink-0" />
 
         {/* Logout */}
         <div className="shrink-0">
