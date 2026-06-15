@@ -31,12 +31,12 @@ type LoadState = 'loading' | 'ready' | 'error';
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 /**
- * Per-day availability state — simplified break model.
+ * Per-day availability state — multiple breaks model.
  * Internally converted to/from the time_slots JSONB column in the DB.
  *
- * Working model: a single contiguous work window with an optional break gap.
- *   No break:   time_slots = [{ start: work_start, end: work_end }]
- *   With break: time_slots = [{ start: work_start, end: break_start }, { start: break_end, end: work_end }]
+ * Working model: a contiguous work window with zero or more break gaps.
+ *   No breaks:   time_slots = [{ start: work_start, end: work_end }]
+ *   N breaks:    time_slots interleaved — [work_start→b0.start, b0.end→b1.start, …, bN.end→work_end]
  */
 type DayState = {
   is_available: boolean;
@@ -44,10 +44,8 @@ type DayState = {
   work_start: string;
   /** Working end time, e.g. "18:00". */
   work_end: string;
-  /** Break start time. Null if no break. */
-  break_start: string | null;
-  /** Break end time. Null if no break. */
-  break_end: string | null;
+  /** Ordered list of break windows for this day. */
+  breaks: { start: string; end: string }[];
 };
 
 /** In-memory form state for a single barber. */
@@ -110,8 +108,7 @@ function makeDefaultDayState(dayOfWeek: number): DayState {
     is_available: isWeekday,
     work_start:   '09:00',
     work_end:     '17:00',
-    break_start:  null,
-    break_end:    null,
+    breaks:       [],
   };
 }
 
@@ -123,10 +120,10 @@ function makeDefaultDayState(dayOfWeek: number): DayState {
  * Builds the initial BarberFormState for a barber, merging in any
  * existing staff_availability records from the database.
  *
- * Converts the DB time_slots array into the simplified DayState break model:
- *   1 slot  → work_start=slot[0].start, work_end=slot[0].end, no break
+ * Converts the DB time_slots array into the DayState breaks model:
+ *   1 slot  → work_start=slot[0].start, work_end=slot[0].end, breaks=[]
  *   2+ slots → work_start=slot[0].start, work_end=slot[last].end,
- *               break_start=slot[0].end, break_end=slot[1].start
+ *               breaks=[{ start: slot[0].end, end: slot[1].start }]
  *              (3+ slot legacy data: treated as a single break using first gap)
  *
  * Prefers the JSONB `time_slots` column; falls back to legacy start/end_time columns.
@@ -142,28 +139,26 @@ function buildBarberForm(barber: Barber, availability: StaffAvailability[]): Bar
   for (let dow = 0; dow <= 6; dow++) {
     const rec = barberRecords.find((a) => a.day_of_week === dow);
     if (rec) {
-      // Convert DB record to simplified DayState break model.
+      // Convert DB record to DayState breaks model.
       if (rec.time_slots && rec.time_slots.length > 0) {
-        // Primary: convert JSONB time_slots array to break model.
+        // Primary: convert JSONB time_slots array to breaks model.
         const slots = rec.time_slots as Array<{ start: string; end: string }>;
         if (slots.length === 1) {
-          // Single slot — no break.
+          // Single slot — no breaks.
           days[dow] = {
             is_available: rec.is_available,
             work_start:   slots[0].start,
             work_end:     slots[0].end,
-            break_start:  null,
-            break_end:    null,
+            breaks:       [],
           };
         } else {
-          // 2+ slots: work spans first start → last end; break sits between slot[0] end and slot[1] start.
-          // For 3+ legacy slots we just use the first gap as the break (simplified model).
+          // 2+ slots: work spans first start → last end; one break sits between slot[0] end and slot[1] start.
+          // For 3+ legacy slots we just use the first gap as the break (backwards-compatible simplification).
           days[dow] = {
             is_available: rec.is_available,
             work_start:   slots[0].start,
             work_end:     slots[slots.length - 1].end,
-            break_start:  slots[0].end,
-            break_end:    slots[1].start,
+            breaks:       [{ start: slots[0].end, end: slots[1].start }],
           };
         }
       } else if (rec.start_time_1 && rec.end_time_1) {
@@ -173,21 +168,19 @@ function buildBarberForm(barber: Barber, availability: StaffAvailability[]): Bar
             is_available: rec.is_available,
             work_start:   rec.start_time_1,
             work_end:     rec.end_time_2,
-            break_start:  rec.end_time_1,
-            break_end:    rec.start_time_2,
+            breaks:       [{ start: rec.end_time_1, end: rec.start_time_2 }],
           };
         } else {
           days[dow] = {
             is_available: rec.is_available,
             work_start:   rec.start_time_1,
             work_end:     rec.end_time_1,
-            break_start:  null,
-            break_end:    null,
+            breaks:       [],
           };
         }
       } else if (rec.is_available) {
         // Available but no time info — apply sensible defaults.
-        days[dow] = { is_available: true, work_start: '09:00', work_end: '17:00', break_start: null, break_end: null };
+        days[dow] = { is_available: true, work_start: '09:00', work_end: '17:00', breaks: [] };
       } else {
         days[dow] = makeDefaultDayState(dow);
       }
@@ -324,6 +317,8 @@ export default function BookingPage() {
   /** Photo remove state: barberId whose photo is being removed, or null. */
   const [removingPhotoForId, setRemovingPhotoForId] = useState<string | null>(null);
   const photoInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  /** Refs to bio textarea elements, keyed by barberId — used for auto-resize on data load. */
+  const bioTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   /** Debounce timer for booking page settings auto-save. */
   const bookingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -472,6 +467,18 @@ export default function BookingPage() {
 
     void loadData();
   }, []);
+
+  /**
+   * Auto-resizes all bio textareas whenever barberForms changes (e.g. initial
+   * load, external update). Runs after paint so scrollHeight is accurate.
+   */
+  useEffect(() => {
+    for (const el of Object.values(bioTextareaRefs.current)) {
+      if (!el) continue;
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    }
+  }, [barberForms]);
 
   // -------------------------------------------------------------------------
   // Section 1 handlers: Booking page settings
@@ -742,24 +749,28 @@ export default function BookingPage() {
   }
 
   /**
-   * Updates the break start or end time for a day.
+   * Updates the start or end time of a specific break for a day.
    *
-   * @param barberId - UUID of the barber.
-   * @param dow      - Day of week.
-   * @param field    - 'break_start' or 'break_end'.
-   * @param value    - HH:MM value.
+   * @param barberId   - UUID of the barber.
+   * @param dow        - Day of week.
+   * @param breakIndex - Index into the breaks array to update.
+   * @param field      - 'start' or 'end'.
+   * @param value      - HH:MM value.
    */
-  function setBreakTime(barberId: string, dow: number, field: 'break_start' | 'break_end', value: string): void {
+  function setBreakTime(barberId: string, dow: number, breakIndex: number, field: 'start' | 'end', value: string): void {
     setBarberForms((prev) => {
       const day = prev[barberId]?.availability[dow];
       if (!day) return prev;
+      const newBreaks = day.breaks.map((brk, i) =>
+        i === breakIndex ? { ...brk, [field]: value } : brk
+      );
       return {
         ...prev,
         [barberId]: {
           ...prev[barberId],
           availability: {
             ...prev[barberId].availability,
-            [dow]: { ...day, [field]: value },
+            [dow]: { ...day, breaks: newBreaks },
           },
         },
       };
@@ -768,7 +779,8 @@ export default function BookingPage() {
   }
 
   /**
-   * Adds a break to a day by setting default break times (13:00–14:00).
+   * Appends a new break (default 13:00–14:00) to a day's breaks array.
+   * Multiple breaks are supported — always appends, never replaces.
    *
    * @param barberId - UUID of the barber.
    * @param dow      - Day of week.
@@ -783,7 +795,7 @@ export default function BookingPage() {
           ...prev[barberId],
           availability: {
             ...prev[barberId].availability,
-            [dow]: { ...day, break_start: '13:00', break_end: '14:00' },
+            [dow]: { ...day, breaks: [...day.breaks, { start: '13:00', end: '14:00' }] },
           },
         },
       };
@@ -792,22 +804,24 @@ export default function BookingPage() {
   }
 
   /**
-   * Removes the break from a day by clearing break_start and break_end.
+   * Removes the break at the given index from a day's breaks array.
    *
-   * @param barberId - UUID of the barber.
-   * @param dow      - Day of week.
+   * @param barberId   - UUID of the barber.
+   * @param dow        - Day of week.
+   * @param breakIndex - Index of the break to remove.
    */
-  function removeBreak(barberId: string, dow: number): void {
+  function removeBreak(barberId: string, dow: number, breakIndex: number): void {
     setBarberForms((prev) => {
       const day = prev[barberId]?.availability[dow];
       if (!day) return prev;
+      const newBreaks = day.breaks.filter((_, i) => i !== breakIndex);
       return {
         ...prev,
         [barberId]: {
           ...prev[barberId],
           availability: {
             ...prev[barberId].availability,
-            [dow]: { ...day, break_start: null, break_end: null },
+            [dow]: { ...day, breaks: newBreaks },
           },
         },
       };
@@ -816,26 +830,27 @@ export default function BookingPage() {
   }
 
   /**
-   * Copies the break from the source day to all other days where is_available=true.
-   * Only copies if the source day has a break set (break_start !== null).
+   * Copies the entire breaks array from the source day to all other available days.
+   * Only copies if the source day has at least one break.
    *
    * @param barberId  - UUID of the barber.
-   * @param sourceDow - Day of week to copy break from.
+   * @param sourceDow - Day of week to copy breaks from.
    */
   function copyBreakToAllDays(barberId: string, sourceDow: number): void {
     setBarberForms((prev) => {
       const form = prev[barberId];
       if (!form) return prev;
       const sourceDay = form.availability[sourceDow];
-      // Only proceed if the source day actually has a break.
-      if (!sourceDay || sourceDay.break_start === null) return prev;
+      // Only proceed if the source day actually has at least one break.
+      if (!sourceDay || sourceDay.breaks.length === 0) return prev;
 
-      const { break_start, break_end } = sourceDay;
+      // Deep copy the breaks array to avoid shared references across days.
+      const breaksCopy = sourceDay.breaks.map((brk) => ({ ...brk }));
       const newAvailability = { ...form.availability };
       for (let dow = 0; dow <= 6; dow++) {
         const day = form.availability[dow];
         if (!day || !day.is_available) continue;
-        newAvailability[dow] = { ...day, break_start, break_end };
+        newAvailability[dow] = { ...day, breaks: breaksCopy };
       }
       return {
         ...prev,
@@ -1244,19 +1259,23 @@ export default function BookingPage() {
       );
 
       // 2. Save all 7 days of availability.
-      // Convert DayState break model → time_slots array for the DB:
-      //   No break:   [{ start: work_start, end: work_end }]
-      //   With break: [{ start: work_start, end: break_start }, { start: break_end, end: work_end }]
+      // Convert DayState breaks array → time_slots for the DB.
+      // No breaks:   [{ start: work_start, end: work_end }]
+      // N breaks:    interleave — [work_start→b0.start, b0.end→b1.start, …, bN.end→work_end]
       const days = Object.entries(form.availability).map(([dowStr, day]) => {
         let timeSlots: { start: string; end: string }[] = [];
         if (day.is_available) {
-          if (day.break_start !== null && day.break_end !== null) {
-            timeSlots = [
-              { start: day.work_start, end: day.break_start },
-              { start: day.break_end,  end: day.work_end    },
-            ];
-          } else {
+          if (day.breaks.length === 0) {
             timeSlots = [{ start: day.work_start, end: day.work_end }];
+          } else {
+            // Sort breaks by start time so gaps are interleaved correctly.
+            const sorted = [...day.breaks].sort((a, b) => a.start.localeCompare(b.start));
+            let current = day.work_start;
+            for (const brk of sorted) {
+              timeSlots.push({ start: current, end: brk.start });
+              current = brk.end;
+            }
+            timeSlots.push({ start: current, end: day.work_end });
           }
         }
         return {
@@ -2341,13 +2360,19 @@ export default function BookingPage() {
                       </div>
                       <div className="sm:col-span-2 space-y-1.5">
                         <Label className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Bio (optional)</Label>
-                        <Input
+                        <textarea
+                          ref={(el) => { bioTextareaRefs.current[barber.id] = el; }}
                           value={form.bio}
                           onChange={(e) => updateBarberField(barber.id, 'bio', e.target.value)}
+                          onInput={(e) => {
+                            e.currentTarget.style.height = 'auto';
+                            e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                          }}
                           placeholder="Short description shown on the booking page"
                           maxLength={300}
+                          rows={2}
                           disabled={isSaving}
-                          className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]"
+                          className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none transition-colors"
                         />
                       </div>
                     </div>
@@ -2388,38 +2413,51 @@ export default function BookingPage() {
 
                                 {/* Override fields — shown only when this service is assigned to this barber */}
                                 {isAssigned && assignment && (
-                                  <div className="ml-6 flex gap-3 flex-wrap">
-                                    <div className="space-y-0.5">
-                                      <label className="text-xs text-[#8A8680]">Price override</label>
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        step={0.01}
-                                        value={assignment.price_override ?? ''}
-                                        onChange={(e) =>
-                                          updateBarberServiceOverride(barber.id, svc.id, 'price_override', e.target.value)
-                                        }
-                                        onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
-                                        placeholder={svc.price != null ? `Default: ${svc.price}` : 'Default (none)'}
-                                        disabled={isSavingAssignments}
-                                        className="h-8 w-24 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
-                                      />
+                                  <div className="ml-6 mt-1.5 grid grid-cols-2 gap-2 max-w-xs">
+                                    <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Price override</p>
+                                      <div className="flex items-baseline gap-1">
+                                        <span className="text-xs text-[#8A8680]">$</span>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step={0.01}
+                                          value={assignment.price_override ?? ''}
+                                          onChange={(e) =>
+                                            updateBarberServiceOverride(barber.id, svc.id, 'price_override', e.target.value)
+                                          }
+                                          onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                          placeholder={svc.price != null ? String(svc.price) : '—'}
+                                          disabled={isSavingAssignments}
+                                          className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
+                                        />
+                                      </div>
+                                      {svc.price != null && (
+                                        <p className="text-[10px] text-[#C8C8C8]">Default: ${svc.price}</p>
+                                      )}
                                     </div>
-                                    <div className="space-y-0.5">
-                                      <label className="text-xs text-[#8A8680]">Duration override (min)</label>
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={assignment.duration_minutes_override ?? ''}
-                                        onChange={(e) =>
-                                          updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
-                                        }
-                                        onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
-                                        placeholder={svc.duration_minutes != null ? `Default: ${svc.duration_minutes}` : 'Default (none)'}
-                                        disabled={isSavingAssignments}
-                                        className="h-8 w-28 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
-                                      />
+
+                                    <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Duration override</p>
+                                      <div className="flex items-baseline gap-1">
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          step={1}
+                                          value={assignment.duration_minutes_override ?? ''}
+                                          onChange={(e) =>
+                                            updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
+                                          }
+                                          onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                          placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : '—'}
+                                          disabled={isSavingAssignments}
+                                          className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
+                                        />
+                                        <span className="text-xs text-[#8A8680] shrink-0">min</span>
+                                      </div>
+                                      {svc.duration_minutes != null && (
+                                        <p className="text-[10px] text-[#C8C8C8]">Default: {svc.duration_minutes} min</p>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -2485,54 +2523,58 @@ export default function BookingPage() {
                                       </div>
                                     </div>
 
-                                    {/* Break section — shown when a break is set */}
-                                    {day.break_start !== null ? (
-                                      <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2 space-y-1.5">
-                                        <p className="text-xs text-amber-700 font-medium">Break</p>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <input
-                                            type="time"
-                                            value={day.break_start ?? ''}
-                                            onChange={(e) => setBreakTime(barber.id, dow, 'break_start', e.target.value)}
-                                            disabled={isSaving}
-                                            className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
-                                          />
-                                          <span className="text-xs text-[#8A8680]">to</span>
-                                          <input
-                                            type="time"
-                                            value={day.break_end ?? ''}
-                                            onChange={(e) => setBreakTime(barber.id, dow, 'break_end', e.target.value)}
-                                            disabled={isSaving}
-                                            className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
-                                          />
+                                    {/* Break section — supports multiple breaks */}
+                                    <div className="space-y-2 mt-1">
+                                      {day.breaks.map((brk, i) => (
+                                        <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1.5">
+                                          <p className="text-xs text-amber-700 font-medium">Break {day.breaks.length > 1 ? i + 1 : ''}</p>
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <input
+                                              type="time"
+                                              value={brk.start}
+                                              onChange={(e) => setBreakTime(barber.id, dow, i, 'start', e.target.value)}
+                                              disabled={isSaving}
+                                              className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                            />
+                                            <span className="text-xs text-[#8A8680]">to</span>
+                                            <input
+                                              type="time"
+                                              value={brk.end}
+                                              onChange={(e) => setBreakTime(barber.id, dow, i, 'end', e.target.value)}
+                                              disabled={isSaving}
+                                              className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                            />
+                                          </div>
+                                          <div className="flex items-center gap-3 pt-0.5">
+                                            <button
+                                              type="button"
+                                              onClick={() => removeBreak(barber.id, dow, i)}
+                                              className="text-xs text-amber-600 hover:text-amber-800 transition-colors"
+                                            >
+                                              × Remove break
+                                            </button>
+                                            {i === 0 && day.breaks.length === 1 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => copyBreakToAllDays(barber.id, dow)}
+                                                className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                                              >
+                                                Apply to all working days
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
-                                        <div className="flex items-center gap-3 pt-0.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => removeBreak(barber.id, dow)}
-                                            className="text-xs text-amber-600 hover:text-amber-800 transition-colors"
-                                          >
-                                            × Remove break
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => copyBreakToAllDays(barber.id, dow)}
-                                            className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
-                                          >
-                                            Apply to all working days
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      /* + Add break button — shown when no break is set */
+                                      ))}
+
+                                      {/* "+ Add break" is always visible when the day is available */}
                                       <button
                                         type="button"
                                         onClick={() => addBreak(barber.id, dow)}
-                                        className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors mt-1"
+                                        className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                                       >
                                         + Add break
                                       </button>
-                                    )}
+                                    </div>
                                   </div>
                                 ) : (
                                   <p className="text-xs text-[#8A8680] pt-0.5">Not available</p>
