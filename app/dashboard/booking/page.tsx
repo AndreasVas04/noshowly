@@ -2438,23 +2438,20 @@ export default function BookingPage() {
                                     </div>
 
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Your duration</p>
-                                      <div className="flex items-baseline gap-1">
-                                        <input
-                                          type="number"
-                                          min={1}
-                                          step={1}
-                                          value={assignment.duration_minutes_override ?? ''}
-                                          onChange={(e) =>
-                                            updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
-                                          }
-                                          onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
-                                          placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
-                                          disabled={isSavingAssignments}
-                                          className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
-                                        />
-                                        <span className="text-xs text-[#8A8680] shrink-0">min</span>
-                                      </div>
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Your duration (min)</p>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={assignment.duration_minutes_override ?? ''}
+                                        onChange={(e) =>
+                                          updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
+                                        }
+                                        onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                        placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
+                                        disabled={isSavingAssignments}
+                                        className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
+                                      />
                                       {svc.duration_minutes != null && (
                                         <p className="text-[10px] text-[#C8C8C8]">Service default: {svc.duration_minutes} min</p>
                                       )}
