@@ -960,22 +960,22 @@ export default function BookingFlow({
     <div className="min-h-screen flex flex-col lg:flex-row">
 
       {/* ── DESKTOP SIDEBAR ────────────────────────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-[240px] shrink-0 sticky top-0 self-start h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
+      <aside className="hidden lg:flex flex-col w-[280px] shrink-0 sticky top-0 self-start h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
         <div className="flex flex-col h-full p-7 gap-0">
 
           {/* Business name */}
-          <h1 className="font-heading text-white text-[18px] font-bold leading-snug mt-1">
+          <h1 className="font-heading text-white text-[16px] font-bold leading-snug mt-1">
             {customTitle ?? salon.name}
           </h1>
           {customIntro && (
-            <p className="mt-2 font-body text-white/60 text-[12px] leading-relaxed line-clamp-4">
+            <p className="mt-3 font-body text-[12px] text-white/55 leading-relaxed tracking-wide">
               {customIntro}
             </p>
           )}
 
           {/* Live booking summary */}
           {hasSummary && (
-            <div className="mt-7 pt-5 border-t border-white/10 space-y-2">
+            <div className="mt-6 pt-5 border-t border-white/10 space-y-2">
               <p className="font-body text-[10px] text-white/30 uppercase tracking-widest">Your booking</p>
               {selectedService && (
                 <div>
