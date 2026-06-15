@@ -2506,25 +2506,25 @@ export default function BookingPage() {
                                 </div>
 
                                 {day.is_available ? (
-                                  <div className="flex-1 space-y-2">
+                                  <div className="flex-1 min-w-0 space-y-2">
                                     {/* Working hours section */}
                                     <div>
                                       <p className="text-xs text-[#8A8680] font-medium mb-1">Working hours</p>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex flex-row items-center gap-2">
                                         <input
                                           type="time"
                                           value={day.work_start}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_start', e.target.value)}
                                           disabled={isSaving}
-                                          className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                          className="w-[90px] h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
-                                        <span className="text-xs text-[#8A8680]">to</span>
+                                        <span className="text-xs text-[#8A8680] shrink-0">to</span>
                                         <input
                                           type="time"
                                           value={day.work_end}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_end', e.target.value)}
                                           disabled={isSaving}
-                                          className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                          className="w-[90px] h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
                                       </div>
                                     </div>
@@ -2534,21 +2534,21 @@ export default function BookingPage() {
                                       {day.breaks.map((brk, i) => (
                                         <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1.5">
                                           <p className="text-xs text-amber-700 font-medium">Break {day.breaks.length > 1 ? i + 1 : ''}</p>
-                                          <div className="flex items-center gap-2">
+                                          <div className="flex flex-row items-center gap-2">
                                             <input
                                               type="time"
                                               value={brk.start}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'start', e.target.value)}
                                               disabled={isSaving}
-                                              className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                              className="w-[90px] h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                             />
-                                            <span className="text-xs text-[#8A8680]">to</span>
+                                            <span className="text-xs text-[#8A8680] shrink-0">to</span>
                                             <input
                                               type="time"
                                               value={brk.end}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'end', e.target.value)}
                                               disabled={isSaving}
-                                              className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
+                                              className="w-[90px] h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                             />
                                           </div>
                                           <div className="flex items-center gap-3 pt-0.5">

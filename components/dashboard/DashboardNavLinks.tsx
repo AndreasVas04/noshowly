@@ -97,7 +97,10 @@ export function MobileBottomNav() {
   }
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#1B4332]/5 border-t border-[#E5E2DB]">
+    <nav
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-[#E5E2DB]"
+      style={{ backgroundColor: 'rgba(27, 67, 50, 0.06)' }}
+    >
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map((item) => {
           const isActive =
@@ -111,20 +114,19 @@ export function MobileBottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={[
-                'flex-1 relative flex flex-col items-center justify-center gap-0.5 transition-colors',
-                isActive ? 'text-[#1B4332]' : 'text-[#8A8680]',
-              ].join(' ')}
+              className="flex-1 relative flex flex-col items-center justify-center gap-0.5 transition-colors"
+              style={{ color: isActive ? '#1B4332' : '#8A8680' }}
             >
               {/* Active indicator bar at the top of the tab */}
               <span
-                className={[
-                  'absolute top-0 h-0.5 w-8 rounded-b-full transition-colors',
-                  isActive ? 'bg-[#1B4332]' : 'bg-transparent',
-                ].join(' ')}
+                className="absolute top-0 h-0.5 w-8 rounded-b-full transition-colors"
+                style={{ backgroundColor: isActive ? '#1B4332' : 'transparent' }}
               />
               <Icon className="w-5 h-5 shrink-0" strokeWidth={isActive ? 2.2 : 1.8} />
-              <span className={`text-[10px] leading-none ${isActive ? 'font-semibold' : 'font-medium'}`}>
+              <span
+                className="text-[10px] leading-none"
+                style={{ fontWeight: isActive ? 600 : 500 }}
+              >
                 {item.label}
               </span>
             </Link>
@@ -135,7 +137,8 @@ export function MobileBottomNav() {
         <button
           type="button"
           onClick={() => { void handleSignOut(); }}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[#8A8680] transition-colors hover:text-[#1A1A1A]"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors"
+          style={{ color: '#8A8680' }}
         >
           <LogOut className="w-5 h-5 shrink-0" strokeWidth={1.8} />
           <span className="text-[10px] font-medium leading-none">Sign out</span>

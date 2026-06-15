@@ -965,7 +965,7 @@ export default function SettingsPage() {
                   <div className="bg-[#1A1A1A]/3 border-b border-[#E5E2DB] px-4 py-3 space-y-1">
                     <div className="flex gap-2 text-xs">
                       <span className="text-[#8A8680] shrink-0">From:</span>
-                      <span className="text-[#1A1A1A] font-medium truncate">reminders@noshowly.com</span>
+                      <span className="text-[#1A1A1A] font-medium break-all">reminders@noshowly.com</span>
                     </div>
                     <div className="flex gap-2 text-xs">
                       <span className="text-[#8A8680] shrink-0">Subject:</span>
