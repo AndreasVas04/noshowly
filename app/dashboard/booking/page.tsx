@@ -2510,7 +2510,7 @@ export default function BookingPage() {
                                     {/* Working hours section */}
                                     <div>
                                       <p className="text-xs text-[#8A8680] font-medium mb-1">Working hours</p>
-                                      <div className="flex items-center gap-2 flex-wrap">
+                                      <div className="flex items-center gap-2">
                                         <input
                                           type="time"
                                           value={day.work_start}
@@ -2534,7 +2534,7 @@ export default function BookingPage() {
                                       {day.breaks.map((brk, i) => (
                                         <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1.5">
                                           <p className="text-xs text-amber-700 font-medium">Break {day.breaks.length > 1 ? i + 1 : ''}</p>
-                                          <div className="flex items-center gap-2 flex-wrap">
+                                          <div className="flex items-center gap-2">
                                             <input
                                               type="time"
                                               value={brk.start}

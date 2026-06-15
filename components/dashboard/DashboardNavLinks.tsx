@@ -97,7 +97,7 @@ export function MobileBottomNav() {
   }
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#FAFAF8] border-t border-[#E5E2DB]">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#1B4332]/5 border-t border-[#E5E2DB]">
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map((item) => {
           const isActive =

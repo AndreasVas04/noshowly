@@ -960,7 +960,7 @@ export default function SettingsPage() {
               {/* Email preview */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">Email · 24h before</p>
-                <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden">
+                <div className="bg-white rounded-2xl border border-[#E5E2DB]">
                   {/* Email header */}
                   <div className="bg-[#1A1A1A]/3 border-b border-[#E5E2DB] px-4 py-3 space-y-1">
                     <div className="flex gap-2 text-xs">

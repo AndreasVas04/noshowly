@@ -1006,7 +1006,7 @@ export default function AddAppointmentModal({
                   min={salonOpeningTime}
                   max={salonClosingTime}
                   style={{ paddingLeft: '12px', paddingRight: '0.75rem' }}
-                  className={`w-full min-w-[120px] h-10 rounded-lg border text-sm text-[#1A1A1A] outline-none transition-colors ${
+                  className={`w-full min-w-[130px] h-10 pl-3 rounded-lg border text-sm text-[#1A1A1A] outline-none transition-colors ${
                     fieldErrors.time ? 'border-red-400' : 'border-[#C8C8C8] focus:border-[#1A1A1A]'
                   }`}
                 />
