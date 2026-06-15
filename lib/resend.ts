@@ -5,9 +5,9 @@
  *
  * Design rules:
  *  - Never throws — all errors are caught and returned as { success: false, error }.
- *  - The from address (reminders@noshowly.com) must be verified in the Resend
- *    dashboard before emails can be delivered. The domain noshowly.com must have
- *    the Resend DNS records in place.
+ *  - Currently using Resend's shared onboarding@resend.dev sender (dev/staging).
+ *    When noshowly.com is purchased, switch FROM_ADDRESS to reminders@noshowly.com
+ *    and add Resend DNS records to the domain.
  *  - Email content should never mention "Noshowly" — the salon's name is the
  *    only brand the end client sees (see lib/reminder-templates.ts).
  *

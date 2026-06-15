@@ -455,7 +455,7 @@ export default function LandingContent() {
                   </p>
                   <div className="bg-[#F5F2ED] rounded-xl px-4 py-3 flex items-center justify-between gap-2 mb-5">
                     <span className="text-sm text-[#1A1A1A] font-body font-medium truncate">
-                      noshowly.com/book/city-hair
+                      noshowly.vercel.app/book/city-hair
                     </span>
                     <svg className="w-4 h-4 text-[#8A8680] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />

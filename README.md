@@ -2,7 +2,7 @@
   <img src="public/Logo.png" alt="Noshowly" height="60" />
   <p><strong>Appointment scheduling and email reminder SaaS for service businesses</strong></p>
 
-  ![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
+  ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
   ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase)
   ![Resend](https://img.shields.io/badge/Resend-Email-000000)
@@ -29,7 +29,7 @@
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 14 (App Router) + TypeScript |
+| Frontend | Next.js 16 (App Router) + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |
 | Database | Supabase (PostgreSQL + RLS) |
 | Auth | Supabase Auth (email/password) |

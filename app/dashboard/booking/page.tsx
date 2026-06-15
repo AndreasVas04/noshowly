@@ -1719,7 +1719,7 @@ export default function BookingPage() {
 
   const bookingUrl = typeof window !== 'undefined' && bookingPage
     ? `${window.location.origin}/book/${bookingPage.slug}`
-    : bookingPage ? `https://noshowly.com/book/${bookingPage.slug}` : null;
+    : bookingPage ? `https://noshowly.vercel.app/book/${bookingPage.slug}` : null;
 
   /** Whether at least one active global service exists. */
   const hasAnyService = salonServices.some((s) => s.active);
