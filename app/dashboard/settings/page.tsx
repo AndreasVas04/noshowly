@@ -323,6 +323,17 @@ export default function SettingsPage() {
     void loadData();
   }, []);
 
+  /**
+   * Auto-resizes the email body textarea when its content changes (e.g. initial
+   * load or user edits). Runs after paint so scrollHeight is accurate.
+   */
+  useEffect(() => {
+    const el = emailBodyTextareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [emailBody]);
+
   // -------------------------------------------------------------------------
   // Section 1 auto-save: business info
   // -------------------------------------------------------------------------
@@ -810,34 +821,40 @@ export default function SettingsPage() {
 
           <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5">
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="flex flex-row flex-wrap gap-5">
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="opening-time">Opening time</FieldLabel>
-                <input
-                  id="opening-time"
-                  type="time"
-                  value={openingTime}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setOpeningTime(v);
-                    scheduleHoursSave(v, closingTime);
-                  }}
-                  className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                />
+                <div className="max-w-[140px]">
+                  <input
+                    id="opening-time"
+                    type="time"
+                    value={openingTime}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setOpeningTime(v);
+                      scheduleHoursSave(v, closingTime);
+                    }}
+                    style={{ paddingLeft: '0.75rem', paddingRight: '0.75rem' }}
+                    className="w-full h-9 rounded-lg border border-[#C8C8C8] text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <FieldLabel htmlFor="closing-time">Closing time</FieldLabel>
-                <input
-                  id="closing-time"
-                  type="time"
-                  value={closingTime}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setClosingTime(v);
-                    scheduleHoursSave(openingTime, v);
-                  }}
-                  className="w-full h-10 rounded-lg border border-[#C8C8C8] px-3 text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                />
+                <div className="max-w-[140px]">
+                  <input
+                    id="closing-time"
+                    type="time"
+                    value={closingTime}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setClosingTime(v);
+                      scheduleHoursSave(openingTime, v);
+                    }}
+                    style={{ paddingLeft: '0.75rem', paddingRight: '0.75rem' }}
+                    className="w-full h-9 rounded-lg border border-[#C8C8C8] text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
+                  />
+                </div>
               </div>
             </div>
 
@@ -944,7 +961,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex gap-2 text-xs">
                       <span className="text-[#8A8680] shrink-0">Subject:</span>
-                      <span className="text-[#1A1A1A] font-medium truncate">{previewEmailSubjectText}</span>
+                      <span className="text-[#1A1A1A] font-medium break-words">{previewEmailSubjectText}</span>
                     </div>
                   </div>
                   {/* Email body */}
@@ -1032,10 +1049,15 @@ export default function SettingsPage() {
                     setEmailBody(v);
                     scheduleTemplatesSave(emailFooter, emailSubject, emailGreeting, v, emailClosing);
                   }}
+                  onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   placeholder={DEFAULT_EMAIL_BODY}
                   rows={3}
                   maxLength={500}
-                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none transition-colors"
+                  className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
 
                 {/* Variable chips for email body */}

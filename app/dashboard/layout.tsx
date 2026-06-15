@@ -19,7 +19,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import LogoutButton from '@/components/layout/LogoutButton';
-import DashboardNavLinks, { MobileNavLinks } from '@/components/dashboard/DashboardNavLinks';
+import DashboardNavLinks, { MobileBottomNav } from '@/components/dashboard/DashboardNavLinks';
 
 /**
  * DashboardLayout wraps every /dashboard/* page with the sidebar and header.
@@ -103,31 +103,15 @@ export default async function DashboardLayout({
       </aside>
 
       {/* =================================================================
-          MOBILE TOP BAR — visible below lg breakpoint
+          MOBILE BOTTOM TAB BAR — fixed at bottom, visible below lg breakpoint
       ================================================================== */}
-      <header
-        className="lg:hidden flex items-center justify-between gap-4 px-4 py-3"
-        style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}
-      >
-        {/* Brand */}
-        <Image src="/Logo.png" alt="Noshowly" width={120} height={32} className="h-7 w-auto shrink-0" />
-
-        {/* Horizontal nav — client component for active-state detection */}
-        <MobileNavLinks />
-
-        {/* Visual separator between nav and logout */}
-        <div className="w-px h-5 bg-white/20 shrink-0" />
-
-        {/* Logout */}
-        <div className="shrink-0">
-          <LogoutButton />
-        </div>
-      </header>
+      <MobileBottomNav />
 
       {/* =================================================================
           MAIN CONTENT AREA
+          pb-16 on mobile reserves space above the fixed bottom tab bar.
       ================================================================== */}
-      <main className="flex-1 min-w-0 overflow-auto">
+      <main className="flex-1 min-w-0 overflow-auto pb-16 lg:pb-0">
         {children}
       </main>
 

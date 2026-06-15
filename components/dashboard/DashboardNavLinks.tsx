@@ -7,30 +7,33 @@
  *
  * Exports:
  *  - DashboardNavLinks (default) — vertical sidebar nav for lg+ screens
- *  - MobileNavLinks (named) — horizontal scrollable nav for mobile header
+ *  - MobileBottomNav (named)     — bottom tab bar fixed at screen bottom for mobile
  */
 
 'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Calendar, CalendarDays, Globe, Settings } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 /** A single navigation entry. */
 interface NavItem {
   label: string;
   href: string;
+  icon: LucideIcon;
 }
 
 /** All dashboard navigation links in display order. */
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Today', href: '/dashboard' },
-  { label: 'Week', href: '/dashboard/week' },
-  { label: 'Booking', href: '/dashboard/booking' },
-  { label: 'Settings', href: '/dashboard/settings' },
+  { label: 'Today',    href: '/dashboard',         icon: Calendar },
+  { label: 'Week',     href: '/dashboard/week',     icon: CalendarDays },
+  { label: 'Booking',  href: '/dashboard/booking',  icon: Globe },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
 /**
- * DashboardNavLinks renders the vertical sidebar navigation.
+ * DashboardNavLinks renders the vertical sidebar navigation for desktop.
  * The active link is highlighted with a white left border and white/15 bg.
  *
  * @returns A nav element with all dashboard links.
@@ -67,37 +70,49 @@ export default function DashboardNavLinks() {
 }
 
 /**
- * MobileNavLinks renders the horizontal scrollable navigation for the mobile
- * top bar. Active links use a white bottom border for visual distinction.
+ * MobileBottomNav renders a fixed bottom tab bar for mobile screens (hidden on lg+).
+ * Each tab shows an icon and a label. The active tab is highlighted in brand green.
  *
- * @returns A nav element with all dashboard links in a horizontal layout.
+ * @returns A fixed nav element at the bottom of the viewport.
  */
-export function MobileNavLinks() {
+export function MobileBottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex items-center gap-1 overflow-x-auto">
-      {NAV_ITEMS.map((item) => {
-        const isActive =
-          item.href === '/dashboard'
-            ? pathname === '/dashboard'
-            : pathname.startsWith(item.href);
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#E5E2DB]">
+      <div className="flex items-stretch h-16">
+        {NAV_ITEMS.map((item) => {
+          const isActive =
+            item.href === '/dashboard'
+              ? pathname === '/dashboard'
+              : pathname.startsWith(item.href);
 
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={[
-              'text-sm font-medium px-3 py-1.5 rounded-lg transition-colors shrink-0',
-              isActive
-                ? 'text-white bg-white/15 border-b-2 border-white'
-                : 'text-white/60 hover:text-white hover:bg-white/10',
-            ].join(' ')}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
+          const Icon = item.icon;
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={[
+                'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors',
+                isActive ? 'text-[#1B4332]' : 'text-[#8A8680]',
+              ].join(' ')}
+            >
+              {/* Active indicator bar at the top of the tab */}
+              <span
+                className={[
+                  'absolute top-0 h-0.5 w-8 rounded-b-full transition-colors',
+                  isActive ? 'bg-[#1B4332]' : 'bg-transparent',
+                ].join(' ')}
+              />
+              <Icon className="w-5 h-5 shrink-0" strokeWidth={isActive ? 2.2 : 1.8} />
+              <span className={`text-[10px] font-medium leading-none ${isActive ? 'font-semibold' : ''}`}>
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }
