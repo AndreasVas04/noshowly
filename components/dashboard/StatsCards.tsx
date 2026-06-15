@@ -83,10 +83,10 @@ type StatConfig = {
  */
 function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
   return (
-    <Card className={`bg-white border-[#E5E2DB] shadow-none border-l-[3px] ${accentClass}`}>
+    <Card className={`bg-white border-[#E5E2DB] shadow-none border-l-[3px] overflow-hidden ${accentClass}`}>
       <CardContent className="px-5 py-4">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wide font-body flex-1 min-w-0 break-words">{label}</p>
+          <p className="text-[9px] font-medium text-[#8A8680] uppercase tracking-tight font-body flex-1 min-w-0 w-full overflow-hidden break-words">{label}</p>
           <div className="opacity-60 shrink-0 ml-1">{icon}</div>
         </div>
         {loading ? (

@@ -98,8 +98,8 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-[#E5E2DB]"
-      style={{ backgroundColor: 'rgba(27, 67, 50, 0.06)' }}
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-50"
+      style={{ backgroundColor: 'rgba(27, 67, 50, 0.08)', borderTop: '1px solid #E5E2DB' }}
     >
       <div className="flex items-stretch h-16">
         {NAV_ITEMS.map((item) => {
