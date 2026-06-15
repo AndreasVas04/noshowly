@@ -964,11 +964,11 @@ export default function BookingFlow({
         <div className="flex flex-col h-full p-7 gap-0">
 
           {/* Business name */}
-          <h1 className="font-heading text-white text-[22px] font-bold leading-tight mt-1">
+          <h1 className="font-heading text-white text-[18px] font-bold leading-snug mt-1">
             {customTitle ?? salon.name}
           </h1>
           {customIntro && (
-            <p className="mt-2 font-body text-white/60 text-[12px] leading-relaxed">
+            <p className="mt-2 font-body text-white/60 text-[12px] leading-relaxed line-clamp-4">
               {customIntro}
             </p>
           )}
