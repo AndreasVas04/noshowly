@@ -2,11 +2,18 @@
   <img src="public/Logo.png" alt="Noshowly" height="60" />
   <p><strong>Appointment scheduling and email reminder SaaS for service businesses</strong></p>
 
+  🔗 [noshowly.vercel.app](https://noshowly.vercel.app)
+
   ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+
   ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
+
   ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase)
+
   ![Resend](https://img.shields.io/badge/Resend-Email-000000)
+
   ![Stripe](https://img.shields.io/badge/Stripe-Billing-635BFF?logo=stripe)
+
   ![Vercel](https://img.shields.io/badge/Vercel-Deployed-000000?logo=vercel)
 </div>
 
