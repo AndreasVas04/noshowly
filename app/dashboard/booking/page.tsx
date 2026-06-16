@@ -2435,7 +2435,7 @@ export default function BookingPage() {
                                 {isAssigned && assignment && (
                                   <div className="ml-6 mt-1.5 grid grid-cols-2 gap-2 max-w-xs">
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Your price</p>
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Price</p>
                                       <div className="flex items-baseline gap-1">
                                         <span className="text-xs text-[#8A8680]">$</span>
                                         <input
@@ -2453,12 +2453,12 @@ export default function BookingPage() {
                                         />
                                       </div>
                                       {svc.price != null && (
-                                        <p className="text-[10px] text-[#C8C8C8]">Service default: ${svc.price}</p>
+                                        <p className="text-[10px] text-[#C8C8C8]">Default: ${svc.price}</p>
                                       )}
                                     </div>
 
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Your duration (min)</p>
+                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Duration (min)</p>
                                       <input
                                         type="number"
                                         min={1}
@@ -2473,7 +2473,7 @@ export default function BookingPage() {
                                         className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                       />
                                       {svc.duration_minutes != null && (
-                                        <p className="text-[10px] text-[#C8C8C8]">Service default: {svc.duration_minutes} min</p>
+                                        <p className="text-[10px] text-[#C8C8C8]">Default: {svc.duration_minutes} min</p>
                                       )}
                                     </div>
                                   </div>
