@@ -85,11 +85,11 @@ function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
   return (
     <Card className={`bg-white border-[#E5E2DB] shadow-none border-l-[3px] overflow-hidden relative ${accentClass}`}>
       <CardContent className="px-5 py-4">
-        <p className="text-[9px] sm:text-[11px] font-medium text-[#8A8680] uppercase tracking-tight font-body whitespace-nowrap overflow-hidden mb-3">{label}</p>
+        <p className="text-[9px] sm:text-[11px] font-medium text-[#8A8680] uppercase tracking-tight font-body whitespace-nowrap overflow-hidden mb-3 text-center">{label}</p>
         {loading ? (
-          <div className="h-10 w-10 animate-pulse rounded bg-[#E5E2DB]/60" />
+          <div className="h-10 w-10 animate-pulse rounded bg-[#E5E2DB]/60 mx-auto" />
         ) : (
-          <p className="font-heading text-4xl font-bold text-[#1A1A1A] tabular-nums leading-none text-left">{count}</p>
+          <p className="font-heading text-4xl font-bold text-[#1A1A1A] tabular-nums leading-none text-center">{count}</p>
         )}
         <div className="absolute bottom-2 right-2 opacity-40">{icon}</div>
       </CardContent>

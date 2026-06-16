@@ -981,15 +981,17 @@ export default function AddAppointmentModal({
                 <Label htmlFor="modal-date" className={labelClass}>
                   Date <span className="text-red-400">*</span>
                 </Label>
-                <input
-                  id="modal-date"
-                  type="date"
-                  value={form.date}
-                  onChange={(e) => setField('date', e.target.value)}
-                  className={`w-full h-10 px-3 rounded-lg border text-sm text-[#1A1A1A] outline-none transition-colors ${
-                    fieldErrors.date ? 'border-red-400' : 'border-[#C8C8C8] focus:border-[#1A1A1A]'
-                  }`}
-                />
+                <div className={`rounded-lg border overflow-hidden transition-colors ${
+                  fieldErrors.date ? 'border-red-400' : 'border-[#C8C8C8] focus-within:border-[#1A1A1A]'
+                }`}>
+                  <input
+                    id="modal-date"
+                    type="date"
+                    value={form.date}
+                    onChange={(e) => setField('date', e.target.value)}
+                    className="w-full h-11 px-3 text-sm text-[#1A1A1A] outline-none border-none bg-transparent"
+                  />
+                </div>
                 {fieldErrors.date && <p className="text-xs text-red-600">{fieldErrors.date}</p>}
               </div>
 
@@ -997,19 +999,19 @@ export default function AddAppointmentModal({
                 <Label htmlFor="modal-time" className={labelClass}>
                   Time <span className="text-red-400">*</span>
                 </Label>
-                {/* Native time input — always stores in 24h HH:MM format. */}
-                <input
-                  id="modal-time"
-                  type="time"
-                  value={form.time}
-                  onChange={(e) => setField('time', e.target.value)}
-                  min={salonOpeningTime}
-                  max={salonClosingTime}
-                  style={{ paddingLeft: '16px', paddingRight: '0.75rem' }}
-                  className={`w-full h-10 pl-4 rounded-lg border text-sm text-[#1A1A1A] outline-none transition-colors ${
-                    fieldErrors.time ? 'border-red-400' : 'border-[#C8C8C8] focus:border-[#1A1A1A]'
-                  }`}
-                />
+                <div className={`rounded-lg border overflow-hidden transition-colors ${
+                  fieldErrors.time ? 'border-red-400' : 'border-[#C8C8C8] focus-within:border-[#1A1A1A]'
+                }`}>
+                  <input
+                    id="modal-time"
+                    type="time"
+                    value={form.time}
+                    onChange={(e) => setField('time', e.target.value)}
+                    min={salonOpeningTime}
+                    max={salonClosingTime}
+                    className="w-full h-11 px-3 text-sm text-[#1A1A1A] outline-none border-none bg-transparent"
+                  />
+                </div>
                 {fieldErrors.time && <p className="text-xs text-red-600">{fieldErrors.time}</p>}
               </div>
             </div>
