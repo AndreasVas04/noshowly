@@ -2492,21 +2492,24 @@ export default function BookingPage() {
                                 day.is_available ? 'border-[#E5E2DB]/40 bg-white' : 'border-[#E5E2DB]/20 bg-[#F9F9F9]'
                               }`}
                             >
-                              <div className="flex items-start gap-3">
-                                {/* Day label + toggle */}
-                                <div className="flex items-center gap-2 w-20 shrink-0 pt-0.5">
+                              <div className="flex flex-col gap-2">
+                                {/* Day label + toggle — own row */}
+                                <div className="flex items-center gap-2">
                                   <SmallToggle
                                     checked={day.is_available}
                                     onChange={(v) => setDayAvailable(barber.id, dow, v)}
                                     label={`${label} availability`}
                                   />
-                                  <span className={`text-xs font-medium w-8 ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>
+                                  <span className={`text-xs font-medium ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>
                                     {label}
                                   </span>
+                                  {!day.is_available && (
+                                    <span className="text-xs text-[#8A8680] ml-1">Not available</span>
+                                  )}
                                 </div>
 
-                                {day.is_available ? (
-                                  <div className="flex-1 min-w-0 space-y-2">
+                                {day.is_available && (
+                                  <div className="pl-2 space-y-2">
                                     {/* Working hours section */}
                                     <div>
                                       <p className="text-xs text-[#8A8680] font-medium mb-1">Working hours</p>
@@ -2586,8 +2589,6 @@ export default function BookingPage() {
                                       </button>
                                     </div>
                                   </div>
-                                ) : (
-                                  <p className="text-xs text-[#8A8680] pt-0.5">Not available</p>
                                 )}
                               </div>
                             </div>

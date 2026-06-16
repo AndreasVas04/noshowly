@@ -201,7 +201,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   //  3. Cancelled: shown last with strikethrough
   const now = new Date();
   const isPastScheduled = (a: AppointmentWithDetails) =>
-    a.status === 'scheduled' && new Date(a.datetime) < now;
+    a.status !== 'cancelled' && new Date(a.datetime) < now;
 
   const upcomingActive    = filteredAppointments.filter((a) => a.status !== 'cancelled' && !isPastScheduled(a));
   const pastUnanswered    = filteredAppointments.filter(isPastScheduled);

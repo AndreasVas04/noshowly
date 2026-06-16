@@ -596,6 +596,12 @@ async function handleBookingPost(
   }
 
   // Step 7: Create the appointment.
+  // Auto-confirm when the appointment is less than 23 hours away — the cron job
+  // will never send a YES/NO reminder, so there is no mechanism for the client to
+  // confirm later. Setting 'confirmed' immediately avoids a permanently-pending state.
+  const hoursUntilAppointment = (new Date(datetimeUTC).getTime() - Date.now()) / (1000 * 60 * 60);
+  const appointmentStatus = hoursUntilAppointment < 23 ? 'confirmed' : 'scheduled';
+
   const { data: appointment, error: apptError } = await supabase
     .from('appointments')
     .insert({
@@ -605,7 +611,7 @@ async function handleBookingPost(
       datetime:     datetimeUTC,
       service_type: resolvedServiceName,
       notes:        notes,
-      status:       'scheduled',
+      status:       appointmentStatus,
     })
     .select('id')
     .single();

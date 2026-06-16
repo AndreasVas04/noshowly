@@ -91,10 +91,10 @@ function formatTime(isoString: string): string {
  * not affected by whether their time has passed.
  *
  * @param apt - The appointment to check.
- * @returns true if status='scheduled' and datetime is in the past.
+ * @returns true if the appointment is not cancelled and its datetime has passed.
  */
 function isPastScheduled(apt: AppointmentWithDetails): boolean {
-  return apt.status === 'scheduled' && new Date(apt.datetime) < new Date();
+  return apt.status !== 'cancelled' && new Date(apt.datetime) < new Date();
 }
 
 /**

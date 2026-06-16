@@ -318,8 +318,17 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 }
     );
   }
-  const requestedStatus: AppointmentStatus =
+  // Default to 'scheduled', but auto-confirm when no explicit status is given and
+  // the appointment is less than 23 hours away — the cron job will never send a
+  // YES/NO reminder in that window, so there is no mechanism for the client to confirm.
+  let requestedStatus: AppointmentStatus =
     (raw.status as AppointmentStatus | undefined) ?? 'scheduled';
+  if (raw.status === undefined) {
+    const hoursUntil = (datetimeParsed.getTime() - Date.now()) / (1000 * 60 * 60);
+    if (hoursUntil < 23) {
+      requestedStatus = 'confirmed';
+    }
+  }
 
   // Step 3: Resolve salon for this user. Include timezone for availability checks.
   const { data: salon, error: salonError } = await supabase

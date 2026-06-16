@@ -79,9 +79,10 @@ export default function AppointmentCard({ appointment, onClick }: AppointmentCar
   const time         = formatTime(appointment.datetime);
   const isCancelled  = appointment.status === 'cancelled';
 
-  // Past unanswered: scheduled status but the appointment time has already passed.
+  // Past: any non-cancelled appointment whose datetime has already elapsed.
+  // Covers both 'scheduled' (unanswered) and 'confirmed' (already happened).
   const isPastScheduled =
-    appointment.status === 'scheduled' && new Date(appointment.datetime) < new Date();
+    appointment.status !== 'cancelled' && new Date(appointment.datetime) < new Date();
 
   const parts: string[] = [];
   if (appointment.service_type) parts.push(appointment.service_type);

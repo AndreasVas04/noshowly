@@ -1021,7 +1021,7 @@ export default function SettingsPage() {
                     el.style.height = `${el.scrollHeight}px`;
                   }}
                   placeholder={DEFAULT_EMAIL_SUBJECT}
-                  rows={1}
+                  rows={2}
                   maxLength={200}
                   className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
@@ -1048,7 +1048,7 @@ export default function SettingsPage() {
                     el.style.height = `${el.scrollHeight}px`;
                   }}
                   placeholder={DEFAULT_EMAIL_GREETING}
-                  rows={1}
+                  rows={2}
                   maxLength={200}
                   className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
@@ -1120,7 +1120,7 @@ export default function SettingsPage() {
                     el.style.height = `${el.scrollHeight}px`;
                   }}
                   placeholder={DEFAULT_EMAIL_CLOSING}
-                  rows={1}
+                  rows={2}
                   maxLength={200}
                   className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
@@ -1147,7 +1147,7 @@ export default function SettingsPage() {
                     el.style.height = `${el.scrollHeight}px`;
                   }}
                   placeholder={DEFAULT_EMAIL_FOOTER}
-                  rows={1}
+                  rows={2}
                   maxLength={300}
                   className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
                 />
