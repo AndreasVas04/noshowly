@@ -846,6 +846,7 @@ export default function BookingPage() {
    * @param sourceDow - Day of week to copy breaks from.
    */
   function copyBreakToAllDays(barberId: string, sourceDow: number): void {
+    let changed = false;
     setBarberForms((prev) => {
       const form = prev[barberId];
       if (!form) return prev;
@@ -853,8 +854,18 @@ export default function BookingPage() {
       // Only proceed if the source day actually has at least one break.
       if (!sourceDay || sourceDay.breaks.length === 0) return prev;
 
+      // Check if all working days already have identical breaks — skip if so.
+      const srcBreaks = sourceDay.breaks;
+      const allMatch = Object.entries(form.availability).every(([, day]) => {
+        if (!day || !day.is_available) return true;
+        if (day.breaks.length !== srcBreaks.length) return false;
+        return day.breaks.every((b, i) => b.start === srcBreaks[i].start && b.end === srcBreaks[i].end);
+      });
+      if (allMatch) return prev;
+
+      changed = true;
       // Deep copy the breaks array to avoid shared references across days.
-      const breaksCopy = sourceDay.breaks.map((brk) => ({ ...brk }));
+      const breaksCopy = srcBreaks.map((brk) => ({ ...brk }));
       const newAvailability = { ...form.availability };
       for (let dow = 0; dow <= 6; dow++) {
         const day = form.availability[dow];
@@ -866,7 +877,7 @@ export default function BookingPage() {
         [barberId]: { ...form, availability: newAvailability },
       };
     });
-    scheduleBarberSave(barberId);
+    if (changed) scheduleBarberSave(barberId);
   }
 
   /**
@@ -2572,7 +2583,7 @@ export default function BookingPage() {
                                                 onClick={() => copyBreakToAllDays(barber.id, dow)}
                                                 className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                                               >
-                                                Apply to all working days
+                                                Apply to all days
                                               </button>
                                             )}
                                           </div>

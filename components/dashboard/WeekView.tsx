@@ -272,15 +272,15 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: Day
       <div
         className={`
           px-2 py-2.5 text-center border-b shrink-0
-          ${todayColumn ? 'bg-[#E8F2EC]/50 border-[#1B4332]/20' : 'bg-white border-[#E5E2DB]'}
+          ${todayColumn ? 'bg-[#E8F2EC] border-[#1B4332]/20' : 'bg-white border-[#E5E2DB]'}
         `}
       >
-        <p className={`text-xs font-semibold uppercase tracking-wide leading-none font-body
-          ${todayColumn ? 'text-[#1B4332]' : 'text-[#8A8680]'}`}>
+        <p className={`text-xs uppercase tracking-wide leading-none font-body
+          ${todayColumn ? 'text-[#1B4332] font-bold' : 'text-[#8A8680] font-semibold'}`}>
           {format(day, 'EEE')}
         </p>
-        <p className={`text-sm font-bold mt-0.5 leading-none font-body
-          ${todayColumn ? 'text-[#1B4332]' : 'text-[#2D2D2D]'}`}>
+        <p className={`text-sm mt-0.5 leading-none font-body
+          ${todayColumn ? 'text-[#1B4332] font-bold' : 'text-[#2D2D2D] font-bold'}`}>
           {format(day, 'd')}
         </p>
       </div>

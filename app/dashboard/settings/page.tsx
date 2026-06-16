@@ -957,38 +957,61 @@ export default function SettingsPage() {
 
             <div>
 
-              {/* Email preview */}
+              {/* Email preview — matches the actual reminder email layout */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">Email · 24h before</p>
-                <div className="bg-white rounded-2xl border border-[#E5E2DB]">
-                  {/* Email header */}
-                  <div className="bg-[#1A1A1A]/3 border-b border-[#E5E2DB] px-4 py-3 space-y-1">
-                    <div className="flex gap-2 text-xs">
-                      <span className="text-[#8A8680] shrink-0">From:</span>
-                      <span className="text-[#1A1A1A] font-medium break-all">reminders@noshowly.com</span>
-                    </div>
-                    <div className="flex gap-2 text-xs">
-                      <span className="text-[#8A8680] shrink-0">Subject:</span>
-                      <span className="text-[#1A1A1A] font-medium whitespace-pre-wrap break-words">{previewEmailSubjectText}</span>
-                    </div>
+                <div className="border border-[#E5E2DB] rounded-lg overflow-hidden">
+                  {/* Black header with salon name */}
+                  <div className="bg-[#1A1A1A] rounded-t-lg px-5 py-4">
+                    <p className="text-white font-semibold text-base">{previewBusiness}</p>
                   </div>
-                  {/* Email body */}
-                  <div className="px-4 py-4 space-y-3">
-                    <p className="font-heading text-base font-semibold text-[#1A1A1A]">{previewBusiness}</p>
-                    <p className="text-xs text-[#1A1A1A] whitespace-pre-wrap break-words">{previewEmailGreetingText}</p>
-                    <p className="text-xs text-[#8A8680] leading-relaxed whitespace-pre-wrap break-words">{previewEmailBodyText}</p>
-                    <div className="bg-[#1A1A1A]/4 rounded-lg px-3 py-2.5 space-y-0.5">
-                      <p className="text-xs text-[#8A8680] font-body">Haircut &middot; Tomorrow at 10:30 AM</p>
-                    </div>
-                    {emailConfirmationEnabled && emailAllowed ? (
-                      <div className="flex gap-2">
-                        <span className="inline-block bg-[#1B4332] text-white text-xs font-medium px-4 py-1.5 rounded-lg">YES</span>
-                        <span className="inline-block border border-[#E5E2DB] text-[#1A1A1A] text-xs font-medium px-4 py-1.5 rounded-lg">NO</span>
+                  {/* White body */}
+                  <div className="bg-white px-5 py-5 space-y-4">
+                    {/* Greeting */}
+                    <p className="text-sm text-[#1A1A1A] whitespace-pre-wrap break-words">
+                      {emailGreeting.trim() ? previewEmailGreetingText : <span className="italic text-[#8A8680]">{renderPreview(DEFAULT_EMAIL_GREETING, PREVIEW_VARS)}</span>}
+                    </p>
+                    {/* Body message */}
+                    <p className="text-sm text-[#8A8680] leading-relaxed whitespace-pre-wrap break-words">
+                      {emailBody.trim() ? previewEmailBodyText : <span className="italic">{renderPreview(DEFAULT_EMAIL_BODY, PREVIEW_VARS)}</span>}
+                    </p>
+                    {/* Appointment details card */}
+                    <div className="bg-[#F5F3EF] rounded-lg p-4 space-y-3">
+                      <div>
+                        <p className="text-[10px] text-[#8A8680] uppercase font-semibold tracking-wide">Service</p>
+                        <p className="text-sm text-[#1A1A1A] font-semibold">Haircut</p>
                       </div>
+                      <div>
+                        <p className="text-[10px] text-[#8A8680] uppercase font-semibold tracking-wide">Date &amp; Time</p>
+                        <p className="text-sm text-[#1A1A1A] font-semibold">Monday, June 16 at 2:00 PM</p>
+                      </div>
+                    </div>
+                    {/* Confirm prompt + buttons */}
+                    {emailConfirmationEnabled && emailAllowed ? (
+                      <>
+                        <p className="text-sm text-[#8A8680]">Please confirm or cancel your appointment below.</p>
+                        <div className="flex gap-3">
+                          <span className="inline-block bg-[#1B4332] text-white rounded-lg px-4 py-2.5 text-sm font-semibold">YES, I&apos;ll be there</span>
+                          <span className="inline-block bg-[#DC2626] text-white rounded-lg px-4 py-2.5 text-sm font-semibold">NO, cancel it</span>
+                        </div>
+                      </>
                     ) : (
-                      <p className="text-xs text-[#8A8680] italic font-body whitespace-pre-wrap break-words">{previewEmailClosingText}</p>
+                      <p className="text-sm text-[#8A8680] whitespace-pre-wrap break-words">
+                        {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{renderPreview(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
+                      </p>
                     )}
-                    <p className="text-xs text-[#8A8680] border-t border-[#E5E2DB] pt-3 font-body whitespace-pre-wrap break-words">{previewEmailFooterText}</p>
+                    {/* Closing (shown when confirmation buttons are present) */}
+                    {emailConfirmationEnabled && emailAllowed && (
+                      <p className="text-sm text-[#8A8680] whitespace-pre-wrap break-words">
+                        {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{renderPreview(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
+                      </p>
+                    )}
+                    {/* Divider + footer */}
+                    <div className="border-t border-[#E5E2DB] pt-3">
+                      <p className="text-xs text-[#8A8680] whitespace-pre-wrap break-words font-body">
+                        {emailFooter.trim() ? previewEmailFooterText : <span className="italic">{renderPreview(DEFAULT_EMAIL_FOOTER, { business_name: previewBusiness })}</span>}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
