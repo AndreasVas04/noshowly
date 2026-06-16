@@ -35,13 +35,12 @@ type DayStats = {
 };
 
 /**
- * Counts today's appointments by derived display status.
+ * Counts today's UPCOMING appointments by status.
  *
- * "Pending" = status 'scheduled' AND datetime is in the future.
- * Past unanswered (status 'scheduled' AND datetime < now) are intentionally
- * excluded from all stat counts — they are not actionable and would inflate
- * the Pending number with appointments that already passed without a reply.
- * They remain visible in the appointment list with the grey "Past" pill.
+ * Only appointments whose datetime is in the future are counted.
+ * Past appointments (datetime < now) are excluded from all stat cards
+ * regardless of status — they are no longer actionable. They remain
+ * visible in the appointment list below with the grey "Past" pill.
  *
  * @param appointments - List returned by the API.
  * @returns Counts split by confirmed, pending (upcoming scheduled), and cancelled.
@@ -50,15 +49,16 @@ function computeStats(appointments: AppointmentWithDetails[]): DayStats {
   const now = new Date();
   return appointments.reduce<DayStats>(
     (acc, appt) => {
+      // Only count future appointments — past ones are not actionable.
+      if (new Date(appt.datetime) <= now) return acc;
+
       if (appt.status === 'confirmed') {
         acc.confirmed++;
-      } else if (appt.status === 'scheduled' && new Date(appt.datetime) > now) {
-        // Only upcoming scheduled appointments count as Pending.
+      } else if (appt.status === 'scheduled') {
         acc.pending++;
       } else if (appt.status === 'cancelled') {
         acc.cancelled++;
       }
-      // Past unanswered (scheduled + past datetime) are excluded from all counts.
       return acc;
     },
     { confirmed: 0, pending: 0, cancelled: 0 }
