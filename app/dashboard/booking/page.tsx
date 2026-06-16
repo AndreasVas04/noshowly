@@ -84,6 +84,24 @@ const CIRCLE_RADIUS = 140;
 /** Output canvas size (square, in pixels) for the cropped JPEG. */
 const CROP_OUTPUT_SIZE = 400;
 
+/** Currency code → display symbol map. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$',  EUR: '€',  GBP: '£',  AUD: 'A$', CAD: 'C$',
+  CHF: 'Fr', JPY: '¥',  CNY: '¥',  INR: '₹',  BRL: 'R$',
+  MXN: '$',  SGD: 'S$', HKD: 'HK$',NOK: 'kr', SEK: 'kr',
+  DKK: 'kr', NZD: 'NZ$',ZAR: 'R',  TRY: '₺',  PLN: 'zł',
+  CZK: 'Kč', HUF: 'Ft', RON: 'lei',BGN: 'лв', ILS: '₪',
+  KRW: '₩',  THB: '฿',  MYR: 'RM', IDR: 'Rp', PHP: '₱',
+};
+
+/**
+ * Returns the display symbol for a currency code.
+ * @param code - ISO 4217 currency code.
+ */
+function getCurrencySymbol(code: string): string {
+  return CURRENCY_SYMBOLS[code] ?? code;
+}
+
 /** Days displayed in the availability grid, Mon-first order. */
 const WEEK_DAYS = [
   { label: 'Mon', value: 1 },
@@ -394,6 +412,10 @@ export default function BookingPage() {
   const [savingSvcId, setSavingSvcId] = useState<string | null>(null);
   const [deletingSvcId, setDeletingSvcId] = useState<string | null>(null);
 
+  /** Salon currency code — fetched once on mount for price display. */
+  const [salonCurrency, setSalonCurrency] = useState('USD');
+  const currencySymbol = getCurrencySymbol(salonCurrency);
+
   // -------------------------------------------------------------------------
   // Initial data load
   // -------------------------------------------------------------------------
@@ -405,12 +427,13 @@ export default function BookingPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [bookingRes, barbersRes, availabilityRes, salonServicesRes, barberServicesRes] = await Promise.all([
+        const [bookingRes, barbersRes, availabilityRes, salonServicesRes, barberServicesRes, salonRes] = await Promise.all([
           fetch('/api/booking-page'),
           fetch('/api/barbers'),
           fetch('/api/staff-availability'),
           fetch('/api/services'),
           fetch('/api/barber-services'),
+          fetch('/api/salon'),
         ]);
 
         const [bookingData, barbersData, availData, salonServicesData, barberServicesData] = await Promise.all([
@@ -430,6 +453,12 @@ export default function BookingPage() {
             ? (barberServicesRes.json() as Promise<{ barberServices: BarberService[] }>)
             : Promise.resolve({ barberServices: [] }),
         ]);
+
+        // Fetch salon currency for price display.
+        if (salonRes.ok) {
+          const salonData = (await salonRes.json()) as { salon: { currency?: string } };
+          if (salonData.salon?.currency) setSalonCurrency(salonData.salon.currency);
+        }
 
         const bp = bookingData.bookingPage;
         setBookingPage(bp);
@@ -2128,7 +2157,7 @@ export default function BookingPage() {
                               <p className="text-xs text-[#8A8680] mt-0.5">
                                 {[
                                   svc.duration_minutes ? `${svc.duration_minutes} min` : null,
-                                  svc.price != null ? `$${Number(svc.price).toFixed(2)}` : null,
+                                  svc.price != null ? `${currencySymbol}${Number(svc.price).toFixed(2)}` : null,
                                 ].filter(Boolean).join(' · ')}
                               </p>
                             )}
@@ -2437,7 +2466,7 @@ export default function BookingPage() {
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
                                       <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Price</p>
                                       <div className="flex items-baseline gap-1">
-                                        <span className="text-xs text-[#8A8680]">$</span>
+                                        <span className="text-xs text-[#8A8680]">{currencySymbol}</span>
                                         <input
                                           type="number"
                                           min={0}
@@ -2453,7 +2482,7 @@ export default function BookingPage() {
                                         />
                                       </div>
                                       {svc.price != null && (
-                                        <p className="text-[10px] text-[#C8C8C8]">Default: ${svc.price}</p>
+                                        <p className="text-[10px] text-[#C8C8C8]">Default: {currencySymbol}{svc.price}</p>
                                       )}
                                     </div>
 

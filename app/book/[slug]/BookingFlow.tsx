@@ -988,11 +988,14 @@ export default function BookingFlow({
                         {selectedService.duration_minutes} min
                       </span>
                     )}
-                    {selectedService.price != null && (
-                      <span className="font-body text-white/60 text-[11px] font-medium">
-                        {currencySymbol}{selectedService.price.toFixed(2)}
-                      </span>
-                    )}
+                    {(() => {
+                      const eff = getEffectivePriceAndDuration(selectedService, selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null, barberServiceAssignments);
+                      return eff.price != null ? (
+                        <span className="font-body text-white/60 text-[11px] font-medium">
+                          {currencySymbol}{eff.price.toFixed(2)}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               )}
@@ -1282,11 +1285,14 @@ export default function BookingFlow({
                           <span className="text-[#8A8680] font-normal"> &middot; {selectedService.duration_minutes} min</span>
                         )}
                       </p>
-                      {selectedService.price != null && (
-                        <span className="font-body text-sm font-semibold text-[#1B4332] shrink-0">
-                          {currencySymbol}{selectedService.price.toFixed(2)}
-                        </span>
-                      )}
+                      {(() => {
+                        const eff = getEffectivePriceAndDuration(selectedService, selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null, barberServiceAssignments);
+                        return eff.price != null ? (
+                          <span className="font-body text-sm font-semibold text-[#1B4332] shrink-0">
+                            {currencySymbol}{eff.price.toFixed(2)}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   )}
                   {selectedBarber && selectedBarber !== 'none' && (
@@ -1507,11 +1513,14 @@ export default function BookingFlow({
                 {selectedService && (
                   <div className="flex items-center justify-between">
                     <p className="font-body text-sm font-semibold text-[#1A1A1A]">{selectedService.name}</p>
-                    {selectedService.price != null && (
-                      <p className="font-body text-sm text-[#1A1A1A]">
-                        {currencySymbol}{selectedService.price.toFixed(2)}
-                      </p>
-                    )}
+                    {(() => {
+                      const eff = getEffectivePriceAndDuration(selectedService, selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null, barberServiceAssignments);
+                      return eff.price != null ? (
+                        <p className="font-body text-sm text-[#1A1A1A]">
+                          {currencySymbol}{eff.price.toFixed(2)}
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                 )}
                 {selectedBarber && selectedBarber !== 'none' && (
