@@ -4,9 +4,9 @@
  * Subscription plan selection page — server component.
  *
  * Fetches the authenticated user's current plan server-side, then passes it
- * to the PricingTabs client component which renders the three plan cards.
+ * to the PricingTabs client component which renders the plan card.
  *
- * Three plans: Starter ($19), Professional ($39), Business ($79).
+ * Single plan: Basic ($19/month).
  *
  * Auth: redirects to /login if not authenticated (see middleware.ts).
  * Design: brand-dark header, Playfair Display headings, shadcn Cards.

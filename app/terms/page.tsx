@@ -166,8 +166,7 @@ export default function TermsPage() {
               </li>
             </ul>
             <p>
-              Annual plans are available at a discount equivalent to two months free. All prices are
-              in US dollars.
+              All prices are in US dollars.
             </p>
             <p>
               Subscriptions renew automatically. You may cancel at any time. Cancellation takes effect

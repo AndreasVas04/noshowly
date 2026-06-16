@@ -76,7 +76,7 @@ export default function LandingNav() {
             href="/register"
             className="h-9 px-5 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors inline-flex items-center font-body"
           >
-            Start free trial
+            Get started
           </Link>
         </nav>
 
@@ -116,7 +116,7 @@ export default function LandingNav() {
             href="/register"
             className="block w-full h-11 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors text-center leading-[2.75rem] font-body mt-2"
           >
-            Start free trial
+            Get started
           </Link>
         </div>
       )}

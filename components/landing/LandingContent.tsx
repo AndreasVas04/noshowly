@@ -119,9 +119,6 @@ function PricingCard({ name, price, description, features, featured }: PricingCa
   if (featured) {
     return (
       <div className="rounded-2xl p-8 flex flex-col h-full bg-[#1B4332] text-white relative">
-        <span className="text-xs font-semibold tracking-widest uppercase bg-white/20 text-white rounded-full px-3 py-1 self-start mb-4 font-body">
-          Most popular
-        </span>
         <h3 className="font-heading text-2xl font-bold mb-1">{name}</h3>
         <div className="flex items-end gap-1 mb-4">
           <span className="font-heading text-4xl font-bold">${price}</span>
@@ -223,7 +220,7 @@ export default function LandingContent() {
                   href="/register"
                   className="inline-flex items-center justify-center h-12 px-8 bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-semibold rounded-lg transition-colors font-body"
                 >
-                  Start free trial
+                  Get started
                 </Link>
                 <a
                   href="#features"
@@ -260,7 +257,7 @@ export default function LandingContent() {
                   <p className="text-sm text-[#1A1A1A] leading-relaxed font-body mb-5 bg-[#F5F2ED] rounded-xl p-4">
                     Hi Sarah! Reminder from City Hair Salon: your{' '}
                     <span className="font-semibold">Haircut</span> is tomorrow at{' '}
-                    <span className="font-semibold">3:00 PM</span>. Reply{' '}
+                    <span className="font-semibold">3:00 PM</span>. Click{' '}
                     <span className="font-semibold">YES</span> to confirm or{' '}
                     <span className="font-semibold">NO</span> to cancel.
                   </p>
@@ -306,7 +303,7 @@ export default function LandingContent() {
         <div className="mx-auto max-w-6xl px-6 py-5">
           <FadeIn>
             <p className="text-center text-sm text-[#8A8680] font-body">
-              Used by salons, clinics, physiotherapists and consultants across 15 countries
+              Used by salons, clinics, physiotherapists and consultants
             </p>
           </FadeIn>
         </div>
@@ -613,7 +610,7 @@ export default function LandingContent() {
               href="/register"
               className="h-12 px-10 bg-white hover:bg-[#E8F2EC] text-[#1B4332] text-sm font-semibold rounded-lg transition-colors inline-flex items-center font-body"
             >
-              Start your free trial
+              Get started
             </Link>
           </FadeIn>
         </div>
