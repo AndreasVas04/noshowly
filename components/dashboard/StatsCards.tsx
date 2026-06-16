@@ -87,7 +87,7 @@ function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
       <CardContent className="px-5 py-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[7px] sm:text-[10px] font-medium text-[#8A8680] uppercase tracking-tight font-body whitespace-nowrap overflow-hidden">{label}</p>
-          <div className="opacity-60 shrink-0 ml-1">{icon}</div>
+          <div className="opacity-60 shrink-0 ml-1 hidden sm:block">{icon}</div>
         </div>
         {loading ? (
           <div className="h-10 w-10 animate-pulse rounded bg-[#E5E2DB]/60" />

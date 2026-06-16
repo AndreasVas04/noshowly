@@ -976,7 +976,7 @@ export default function AddAppointmentModal({
             </div>
 
             {/* ---- Date + Time ------------------------------------------ */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="modal-date" className={labelClass}>
                   Date <span className="text-red-400">*</span>

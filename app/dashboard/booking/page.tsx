@@ -2519,7 +2519,7 @@ export default function BookingPage() {
                                           value={day.work_start}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_start', e.target.value)}
                                           disabled={isSaving}
-                                          style={{ width: '88px' }}
+                                          style={{ width: '110px' }}
                                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
                                         <span className="text-xs text-[#8A8680] shrink-0">to</span>
@@ -2528,7 +2528,7 @@ export default function BookingPage() {
                                           value={day.work_end}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_end', e.target.value)}
                                           disabled={isSaving}
-                                          style={{ width: '88px' }}
+                                          style={{ width: '110px' }}
                                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
                                       </div>
@@ -2545,7 +2545,7 @@ export default function BookingPage() {
                                               value={brk.start}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'start', e.target.value)}
                                               disabled={isSaving}
-                                              style={{ width: '88px' }}
+                                              style={{ width: '110px' }}
                                               className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                             />
                                             <span className="text-xs text-[#8A8680] shrink-0">to</span>
@@ -2554,7 +2554,7 @@ export default function BookingPage() {
                                               value={brk.end}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'end', e.target.value)}
                                               disabled={isSaving}
-                                              style={{ width: '88px' }}
+                                              style={{ width: '110px' }}
                                               className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                             />
                                           </div>

@@ -156,8 +156,8 @@ interface WeekCardProps {
  * @returns       Tailwind class string.
  */
 function pillClasses(status: AppointmentWithDetails['status'], isPast: boolean): string {
-  if (isPast && status === 'scheduled') {
-    // Past unanswered — grey/muted, no amber urgency
+  if (isPast) {
+    // Past appointment (any non-cancelled status) — grey/muted
     return 'border-[#C8C8C8]/60 bg-[#F0EFED] opacity-60';
   }
   switch (status) {
