@@ -3,6 +3,19 @@
   <p><strong>Appointment scheduling and email reminder SaaS for service businesses</strong></p>
 
   🔗 [noshowly.vercel.app](https://noshowly.vercel.app)
+</div>
+
+## Demo Account
+
+Explore the full dashboard with pre-filled data:
+
+**Email:** demo@noshowly.com
+
+**Password:** Demo1234!
+
+The account includes sample staff, services, and bookings.
+
+<div align="center">
 
   ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 

@@ -444,6 +444,27 @@ export default function LoginPage() {
             Sign up
           </Link>
         </p>
+
+        {/* Demo account hint */}
+        <div className="mt-4 text-center">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-px flex-1 bg-[#E5E2DB]" />
+            <span className="text-xs text-[#8A8680] font-body">or</span>
+            <div className="h-px flex-1 bg-[#E5E2DB]" />
+          </div>
+          <p className="text-xs text-[#8A8680] font-body mb-1">Want to explore the app?</p>
+          <button
+            type="button"
+            onClick={() => {
+              setForm({ email: 'demo@noshowly.com', password: 'Demo1234!' });
+              setStatus('idle');
+              setErrorMessage('');
+            }}
+            className="text-xs font-medium text-[#1B4332] underline underline-offset-4 hover:text-[#16392A] font-body transition-colors"
+          >
+            Use demo account
+          </button>
+        </div>
       </motion.div>
     </main>
   );
