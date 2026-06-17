@@ -50,24 +50,24 @@ function FadeIn({
 }
 
 // =============================================================================
-// ComparisonRow — one row of the Fresha vs Noshowly table
+// ComparisonRow — one row of the "Others vs Noshowly" table
 // =============================================================================
 
 interface ComparisonRowProps {
   label: string;
-  fresha: string;
+  others: string;
   noshowly: string;
-  freshaOk: boolean;
+  othersOk: boolean;
   noshowlyOk: boolean;
   last?: boolean;
 }
 
 /**
- * Renders one row of the Fresha vs Noshowly comparison table.
+ * Renders one row of the Others vs Noshowly comparison table.
  *
  * @param props - Row label, cell values, icon states.
  */
-function ComparisonRow({ label, fresha, noshowly, freshaOk, noshowlyOk, last }: ComparisonRowProps) {
+function ComparisonRow({ label, others, noshowly, othersOk, noshowlyOk, last }: ComparisonRowProps) {
   const borderClass = last ? '' : 'border-b border-[#E5E2DB]';
 
   return (
@@ -75,12 +75,12 @@ function ComparisonRow({ label, fresha, noshowly, freshaOk, noshowlyOk, last }: 
       <td className={`py-4 px-6 text-[#1A1A1A] font-medium text-sm ${borderClass}`}>{label}</td>
       <td className={`py-4 px-6 text-center ${borderClass}`}>
         <span className="flex items-center justify-center gap-2 text-[#8A8680] text-sm">
-          {freshaOk ? (
+          {othersOk ? (
             <Check className="h-4 w-4 text-[#8A8680] shrink-0" aria-hidden="true" />
           ) : (
             <X className="h-4 w-4 text-red-400 shrink-0" aria-hidden="true" />
           )}
-          {fresha}
+          {others}
         </span>
       </td>
       <td className={`py-4 px-6 text-center bg-[#1B4332]/[0.04] ${last ? 'rounded-b-xl' : ''}`}>
@@ -477,7 +477,7 @@ export default function LandingContent() {
       </section>
 
       {/* ====================================================================
-          COMPARISON — Fresha vs Noshowly
+          COMPARISON — Booking platforms vs Noshowly
       ==================================================================== */}
       <section className="bg-white py-24">
         <div className="mx-auto max-w-6xl px-6">
@@ -486,11 +486,11 @@ export default function LandingContent() {
               Why Noshowly
             </p>
             <h2 className="font-heading text-4xl md:text-5xl font-bold text-[#1A1A1A] mb-4 max-w-xl leading-[1.1]">
-              Why not just use Fresha?
+              Not another booking marketplace.
             </h2>
             <p className="text-base text-[#8A8680] max-w-xl font-body">
-              Fresha charges a 20% commission on every new client it sends you.
-              Noshowly never touches your revenue.
+              Unlike marketplace-style booking platforms, Noshowly charges a flat monthly fee
+              with zero commissions on your revenue.
             </p>
           </FadeIn>
 
@@ -501,7 +501,7 @@ export default function LandingContent() {
                   <tr>
                     <th className="py-4 px-6 text-left text-[#8A8680] font-medium w-1/2" />
                     <th className="py-4 px-6 text-center font-semibold text-[#1A1A1A] font-body">
-                      Fresha
+                      Booking platforms
                     </th>
                     <th className="py-4 px-6 text-center font-semibold text-white bg-[#1B4332] rounded-t-xl font-body">
                       Noshowly
@@ -510,31 +510,31 @@ export default function LandingContent() {
                 </thead>
                 <tbody>
                   <ComparisonRow
-                    label="Commission on new clients"
-                    fresha="20% per booking"
+                    label="Commissions on bookings"
+                    others="Up to 20% or more"
                     noshowly="None, ever"
-                    freshaOk={false}
+                    othersOk={false}
                     noshowlyOk={true}
                   />
                   <ComparisonRow
                     label="Monthly cost"
-                    fresha="Varies with volume"
+                    others="Varies with volume"
                     noshowly="Flat fee from $19"
-                    freshaOk={false}
+                    othersOk={false}
                     noshowlyOk={true}
                   />
                   <ComparisonRow
                     label="Interferes with your payments"
-                    fresha="Yes"
+                    others="Often"
                     noshowly="Never"
-                    freshaOk={false}
+                    othersOk={false}
                     noshowlyOk={true}
                   />
                   <ComparisonRow
                     label="Works with your existing setup"
-                    fresha="Requires migration"
+                    others="May require migration"
                     noshowly="Add it alongside anything"
-                    freshaOk={false}
+                    othersOk={false}
                     noshowlyOk={true}
                     last
                   />
