@@ -311,7 +311,26 @@ async function processReminder(
       return 'skipped';
     }
 
-    // Step 6: Create a 'pending' reminder record with a unique token, then dispatch.
+    // Step 6: Check email before creating any DB records — avoids wasted writes.
+    // Guard: client must have an email address (optional field).
+    const email = appt.clients?.email;
+    if (!email) {
+      console.log(`${logPrefix} SKIP — client has no email address`);
+      return 'skipped';
+    }
+
+    // Use the salon name as the display name in reminders.
+    const salonDisplayName = appt.salons?.name ?? 'Your salon';
+    const clientName       = appt.clients?.name ?? 'there';
+    const timezone         = appt.salons?.timezone ?? 'UTC';
+
+    // Log the dispatch attempt — salon name only, no client PII.
+    console.log(
+      `${logPrefix} DISPATCHING — salon="${appt.salons?.name}" ` +
+      `datetime=${appt.datetime}`
+    );
+
+    // Create a 'pending' reminder record with a unique token, then dispatch.
     // The token is embedded in email YES/NO button URLs — it is single-use
     // (the confirm route marks it as used after the first click).
     const sendAt = now.toISOString();
@@ -331,27 +350,6 @@ async function processReminder(
 
     if (insertError || !reminder) {
       console.error(`${logPrefix} ERROR — failed to insert reminder record:`, insertError?.message);
-      return 'skipped';
-    }
-
-    // Use the salon name as the display name in reminders.
-    const salonDisplayName = appt.salons?.name ?? 'Your salon';
-    const clientName       = appt.clients?.name ?? 'there';
-    const timezone         = appt.salons?.timezone ?? 'UTC';
-
-    // Log the dispatch attempt — salon name only, no client PII.
-    console.log(
-      `${logPrefix} DISPATCHING — salon="${appt.salons?.name}" ` +
-      `datetime=${appt.datetime}`
-    );
-
-    // Email: send 24 h before using Resend.
-    // Guard: client must have an email address (optional field).
-    const email = appt.clients?.email;
-    if (!email) {
-      console.log(`${logPrefix} SKIP — client has no email address`);
-      // Clean up the pending reminder we just inserted.
-      await adminSupabase.from('reminders').delete().eq('id', reminder.id);
       return 'skipped';
     }
 

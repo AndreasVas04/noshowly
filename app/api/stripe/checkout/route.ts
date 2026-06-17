@@ -146,6 +146,15 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'User record not found' }, { status: 404 });
   }
 
+  // Step 3b: Block duplicate subscriptions — user already has an active paid plan.
+  const ACTIVE_PAID_PLANS = ['basic', 'pro', 'business', 'starter', 'professional'];
+  if (user.plan && ACTIVE_PAID_PLANS.includes(user.plan as string)) {
+    return Response.json(
+      { error: 'You already have an active subscription. Manage it from Settings.' },
+      { status: 400 }
+    );
+  }
+
   // Step 4: Resolve the Stripe Customer ID.
   // Reuse an existing customer so subscription history is preserved on upgrades.
   let stripeCustomerId = user.stripe_customer_id;

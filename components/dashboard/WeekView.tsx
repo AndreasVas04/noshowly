@@ -54,6 +54,7 @@ import {
   isSameWeek,
 } from 'date-fns';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
+import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import type { AppointmentWithDetails, Barber } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -466,6 +467,30 @@ export default function WeekView() {
     fetchWeekAppointments(weekStart, weekEnd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor]);
+
+  /**
+   * Subscribes to appointment changes via Supabase Realtime.
+   * Refetches the week on any INSERT, UPDATE, or DELETE so the grid stays current.
+   */
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+
+    const channel = supabase
+      .channel('week-appointments-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        () => {
+          fetchWeekAppointments(weekStart, weekEnd);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor, fetchWeekAppointments]);
 
   // -------------------------------------------------------------------------
   // Derived visibility flags

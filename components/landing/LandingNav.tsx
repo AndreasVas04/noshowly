@@ -15,7 +15,7 @@ import { Menu, X } from 'lucide-react';
 
 /**
  * LandingNav renders a sticky top navigation bar with logo, section links,
- * sign-in link, and a start-trial CTA. Collapses to a hamburger on mobile.
+ * sign-in link, and a get-started CTA. Collapses to a hamburger on mobile.
  * Applies a warm backdrop blur when the page is scrolled more than 20px.
  *
  * @returns The navigation bar JSX.

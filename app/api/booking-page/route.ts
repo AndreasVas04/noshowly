@@ -98,6 +98,12 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Plan check — trial and cancelled users cannot create booking pages.
+  const { data: userData } = await supabase.from('users').select('plan').eq('id', session.user.id).single();
+  if (!userData || userData.plan === 'trial' || userData.plan === 'cancelled') {
+    return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -264,6 +270,12 @@ export async function PUT(request: Request): Promise<Response> {
 
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Plan check — trial and cancelled users cannot update booking pages.
+  const { data: userDataPut } = await supabase.from('users').select('plan').eq('id', session.user.id).single();
+  if (!userDataPut || userDataPut.plan === 'trial' || userDataPut.plan === 'cancelled') {
+    return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
   }
 
   let body: unknown;

@@ -802,6 +802,8 @@ export default function AddAppointmentModal({
   // ---------------------------------------------------------------------------
 
   const title = isEditMode ? 'Edit appointment' : 'New appointment';
+  /** True when viewing a cancelled appointment — all fields disabled, save hidden. */
+  const isCancelledView = isEditMode && appointment?.status === 'cancelled';
 
   // Compute filtered barber list for the staff dropdown.
   // When a service is selected and barber_services assignments exist for it,
@@ -872,6 +874,43 @@ export default function AddAppointmentModal({
               </div>
             )}
 
+            {/* ---- Read-only status badge (edit mode only) --------------- */}
+            {isEditMode && appointment && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-[#8A8680]">Status:</span>
+                {(() => {
+                  const isPast = appointment.status !== 'cancelled' && new Date(appointment.datetime) < new Date();
+                  if (isPast) {
+                    return (
+                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-[#F0EFED] text-[#8A8680] border border-[#C8C8C8]/60">
+                        Past
+                      </span>
+                    );
+                  }
+                  if (appointment.status === 'confirmed') {
+                    return (
+                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Confirmed
+                      </span>
+                    );
+                  }
+                  if (appointment.status === 'cancelled') {
+                    return (
+                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100">
+                        Cancelled
+                      </span>
+                    );
+                  }
+                  // scheduled (upcoming) = Pending
+                  return (
+                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                      Pending
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* ---- Phone (primary identifier) --------------------------- */}
             {/* Typing 6+ digits triggers a client lookup */}
             <div className="space-y-1.5">
@@ -882,6 +921,7 @@ export default function AddAppointmentModal({
                 id="modal-client-phone"
                 type="tel"
                 autoFocus
+                disabled={isCancelledView}
                 value={form.clientPhone}
                 onChange={(e) => handlePhoneChange(e.target.value)}
                 placeholder="+357 99 123 456"
@@ -909,6 +949,7 @@ export default function AddAppointmentModal({
                   type="text"
                   autoComplete="off"
                   readOnly={nameReadOnly}
+                  disabled={isCancelledView}
                   value={form.clientQuery}
                   onChange={(e) => handleClientQueryChange(e.target.value)}
                   onClick={() => { if (nameReadOnly) handleNameUnlock(); }}
@@ -965,6 +1006,7 @@ export default function AddAppointmentModal({
               <Input
                 id="modal-client-email"
                 type="email"
+                disabled={isCancelledView}
                 value={form.clientEmail}
                 onChange={(e) => setField('clientEmail', e.target.value)}
                 placeholder="client@example.com"
@@ -987,6 +1029,7 @@ export default function AddAppointmentModal({
                   <input
                     id="modal-date"
                     type="date"
+                    disabled={isCancelledView}
                     value={form.date}
                     onChange={(e) => setField('date', e.target.value)}
                     className="w-full h-11 px-3 text-sm text-[#1A1A1A] outline-none border-none bg-transparent"
@@ -1005,6 +1048,7 @@ export default function AddAppointmentModal({
                   <input
                     id="modal-time"
                     type="time"
+                    disabled={isCancelledView}
                     value={form.time}
                     onChange={(e) => setField('time', e.target.value)}
                     min={salonOpeningTime}
@@ -1029,6 +1073,7 @@ export default function AddAppointmentModal({
                   <select
                     id="modal-service"
                     value={form.serviceType}
+                    disabled={isCancelledView}
                     onChange={(e) => setField('serviceType', e.target.value)}
                     className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
                   >
@@ -1061,7 +1106,7 @@ export default function AddAppointmentModal({
                   id="modal-staff"
                   value={form.barberId}
                   onChange={(e) => setField('barberId', e.target.value)}
-                  disabled={isLoadingBarbers}
+                  disabled={isLoadingBarbers || isCancelledView}
                   className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-60 transition-colors"
                 >
                   {/* Placeholder option only shown when no barbers are configured. */}
@@ -1192,14 +1237,16 @@ export default function AddAppointmentModal({
               Close
             </Button>
 
-            {/* Save */}
-            <Button
-              type="submit"
-              disabled={isSubmitting || isCancelling}
-              className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm px-5 py-2 h-9"
-            >
-              {isSubmitting ? 'Saving...' : 'Save'}
-            </Button>
+            {/* Save — hidden for cancelled appointments (read-only view) */}
+            {!isCancelledView && (
+              <Button
+                type="submit"
+                disabled={isSubmitting || isCancelling}
+                className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm px-5 py-2 h-9"
+              >
+                {isSubmitting ? 'Saving...' : 'Save'}
+              </Button>
+            )}
 
             </div>{/* end Close+Save group */}
             </div>{/* end flex-wrap row */}

@@ -473,32 +473,22 @@ async function handleBookingPost(
     clientId = newClient.id;
   }
 
-  // Step 6: Check for scheduling conflicts at the exact requested datetime.
-  //
-  // We match on the exact UTC timestamp (not a window) so that adjacent slots
-  // at e.g. 10:00 and 10:30 never block each other. A previous cancelled
-  // appointment at the same time must NOT block a new booking — only active
-  // (scheduled/confirmed) appointments count.
-  //
-  // Barber conflict query:
-  //   WHERE salon_id = salonId
-  //     AND datetime = datetimeUTC
-  //     AND status  != 'cancelled'
-  //     AND barber_id = barberId
-  //
-  // Client conflict query (separate, keeps per-client dedup):
-  //   WHERE client_id = clientId
-  //     AND datetime  = datetimeUTC
-  //     AND status   != 'cancelled'
+  // Step 6: Check for scheduling conflicts using a ±30 minute window.
+  // Consistent with the dashboard route — prevents back-to-back bookings
+  // that overlap within a 30-minute gap.
+  const conflictWindowMs = 30 * 60 * 1000;
+  const windowStart = new Date(new Date(datetimeUTC).getTime() - conflictWindowMs).toISOString();
+  const windowEnd = new Date(new Date(datetimeUTC).getTime() + conflictWindowMs).toISOString();
 
   if (barberId) {
-    const { data: barberConflicts, error: bcErr } = await supabase
+    const { data: barberConflicts } = await supabase
       .from('appointments')
-      .select('id, status, datetime')
+      .select('id')
       .eq('salon_id', salonId)
       .eq('barber_id', barberId)
-      .eq('datetime', datetimeUTC)
       .neq('status', 'cancelled')
+      .gte('datetime', windowStart)
+      .lte('datetime', windowEnd)
       .limit(5);
 
     if (barberConflicts && barberConflicts.length > 0) {
@@ -509,13 +499,14 @@ async function handleBookingPost(
     }
   }
 
-  // Client conflict — has this client already booked this exact slot?
-  const { data: clientConflicts, error: ccErr } = await supabase
+  // Client conflict — has this client already booked within the ±30 min window?
+  const { data: clientConflicts } = await supabase
     .from('appointments')
-    .select('id, status, datetime')
+    .select('id')
     .eq('client_id', clientId)
-    .eq('datetime', datetimeUTC)
     .neq('status', 'cancelled')
+    .gte('datetime', windowStart)
+    .lte('datetime', windowEnd)
     .limit(5);
 
   if (clientConflicts && clientConflicts.length > 0) {

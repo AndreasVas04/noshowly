@@ -48,8 +48,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-6 lg:p-10">
-      {/* Stats summary — confirmed / pending / cancelled counts for today.
-          Rendered for all active paid plans; hidden for trial and cancelled. */}
+      {/* Stats summary — confirmed / pending / cancelled counts for today. */}
       <StatsCards plan={plan} />
 
       {/* Chronological appointment list for the selected day */}

@@ -111,15 +111,14 @@ interface StatsCardsProps {
 
 /**
  * StatsCards displays a row of three summary cards for today's appointment counts.
- * Visible for all active paid plans; hidden for trial and cancelled accounts.
+ * Visible for all plans including trial — trial users can see their stats even
+ * though reminders are not sent. Plan enforcement on write operations (API-level)
+ * ensures data integrity.
  *
  * @param props - plan from the server component parent.
- * @returns A grid of three stat cards, or null for trial/cancelled plans.
+ * @returns A grid of three stat cards.
  */
-export default function StatsCards({ plan }: StatsCardsProps) {
-  // Hide for trial and cancelled — reminders not sent, counts are meaningless.
-  if (plan === 'trial' || plan === 'cancelled') return null;
-
+export default function StatsCards({ plan: _plan }: StatsCardsProps) {
   const [stats, setStats] = useState<DayStats>({ confirmed: 0, pending: 0, cancelled: 0 });
   const [loading, setLoading] = useState(true);
 

@@ -26,7 +26,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AppointmentCard from '@/components/dashboard/AppointmentCard';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import type { AppointmentWithDetails, AppointmentStatus, Barber } from '@/types';
+import type { AppointmentWithDetails, Barber } from '@/types';
 
 /**
  * Formats a Date as YYYY-MM-DD for the API query param.
@@ -120,25 +120,22 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   }, [fetchBarbers]);
 
   /**
-   * Subscribes to appointment UPDATE events via Supabase Realtime.
-   * Updates status in local state when a client replies YES/NO.
+   * Subscribes to appointment changes via Supabase Realtime.
+   * Listens for INSERT, UPDATE, and DELETE events so the list stays current
+   * when appointments are created, modified, or removed from another tab/device.
    * RLS scopes events to the authenticated salon's appointments.
    */
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
-      .channel('appointments-status-changes')
+      .channel('appointments-changes')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'appointments' },
-        (payload) => {
-          const updated = payload.new as { id: string; status: AppointmentStatus };
-          setAppointments((prev) =>
-            prev.map((a) =>
-              a.id === updated.id ? { ...a, status: updated.status } : a,
-            ),
-          );
+        { event: '*', schema: 'public', table: 'appointments' },
+        () => {
+          // Refetch the full list on any change — simple and correct.
+          fetchAppointments(currentDate);
         },
       )
       .subscribe();
@@ -146,7 +143,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentDate, fetchAppointments]);
 
   // Reset staff filter when navigating to a new day.
   useEffect(() => {

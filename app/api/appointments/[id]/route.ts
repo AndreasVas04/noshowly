@@ -269,6 +269,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   }
 
   // Step 3: Resolve salon for this user. Include timezone for auto-assign availability checks.
+  // Also fetch the current appointment to check if it is cancelled.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
     .select('id, timezone')
@@ -277,6 +278,22 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
 
   if (salonError || !salon) {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
+  }
+
+  // Step 3b: Block edits to cancelled appointments — cancelled is a terminal state.
+  const { data: currentApptForStatus } = await supabase
+    .from('appointments')
+    .select('status')
+    .eq('id', id)
+    .eq('salon_id', salon.id)
+    .single();
+
+  if (!currentApptForStatus) {
+    return Response.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  if (currentApptForStatus.status === 'cancelled') {
+    return Response.json({ error: 'Cannot edit a cancelled appointment' }, { status: 400 });
   }
 
   // Step 4: Double-booking checks — only run when datetime or participants change.
@@ -528,6 +545,19 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
     }
     console.error('[DELETE /api/appointments/:id] DB error:', updateError?.message);
     return Response.json({ error: 'Failed to cancel appointment' }, { status: 500 });
+  }
+
+  // Step 4: Cancel any pending reminders for this appointment.
+  // Prevents the cron job from sending reminders for cancelled appointments.
+  const { error: reminderError } = await supabase
+    .from('reminders')
+    .update({ status: 'cancelled' })
+    .eq('appointment_id', id)
+    .eq('status', 'pending');
+
+  if (reminderError) {
+    // Log but do not fail — the appointment is already cancelled.
+    console.error('[DELETE /api/appointments/:id] Failed to cancel reminders:', reminderError.message);
   }
 
   return Response.json({ appointment: appointment as Appointment }, { status: 200 });

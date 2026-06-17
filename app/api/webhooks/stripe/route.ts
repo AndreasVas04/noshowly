@@ -240,13 +240,16 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
     }
 
     case 'invoice.payment_failed': {
-      // Failed renewal — log for monitoring; grace period is handled by Stripe's
-      // smart retries. We do not immediately cancel the plan on first failure.
       const inv = event.data.object as Stripe.Invoice;
       console.warn(
         `[webhooks/stripe] Payment FAILED for customer=${String(inv.customer ?? '')} ` +
-        `invoice=${String(inv.id ?? '')}`
+        `invoice=${String(inv.id ?? '')} billing_reason=${String(inv.billing_reason ?? '')}`
       );
+      // Only cancel on renewal failures — not on the first payment attempt.
+      // subscription_cycle = renewal; subscription_create = first payment.
+      if (inv.billing_reason === 'subscription_cycle') {
+        await handlePaymentFailure(inv);
+      }
       break;
     }
 
@@ -314,6 +317,36 @@ async function handleSubscriptionUpsert(sub: Stripe.Subscription): Promise<void>
   }
 
   console.log(`[webhooks/stripe] Plan updated to "${plan}" for customer=${customerId}`);
+}
+
+/**
+ * Handles invoice.payment_failed for subscription renewals.
+ * Sets the user's plan to 'cancelled' so they lose access until payment is fixed.
+ *
+ * Only called for billing_reason === 'subscription_cycle' (renewals),
+ * NOT for 'subscription_create' (first payment attempts).
+ *
+ * @param inv - Typed Stripe Invoice object from the verified webhook payload.
+ */
+async function handlePaymentFailure(inv: Stripe.Invoice): Promise<void> {
+  const customerId = String(inv.customer ?? '');
+
+  if (!customerId) {
+    console.warn('[webhooks/stripe] payment_failed: no customer ID on invoice');
+    return;
+  }
+
+  const { error } = await adminSupabase
+    .from('users')
+    .update({ plan: 'cancelled' })
+    .eq('stripe_customer_id', customerId);
+
+  if (error) {
+    console.error('[webhooks/stripe] Failed to cancel plan on renewal failure:', error.message);
+    throw error;
+  }
+
+  console.log(`[webhooks/stripe] Plan set to 'cancelled' (renewal failure) for customer=${customerId}`);
 }
 
 /**
