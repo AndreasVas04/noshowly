@@ -1172,7 +1172,7 @@ export default function BookingFlow({
                   onClick={() => { setSelectedService(null); setStep('staff'); }}
                   className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
                 >
-                  &#8592; Change team member
+                  &#8592; Change staff member
                 </button>
               )}
             </div>

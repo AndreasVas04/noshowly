@@ -167,6 +167,25 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 }
 
 // ---------------------------------------------------------------------------
+// HTML escaping — prevents XSS via user-supplied strings (e.g. salon name)
+// ---------------------------------------------------------------------------
+
+/**
+ * Escapes HTML special characters to prevent injection via user-supplied strings.
+ *
+ * @param str - Raw string that may contain HTML special characters.
+ * @returns   HTML-safe string.
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ---------------------------------------------------------------------------
 // HTML page builders — plain, minimal, mobile-friendly
 // No Noshowly branding — client sees only a neutral confirmation message.
 // ---------------------------------------------------------------------------
@@ -191,7 +210,8 @@ function htmlResponse(body: string, status: number): Response {
  * @param salonName - The salon's display name, shown to the client.
  */
 function pageConfirmed(salonName: string): string {
-  const at = salonName ? ` at ${salonName}` : '';
+  const safeName = escapeHtml(salonName);
+  const at = safeName ? ` at ${safeName}` : '';
   return page(
     'Appointment Confirmed',
     '#16a34a',
@@ -206,7 +226,8 @@ function pageConfirmed(salonName: string): string {
  * @param salonName - The salon's display name, shown to the client.
  */
 function pageCancelled(salonName: string): string {
-  const contact = salonName ? `Contact ${salonName} to reschedule.` : 'Contact the salon to reschedule.';
+  const safeName = escapeHtml(salonName);
+  const contact = safeName ? `Contact ${safeName} to reschedule.` : 'Contact the business to reschedule.';
   return page(
     'Appointment Cancelled',
     '#dc2626',

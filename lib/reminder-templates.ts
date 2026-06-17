@@ -103,32 +103,6 @@ function formatDate(datetime: string, timezone: string): string {
   }
 }
 
-/**
- * Formats a UTC ISO timestamp into a readable date + time string in the given
- * IANA timezone, e.g. "Monday, April 7 at 10:00 AM".
- *
- * Used in the email body where more context than just the time is helpful.
- *
- * @param datetime - UTC ISO timestamp.
- * @param timezone - IANA timezone identifier.
- * @returns         Date-time string like "Monday, April 7 at 10:00 AM".
- */
-function formatDateTime(datetime: string, timezone: string): string {
-  try {
-    const date = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(datetime));
-
-    const time = formatTime(datetime, timezone);
-    return `${date} at ${time}`;
-  } catch {
-    return new Date(datetime).toUTCString();
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Email subject helper
 // ---------------------------------------------------------------------------

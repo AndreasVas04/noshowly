@@ -519,7 +519,7 @@ export default function LandingContent() {
                   <ComparisonRow
                     label="Monthly cost"
                     others="Varies with volume"
-                    noshowly="Flat fee from $19"
+                    noshowly="Flat fee for $19"
                     othersOk={false}
                     noshowlyOk={true}
                   />

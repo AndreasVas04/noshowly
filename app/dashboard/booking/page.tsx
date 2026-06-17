@@ -1954,7 +1954,7 @@ export default function BookingPage() {
                           type="text"
                           value={customPageTitle}
                           onChange={(e) => { setCustomPageTitle(e.target.value); scheduleBookingSave(); }}
-                          placeholder="e.g. Book your appointment at Elena's Salon"
+                          placeholder="e.g. Book your appointment at Elena's Studio"
                           maxLength={100}
                           disabled={bookingSaveStatus === 'saving'}
                           className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"

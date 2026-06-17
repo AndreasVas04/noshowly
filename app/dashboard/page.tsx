@@ -14,42 +14,21 @@
  * Authentication is guaranteed by middleware.ts before this page is reached.
  * This is a Server Component — StatsCards and DayView handle all client-side
  * interactivity independently.
- *
- * The user's plan is fetched server-side and passed to StatsCards, which renders
- * nothing for trial and cancelled plans (stats are only meaningful on active paid plans).
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import DayView from '@/components/dashboard/DayView';
 import StatsCards from '@/components/dashboard/StatsCards';
-import type { UserPlan } from '@/types';
 
 /**
  * DashboardPage renders today's appointment stats and list.
- * Fetches the user's plan server-side to gate the stats cards display.
  *
  * @returns The dashboard home page with stats cards and the today appointment list.
  */
-export default async function DashboardPage() {
-  // Fetch the user's plan so StatsCards can decide whether to render.
-  // Middleware guarantees a valid session exists by the time we get here.
-  const supabase = await createServerSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-
-  let plan: UserPlan = 'trial';
-  if (session) {
-    const { data: user } = await supabase
-      .from('users')
-      .select('plan')
-      .eq('id', session.user.id)
-      .single();
-    plan = (user?.plan as UserPlan) ?? 'trial';
-  }
-
+export default function DashboardPage() {
   return (
     <div className="p-6 lg:p-10">
       {/* Stats summary — confirmed / pending / cancelled counts for today. */}
-      <StatsCards plan={plan} />
+      <StatsCards />
 
       {/* Chronological appointment list for the selected day */}
       <div className="max-w-3xl">

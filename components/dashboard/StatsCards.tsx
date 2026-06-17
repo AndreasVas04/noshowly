@@ -6,9 +6,8 @@
  *  - Pending appointments (status='scheduled' in the DB — client has not replied yet)
  *  - Cancelled appointments
  *
- * Shown for all active paid plans (basic, pro, professional, business, starter).
- * Hidden for trial and cancelled — no reminders are sent during trial so the
- * counts are meaningless.
+ * Visible for all plans including trial. Plan enforcement is handled at the
+ * API level on write operations — stats are purely informational.
  *
  * Premium design: white shadcn Cards with colored left border and subtle tinted
  * background, brand-dark typography, Framer Motion fade-in on load.
@@ -24,7 +23,7 @@ import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Clock, XCircle } from 'lucide-react';
-import type { AppointmentWithDetails, UserPlan } from '@/types';
+import type { AppointmentWithDetails } from '@/types';
 
 /** Aggregated counts for today's appointments, split by status. */
 type DayStats = {
@@ -97,28 +96,14 @@ function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
   );
 }
 
-/** Props for StatsCards. */
-interface StatsCardsProps {
-  /**
-   * The authenticated user's current plan.
-   * Cards are hidden only for trial and cancelled — both have no active reminders
-   * and therefore no meaningful confirmed/pending/cancelled counts.
-   * All paid plans (basic, starter, pro, professional, business) show stats because
-   * email YES/NO confirmation is available on every paid plan.
-   */
-  plan: UserPlan;
-}
-
 /**
  * StatsCards displays a row of three summary cards for today's appointment counts.
- * Visible for all plans including trial — trial users can see their stats even
- * though reminders are not sent. Plan enforcement on write operations (API-level)
- * ensures data integrity.
+ * Visible for all plans including trial. Plan enforcement on write operations
+ * (API-level) ensures data integrity.
  *
- * @param props - plan from the server component parent.
  * @returns A grid of three stat cards.
  */
-export default function StatsCards({ plan: _plan }: StatsCardsProps) {
+export default function StatsCards() {
   const [stats, setStats] = useState<DayStats>({ confirmed: 0, pending: 0, cancelled: 0 });
   const [loading, setLoading] = useState(true);
 
