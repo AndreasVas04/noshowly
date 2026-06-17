@@ -1,7 +1,5 @@
--- Migration: add_staff_services.sql
--- Adds a staff_services table so each staff member can have their own service list
--- on the public booking page. This is separate from the global `services` table
--- which is still used by the dashboard appointment modal.
+-- Migration: per-staff service list for the public booking page.
+-- Separate from the global services table used by the dashboard appointment modal.
 
 CREATE TABLE IF NOT EXISTS public.staff_services (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -15,8 +13,7 @@ CREATE TABLE IF NOT EXISTS public.staff_services (
 
 ALTER TABLE public.staff_services ENABLE ROW LEVEL SECURITY;
 
--- Owner policy: authenticated users can manage their own staff's services.
--- Ownership chain: staff_services → barbers → salons → users.
+-- Owner policy: staff_services -> barbers -> salons -> users.
 CREATE POLICY "Users own staff services"
   ON public.staff_services
   FOR ALL
@@ -29,8 +26,7 @@ CREATE POLICY "Users own staff services"
     )
   );
 
--- Public read policy: anyone can view active staff services.
--- Needed for the public booking page to show available services per staff member.
+-- Public read: booking page shows available services per staff member.
 CREATE POLICY "Public can view active staff services"
   ON public.staff_services
   FOR SELECT

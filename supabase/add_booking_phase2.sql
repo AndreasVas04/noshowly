@@ -1,19 +1,6 @@
--- add_booking_phase2.sql
---
--- Phase 2 of the Online Booking feature: staff availability scheduling.
---
--- Adds the staff_availability table so each barber can define which days
--- and time ranges they are available for online bookings.
---
--- day_of_week follows JavaScript's Date.getDay() convention:
---   0 = Sunday, 1 = Monday, 2 = Tuesday, ..., 6 = Saturday
---
--- Two optional time slots (start/end × 2) allow a morning/afternoon split,
--- e.g. 09:00–13:00 then 14:00–18:00 with a lunch break in between.
-
--- ---------------------------------------------------------------------------
--- Table: staff_availability
--- ---------------------------------------------------------------------------
+-- Migration: staff availability scheduling for online booking.
+-- day_of_week: 0 = Sunday .. 6 = Saturday (matches Date.getDay()).
+-- Two optional time slots per day allow a split schedule (e.g. morning + afternoon).
 
 CREATE TABLE IF NOT EXISTS public.staff_availability (
   id           UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -27,14 +14,9 @@ CREATE TABLE IF NOT EXISTS public.staff_availability (
   UNIQUE (barber_id, day_of_week)
 );
 
--- ---------------------------------------------------------------------------
--- Row Level Security
--- ---------------------------------------------------------------------------
-
 ALTER TABLE public.staff_availability ENABLE ROW LEVEL SECURITY;
 
--- Business owners can manage their own staff's availability.
--- Ownership is verified by tracing barber → salon → user.
+-- Owner policy: ownership traced via barber -> salon -> user.
 CREATE POLICY "Users own staff availability"
   ON public.staff_availability
   FOR ALL
@@ -47,8 +29,7 @@ CREATE POLICY "Users own staff availability"
     )
   );
 
--- Public (unauthenticated) can read availability so the booking page
--- can filter dates and generate time slots without requiring a session.
+-- Public read: booking page needs availability to generate time slots.
 CREATE POLICY "Public can view staff availability"
   ON public.staff_availability
   FOR SELECT

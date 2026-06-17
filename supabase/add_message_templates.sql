@@ -1,16 +1,6 @@
--- Migration: add sms_template and email_footer columns to salons table
---
--- sms_template: fully customisable SMS reminder text with {variable} placeholders.
---   NULL means "use the application default from lib/reminder-templates.ts".
---
--- email_footer: custom footer line shown at the bottom of reminder emails.
---   NULL means "use the application default from lib/reminder-templates.ts".
---
--- Supported variables:
---   SMS:   {client_name}, {business_name}, {service}, {time}, {date}
---   Email: {business_name}
---
--- Run this in the Supabase SQL editor or via the CLI.
+-- Migration: add template columns to salons.
+-- sms_template: legacy column (unused — product is email-only). Kept for compatibility.
+-- email_footer: custom footer line for reminder emails. NULL = use app default.
 
 ALTER TABLE salons
   ADD COLUMN IF NOT EXISTS sms_template  TEXT DEFAULT NULL,

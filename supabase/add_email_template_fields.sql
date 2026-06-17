@@ -1,5 +1,5 @@
--- Migration: add customisable email template fields to salons
--- Run this against your Supabase project before deploying the matching app update.
+-- Migration: customisable email template fields on salons.
+-- NULL = use application default from lib/reminder-templates.ts.
 
 ALTER TABLE public.salons ADD COLUMN IF NOT EXISTS email_subject TEXT;
 ALTER TABLE public.salons ADD COLUMN IF NOT EXISTS email_greeting TEXT;

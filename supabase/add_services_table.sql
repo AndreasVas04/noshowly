@@ -1,17 +1,4 @@
--- supabase/add_services_table.sql
---
--- Creates the services table so each salon can define their own list of
--- service names (e.g. "Haircut", "Beard trim", "Hair colour", "Massage").
--- Services appear as a dropdown when the salon owner adds an appointment.
---
--- Pattern matches the barbers table: id, salon_id, name, created_at.
--- RLS policy mirrors barbers: salon owners can only access their own services.
---
--- Run this in the Supabase SQL editor once.
-
--- ---------------------------------------------------------------------------
--- Table
--- ---------------------------------------------------------------------------
+-- Migration: services table for per-salon service catalogue.
 
 CREATE TABLE IF NOT EXISTS services (
   id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -20,13 +7,8 @@ CREATE TABLE IF NOT EXISTS services (
   created_at  TIMESTAMP   NOT NULL DEFAULT NOW()
 );
 
--- ---------------------------------------------------------------------------
--- Row Level Security
--- ---------------------------------------------------------------------------
-
 ALTER TABLE services ENABLE ROW LEVEL SECURITY;
 
--- Salon owners can only read and write services that belong to their own salon.
 CREATE POLICY "Users own services" ON services
   FOR ALL USING (
     salon_id IN (SELECT id FROM salons WHERE user_id = auth.uid())
