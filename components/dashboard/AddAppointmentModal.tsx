@@ -646,6 +646,7 @@ export default function AddAppointmentModal({
           barber_id: form.barberId || null,
           service_type: form.serviceType || null,
           notes: form.notes.trim() || null,
+          status: form.appointmentStatus,
         };
 
         if (clientId !== appointment.client_id) updateBody.client_id = clientId;
@@ -874,40 +875,13 @@ export default function AddAppointmentModal({
               </div>
             )}
 
-            {/* ---- Read-only status badge (edit mode only) --------------- */}
-            {isEditMode && appointment && (
+            {/* ---- Read-only cancelled badge (edit mode, cancelled only) --- */}
+            {isCancelledView && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-[#8A8680]">Status:</span>
-                {(() => {
-                  const isPast = appointment.status !== 'cancelled' && new Date(appointment.datetime) < new Date();
-                  if (isPast) {
-                    return (
-                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-[#F0EFED] text-[#8A8680] border border-[#C8C8C8]/60">
-                        Past
-                      </span>
-                    );
-                  }
-                  if (appointment.status === 'confirmed') {
-                    return (
-                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        Confirmed
-                      </span>
-                    );
-                  }
-                  if (appointment.status === 'cancelled') {
-                    return (
-                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100">
-                        Cancelled
-                      </span>
-                    );
-                  }
-                  // scheduled (upcoming) = Pending
-                  return (
-                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                      Pending
-                    </span>
-                  );
-                })()}
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100">
+                  Cancelled
+                </span>
               </div>
             )}
 
@@ -1126,8 +1100,8 @@ export default function AddAppointmentModal({
               </div>
             </div>
 
-            {/* ---- Status (create mode only) ----------------------------- */}
-            {!isEditMode && (
+            {/* ---- Status ------------------------------------------------ */}
+            {!isCancelledView && (
               <div className="space-y-1.5">
                 <Label htmlFor="modal-status" className={labelClass}>Status</Label>
                 <select
