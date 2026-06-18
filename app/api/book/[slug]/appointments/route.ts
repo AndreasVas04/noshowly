@@ -25,7 +25,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types';
 import { sendEmail } from '@/lib/resend';
-import { findEligibleBarbers } from '@/lib/appointment-helpers';
+import { findEligibleBarbers, appointmentsOverlap } from '@/lib/appointment-helpers';
 
 // ---------------------------------------------------------------------------
 // Service-role Supabase client (server-side only — bypasses RLS)
@@ -391,20 +391,37 @@ async function handleBookingPost(
     return Response.json({ error: 'Cannot book an appointment in the past' }, { status: 400 });
   }
 
-  // Step 4: Resolve service name from service_id if provided.
+  // Step 4: Resolve service name and duration from service_id if provided.
   // service_id comes from the global services table (salon-level).
   let resolvedServiceName: string | null = serviceName;
+  let resolvedDurationMinutes = 30; // default when no service selected
   if (serviceId) {
     const { data: svc, error: svcError } = await supabase
       .from('services')
-      .select('name')
+      .select('name, duration_minutes')
       .eq('id', serviceId)
       .eq('active', true)
       .single();
     if (svcError) {
       console.error('[POST /api/book/[slug]/appointments] services lookup error — serviceId:', serviceId, '| error:', JSON.stringify(svcError));
     }
-    if (svc) resolvedServiceName = svc.name;
+    if (svc) {
+      resolvedServiceName = svc.name;
+      resolvedDurationMinutes = (svc.duration_minutes as number | null) ?? 30;
+    }
+  }
+
+  // Check for barber-specific duration override (if a barber and service are selected).
+  if (barberId && serviceId) {
+    const { data: bsOverride } = await supabase
+      .from('barber_services')
+      .select('duration_minutes_override')
+      .eq('barber_id', barberId)
+      .eq('service_id', serviceId)
+      .maybeSingle();
+    if (bsOverride?.duration_minutes_override != null) {
+      resolvedDurationMinutes = bsOverride.duration_minutes_override;
+    }
   }
 
   // Step 5: Find or create client. Deduplicate by phone first, then by email.
@@ -473,25 +490,31 @@ async function handleBookingPost(
     clientId = newClient.id;
   }
 
-  // Step 6: Check for scheduling conflicts using a ±30 minute window.
-  // Consistent with the dashboard route — prevents back-to-back bookings
-  // that overlap within a 30-minute gap.
-  const conflictWindowMs = 30 * 60 * 1000;
-  const windowStart = new Date(new Date(datetimeUTC).getTime() - conflictWindowMs).toISOString();
-  const windowEnd = new Date(new Date(datetimeUTC).getTime() + conflictWindowMs).toISOString();
+  // Step 6: Check for scheduling conflicts using duration-aware overlap.
+  // Two appointments overlap when: existingStart < newEnd AND newStart < existingEnd.
+  // Query a generous window to catch all possible overlaps.
+  const newStartMs = new Date(datetimeUTC).getTime();
+  const MAX_DURATION_MS = 480 * 60_000; // 8 h — matches validation max
+  const queryStart = new Date(newStartMs - MAX_DURATION_MS).toISOString();
+  const queryEnd   = new Date(newStartMs + resolvedDurationMinutes * 60_000).toISOString();
 
   if (barberId) {
-    const { data: barberConflicts } = await supabase
+    const { data: barberAppts } = await supabase
       .from('appointments')
-      .select('id')
+      .select('id, datetime, duration_minutes')
       .eq('salon_id', salonId)
       .eq('barber_id', barberId)
       .neq('status', 'cancelled')
-      .gte('datetime', windowStart)
-      .lte('datetime', windowEnd)
-      .limit(5);
+      .gte('datetime', queryStart)
+      .lte('datetime', queryEnd);
 
-    if (barberConflicts && barberConflicts.length > 0) {
+    const hasBarberConflict = (barberAppts ?? []).some((a) => {
+      const existStartMs  = new Date(a.datetime as string).getTime();
+      const existDuration = (a.duration_minutes as number | null) ?? 30;
+      return appointmentsOverlap(newStartMs, resolvedDurationMinutes, existStartMs, existDuration);
+    });
+
+    if (hasBarberConflict) {
       return Response.json(
         { error: 'This staff member is not available at that time.' },
         { status: 409 }
@@ -499,17 +522,22 @@ async function handleBookingPost(
     }
   }
 
-  // Client conflict — has this client already booked within the ±30 min window?
-  const { data: clientConflicts } = await supabase
+  // Client conflict — does this client already have an overlapping appointment?
+  const { data: clientAppts } = await supabase
     .from('appointments')
-    .select('id')
+    .select('id, datetime, duration_minutes')
     .eq('client_id', clientId)
     .neq('status', 'cancelled')
-    .gte('datetime', windowStart)
-    .lte('datetime', windowEnd)
-    .limit(5);
+    .gte('datetime', queryStart)
+    .lte('datetime', queryEnd);
 
-  if (clientConflicts && clientConflicts.length > 0) {
+  const hasClientConflict = (clientAppts ?? []).some((a) => {
+    const existStartMs  = new Date(a.datetime as string).getTime();
+    const existDuration = (a.duration_minutes as number | null) ?? 30;
+    return appointmentsOverlap(newStartMs, resolvedDurationMinutes, existStartMs, existDuration);
+  });
+
+  if (hasClientConflict) {
     return Response.json(
       { error: 'You already have an appointment at that time.' },
       { status: 409 }
@@ -571,7 +599,7 @@ async function handleBookingPost(
         // Service filter already applied via candidateBarberIds — skip built-in filter.
         serviceTypeName: null,
         candidateBarberIds,
-        conflictWindowMinutes: 30,
+        newDurationMinutes: resolvedDurationMinutes,
       });
 
       if (eligible.length === 0) {
@@ -596,13 +624,14 @@ async function handleBookingPost(
   const { data: appointment, error: apptError } = await supabase
     .from('appointments')
     .insert({
-      salon_id:     salonId,
-      client_id:    clientId,
-      barber_id:    resolvedBarberId,
-      datetime:     datetimeUTC,
-      service_type: resolvedServiceName,
-      notes:        notes,
-      status:       appointmentStatus,
+      salon_id:         salonId,
+      client_id:        clientId,
+      barber_id:        resolvedBarberId,
+      datetime:         datetimeUTC,
+      service_type:     resolvedServiceName,
+      duration_minutes: resolvedDurationMinutes,
+      notes:            notes,
+      status:           appointmentStatus,
     })
     .select('id')
     .single();

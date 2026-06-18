@@ -16,7 +16,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { findEligibleBarbers } from '@/lib/appointment-helpers';
+import { findEligibleBarbers, appointmentsOverlap } from '@/lib/appointment-helpers';
 import type {
   Appointment,
   AppointmentWithDetails,
@@ -296,14 +296,15 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'Cannot edit a cancelled appointment' }, { status: 400 });
   }
 
-  // Step 4: Double-booking checks — only run when datetime or participants change.
+  // Step 4: Double-booking checks — duration-aware overlap detection.
+  // Only run when datetime, duration, or participants change.
   // The current appointment (id) is excluded from each conflict query so an
   // idempotent re-save of the same data does not flag itself as a conflict.
-  if (updates.datetime || 'client_id' in updates || 'barber_id' in updates) {
+  if (updates.datetime || 'client_id' in updates || 'barber_id' in updates || 'duration_minutes' in updates) {
     // Fetch the current record to fill in any values not being updated.
     const { data: existing } = await supabase
       .from('appointments')
-      .select('datetime, client_id, barber_id')
+      .select('datetime, client_id, barber_id, duration_minutes')
       .eq('id', id)
       .eq('salon_id', salon.id)
       .single();
@@ -311,25 +312,33 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     const checkDatetime = updates.datetime ?? existing?.datetime;
     const checkClientId = 'client_id' in updates ? updates.client_id : existing?.client_id;
     const checkBarberId = 'barber_id' in updates ? updates.barber_id : existing?.barber_id;
+    const checkDuration = updates.duration_minutes ?? existing?.duration_minutes ?? 30;
 
     if (checkDatetime) {
-      const checkParsed = new Date(checkDatetime);
-      const windowStart = new Date(checkParsed.getTime() - 30 * 60 * 1000).toISOString();
-      const windowEnd   = new Date(checkParsed.getTime() + 30 * 60 * 1000).toISOString();
+      const checkStartMs = new Date(checkDatetime).getTime();
+      const MAX_DURATION_MS = 480 * 60_000;
+      const queryStart = new Date(checkStartMs - MAX_DURATION_MS).toISOString();
+      const queryEnd   = new Date(checkStartMs + checkDuration * 60_000).toISOString();
 
       // 4a: Check client double-booking, excluding this appointment.
       if (checkClientId) {
-        const { data: clientConflicts } = await supabase
+        const { data: clientAppts } = await supabase
           .from('appointments')
-          .select('id')
+          .select('id, datetime, duration_minutes')
           .eq('salon_id', salon.id)
           .eq('client_id', checkClientId)
           .neq('status', 'cancelled')
           .neq('id', id)
-          .gte('datetime', windowStart)
-          .lte('datetime', windowEnd);
+          .gte('datetime', queryStart)
+          .lte('datetime', queryEnd);
 
-        if (clientConflicts && clientConflicts.length > 0) {
+        const hasClientConflict = (clientAppts ?? []).some((a) => {
+          const existStartMs  = new Date(a.datetime).getTime();
+          const existDuration = a.duration_minutes ?? 30;
+          return appointmentsOverlap(checkStartMs, checkDuration, existStartMs, existDuration);
+        });
+
+        if (hasClientConflict) {
           return Response.json(
             { error: 'This client already has an appointment at that time.' },
             { status: 409 }
@@ -340,17 +349,23 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       // 4b: Check staff double-booking, excluding this appointment.
       // Skipped when no staff is assigned.
       if (checkBarberId) {
-        const { data: staffConflicts } = await supabase
+        const { data: staffAppts } = await supabase
           .from('appointments')
-          .select('id')
+          .select('id, datetime, duration_minutes')
           .eq('salon_id', salon.id)
           .eq('barber_id', checkBarberId)
           .neq('status', 'cancelled')
           .neq('id', id)
-          .gte('datetime', windowStart)
-          .lte('datetime', windowEnd);
+          .gte('datetime', queryStart)
+          .lte('datetime', queryEnd);
 
-        if (staffConflicts && staffConflicts.length > 0) {
+        const hasStaffConflict = (staffAppts ?? []).some((a) => {
+          const existStartMs  = new Date(a.datetime).getTime();
+          const existDuration = a.duration_minutes ?? 30;
+          return appointmentsOverlap(checkStartMs, checkDuration, existStartMs, existDuration);
+        });
+
+        if (hasStaffConflict) {
           return Response.json(
             { error: 'This staff member already has an appointment at that time.' },
             { status: 409 }
@@ -437,6 +452,9 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
           ? updates.service_type
           : existingForAssign.service_type) as string | null | undefined;
 
+        // Resolve duration for the eligibility check (same logic as conflict block above).
+        const assignDuration = updates.duration_minutes ?? 30;
+
         const eligible = await findEligibleBarbers({
           supabase,
           salonId: salon.id,
@@ -444,7 +462,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
           timezone: salon.timezone,
           serviceTypeName: serviceForCheck ?? null,
           excludeAppointmentId: id,
-          conflictWindowMinutes: 30,
+          newDurationMinutes: assignDuration,
         });
 
         if (eligible.length === 0) {

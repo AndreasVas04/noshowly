@@ -104,6 +104,31 @@ function isTimeInSlots(localTime: string, slots: TimeSlot[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Overlap helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if two appointments overlap based on their start times and durations.
+ * Two time ranges [A, A+dA) and [B, B+dB) overlap when: A < B+dB AND B < A+dA.
+ *
+ * @param startA    - Start time of appointment A in epoch milliseconds.
+ * @param durationA - Duration of appointment A in minutes.
+ * @param startB    - Start time of appointment B in epoch milliseconds.
+ * @param durationB - Duration of appointment B in minutes.
+ * @returns True if the two time ranges overlap.
+ */
+export function appointmentsOverlap(
+  startA: number,
+  durationA: number,
+  startB: number,
+  durationB: number,
+): boolean {
+  const endA = startA + durationA * 60_000;
+  const endB = startB + durationB * 60_000;
+  return startA < endB && startB < endA;
+}
+
+// ---------------------------------------------------------------------------
 // Core eligibility check
 // ---------------------------------------------------------------------------
 
@@ -126,8 +151,8 @@ function isTimeInSlots(localTime: string, slots: TimeSlot[]): boolean {
  *     A barber with NO availability records at all is treated as always available.
  *     A barber with records for other days but NOT today is unavailable today.
  *
- *  4. Conflicts — barber must have no non-cancelled appointment within
- *     ±conflictWindowMinutes of the requested datetime.
+ *  4. Conflicts — barber must have no non-cancelled appointment whose time
+ *     range overlaps with the new appointment's time range.
  *
  * Results are returned in alphabetical order by name so that auto-assignment
  * (picking eligible[0]) is deterministic across identical inputs.
@@ -141,7 +166,7 @@ function isTimeInSlots(localTime: string, slots: TimeSlot[]): boolean {
  *                                (skips active-barbers query and service filter).
  *                                Pass null/undefined to use all active barbers.
  * @param excludeAppointmentId  - Exclude this appointment from conflict detection (PUT).
- * @param conflictWindowMinutes - Half-width of conflict window in minutes. Default 30.
+ * @param newDurationMinutes    - Duration of the new appointment in minutes. Default 30.
  * @returns                     Eligible barbers sorted alphabetically, or [] if none.
  */
 export async function findEligibleBarbers(params: {
@@ -152,7 +177,7 @@ export async function findEligibleBarbers(params: {
   serviceTypeName?: string | null;
   candidateBarberIds?: string[] | null;
   excludeAppointmentId?: string;
-  conflictWindowMinutes?: number;
+  newDurationMinutes?: number;
 }): Promise<EligibleBarber[]> {
   const {
     supabase,
@@ -162,7 +187,7 @@ export async function findEligibleBarbers(params: {
     serviceTypeName,
     candidateBarberIds,
     excludeAppointmentId,
-    conflictWindowMinutes = 30,
+    newDurationMinutes = 30,
   } = params;
 
   // ---- Step 1: Build the initial candidate set ----------------------------
@@ -309,38 +334,49 @@ export async function findEligibleBarbers(params: {
   for (const id of unavailable) candidateIds.delete(id);
   if (candidateIds.size === 0) return [];
 
-  // ---- Step 4: Conflict filter --------------------------------------------
-  const apptTime    = new Date(datetimeUTC).getTime();
-  const windowMs    = conflictWindowMinutes * 60 * 1000;
-  const windowStart = new Date(apptTime - windowMs).toISOString();
-  const windowEnd   = new Date(apptTime + windowMs).toISOString();
+  // ---- Step 4: Conflict filter (duration-aware overlap) -------------------
+  // An existing appointment overlaps the new one when:
+  //   existingStart < newEnd AND newStart < existingEnd
+  // Query a generous window to catch all possible overlaps: existing
+  // appointments that started up to MAX_DURATION before our start (they
+  // could still be running) through appointments that start before our end.
+  const newStartMs  = new Date(datetimeUTC).getTime();
+  const newEndMs    = newStartMs + newDurationMinutes * 60_000;
+  const MAX_DURATION_MS = 480 * 60_000; // 8 h — matches validation max
+  const queryStart  = new Date(newStartMs - MAX_DURATION_MS).toISOString();
+  const queryEnd    = new Date(newEndMs).toISOString();
 
   // Use a ternary to avoid TypeScript issues with conditional chaining on
   // the Supabase query builder's generic return type.
   const { data: conflictRows } = excludeAppointmentId
     ? await supabase
         .from('appointments')
-        .select('barber_id')
+        .select('barber_id, datetime, duration_minutes')
         .eq('salon_id', salonId)
         .in('barber_id', [...candidateIds])
         .neq('status', 'cancelled')
         .neq('id', excludeAppointmentId)
-        .gte('datetime', windowStart)
-        .lte('datetime', windowEnd)
+        .gte('datetime', queryStart)
+        .lte('datetime', queryEnd)
     : await supabase
         .from('appointments')
-        .select('barber_id')
+        .select('barber_id, datetime, duration_minutes')
         .eq('salon_id', salonId)
         .in('barber_id', [...candidateIds])
         .neq('status', 'cancelled')
-        .gte('datetime', windowStart)
-        .lte('datetime', windowEnd);
+        .gte('datetime', queryStart)
+        .lte('datetime', queryEnd);
 
-  const conflicted = new Set(
-    (conflictRows ?? [])
-      .map((r) => r.barber_id)
-      .filter((id): id is string => id !== null),
-  );
+  const conflicted = new Set<string>();
+  for (const row of (conflictRows ?? [])) {
+    const bid = row.barber_id as string | null;
+    if (!bid) continue;
+    const existStartMs   = new Date(row.datetime as string).getTime();
+    const existDuration  = (row.duration_minutes as number | null) ?? 30;
+    if (appointmentsOverlap(newStartMs, newDurationMinutes, existStartMs, existDuration)) {
+      conflicted.add(bid);
+    }
+  }
   for (const id of conflicted) candidateIds.delete(id);
 
   // Return eligible barbers in original alphabetical order (from Step 1 sort).

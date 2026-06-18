@@ -31,7 +31,7 @@ import type {
   AppointmentWithDetails,
   AppointmentStatus,
 } from '@/types';
-import { findEligibleBarbers } from '@/lib/appointment-helpers';
+import { findEligibleBarbers, appointmentsOverlap } from '@/lib/appointment-helpers';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -347,27 +347,35 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  // Step 4: Double-booking checks — run before inserting to prevent conflicts.
-  // A 30-minute window around the requested datetime is used so back-to-back
-  // same-client or same-staff bookings still require at least a 30-minute gap.
+  // Step 4: Double-booking checks — duration-aware overlap detection.
+  // Two appointments overlap when: existingStart < newEnd AND newStart < existingEnd.
   const clientId = (raw.client_id as string | null | undefined) ?? null;
   const barberId = (raw.barber_id as string | null | undefined) ?? null;
-  const windowStart = new Date(datetimeParsed.getTime() - 30 * 60 * 1000).toISOString();
-  const windowEnd   = new Date(datetimeParsed.getTime() + 30 * 60 * 1000).toISOString();
+  const newDuration = (raw.duration_minutes as number | undefined) ?? 30;
+  const newStartMs  = datetimeParsed.getTime();
+  const MAX_DURATION_MS = 480 * 60_000; // 8 h — matches validation max
+  const queryStart  = new Date(newStartMs - MAX_DURATION_MS).toISOString();
+  const queryEnd    = new Date(newStartMs + newDuration * 60_000).toISOString();
 
-  // 4a: Check if the client already has an active appointment in the time window.
+  // 4a: Check if the client already has an overlapping appointment.
   // Protects against accidentally booking the same person twice at the same time.
   if (clientId) {
-    const { data: clientConflicts } = await supabase
+    const { data: clientAppts } = await supabase
       .from('appointments')
-      .select('id')
+      .select('id, datetime, duration_minutes')
       .eq('salon_id', salon.id)
       .eq('client_id', clientId)
       .neq('status', 'cancelled')
-      .gte('datetime', windowStart)
-      .lte('datetime', windowEnd);
+      .gte('datetime', queryStart)
+      .lte('datetime', queryEnd);
 
-    if (clientConflicts && clientConflicts.length > 0) {
+    const hasClientConflict = (clientAppts ?? []).some((a) => {
+      const existStartMs  = new Date(a.datetime).getTime();
+      const existDuration = a.duration_minutes ?? 30;
+      return appointmentsOverlap(newStartMs, newDuration, existStartMs, existDuration);
+    });
+
+    if (hasClientConflict) {
       return Response.json(
         { error: 'This client already has an appointment at that time.' },
         { status: 409 }
@@ -375,19 +383,25 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // 4b: Check if the selected staff member already has an active appointment
-  // in the time window. Skipped when no staff is assigned (walk-in appointments).
+  // 4b: Check if the selected staff member already has an overlapping appointment.
+  // Skipped when no staff is assigned (walk-in appointments).
   if (barberId) {
-    const { data: staffConflicts } = await supabase
+    const { data: staffAppts } = await supabase
       .from('appointments')
-      .select('id')
+      .select('id, datetime, duration_minutes')
       .eq('salon_id', salon.id)
       .eq('barber_id', barberId)
       .neq('status', 'cancelled')
-      .gte('datetime', windowStart)
-      .lte('datetime', windowEnd);
+      .gte('datetime', queryStart)
+      .lte('datetime', queryEnd);
 
-    if (staffConflicts && staffConflicts.length > 0) {
+    const hasStaffConflict = (staffAppts ?? []).some((a) => {
+      const existStartMs  = new Date(a.datetime).getTime();
+      const existDuration = a.duration_minutes ?? 30;
+      return appointmentsOverlap(newStartMs, newDuration, existStartMs, existDuration);
+    });
+
+    if (hasStaffConflict) {
       return Response.json(
         { error: 'This staff member already has an appointment at that time.' },
         { status: 409 }
@@ -453,7 +467,7 @@ export async function POST(request: Request): Promise<Response> {
         datetimeUTC: datetimeParsed.toISOString(),
         timezone: salon.timezone,
         serviceTypeName,
-        conflictWindowMinutes: 30,
+        newDurationMinutes: newDuration,
       });
 
       if (eligible.length === 0) {

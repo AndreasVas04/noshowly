@@ -55,10 +55,12 @@ type BarberServiceLink = Pick<
   'barber_id' | 'service_id' | 'price_override' | 'duration_minutes_override'
 >;
 
-/** A booked appointment slot: local HH:MM time + which barber is assigned. */
+/** A booked appointment slot: local HH:MM time + which barber is assigned + duration. */
 type BookedSlot = {
   time: string;
   barberId: string | null;
+  /** Appointment duration in minutes. Defaults to 30 when not set. */
+  duration: number;
 };
 
 type Step = 'staff' | 'service' | 'datetime' | 'details' | 'success';
@@ -737,27 +739,57 @@ export default function BookingFlow({
   })();
 
   /**
-   * Returns true if an existing booked slot falls within ±30 minutes of the
-   * candidate slot. This matches the server-side conflict window used by
-   * POST /api/book/[slug]/appointments (gte/lte with a 30-minute range).
-   *
-   * @param bookedTime - HH:MM of an existing booking.
-   * @param slotTime   - HH:MM of the candidate slot.
-   * @returns          True if the two times are within 30 minutes of each other.
+   * Returns the resolved duration in minutes for the currently selected service/barber.
+   * Uses barber-specific override when available, then global service duration, then 30.
    */
-  function isWithinConflictWindow(bookedTime: string, slotTime: string): boolean {
-    const [bh, bm] = bookedTime.split(':').map(Number);
-    const [sh, sm] = slotTime.split(':').map(Number);
-    return Math.abs((bh * 60 + bm) - (sh * 60 + sm)) <= 30;
+  const newDurationMinutes: number = (() => {
+    if (!selectedService) return 30;
+    const { duration } = getEffectivePriceAndDuration(
+      selectedService,
+      selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null,
+      barberServiceAssignments,
+    );
+    return duration ?? 30;
+  })();
+
+  /**
+   * Converts an HH:MM string to minutes since midnight.
+   *
+   * @param time - "HH:MM" 24-hour string.
+   * @returns    Total minutes since 00:00.
+   */
+  function timeToMinutes(time: string): number {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  /**
+   * Returns true if an existing booked slot overlaps with a candidate slot.
+   * Two time ranges [A, A+dA) and [B, B+dB) overlap when: A < B+dB AND B < A+dA.
+   * Consistent with the server-side appointmentsOverlap() in appointment-helpers.ts.
+   *
+   * @param bookedStartMin  - Existing booking start in minutes since midnight.
+   * @param bookedDuration  - Existing booking duration in minutes.
+   * @param slotStartMin    - Candidate slot start in minutes since midnight.
+   * @param slotDuration    - Candidate slot duration in minutes.
+   * @returns               True if the two time ranges overlap.
+   */
+  function slotsOverlap(
+    bookedStartMin: number,
+    bookedDuration: number,
+    slotStartMin: number,
+    slotDuration: number,
+  ): boolean {
+    return bookedStartMin < slotStartMin + slotDuration && slotStartMin < bookedStartMin + bookedDuration;
   }
 
   /**
    * Determines whether a time slot should be blocked (past-time or fully booked).
    * - Today: also blocks slots at or before the current local time.
-   * - Specific barber: blocked if that barber has a booking within ±30 min.
-   * - No preference: blocked only if ALL available barbers are booked within ±30 min.
+   * - Specific barber: blocked if that barber has an overlapping booking.
+   * - No preference: blocked only if ALL available barbers have overlapping bookings.
    *
-   * Uses a ±30 minute conflict window, consistent with the backend's
+   * Uses duration-aware overlap, consistent with the backend's
    * double-booking check in POST /api/book/[slug]/appointments.
    *
    * @param slot - HH:MM slot string.
@@ -770,10 +802,14 @@ export default function BookingFlow({
       if (h * 60 + m <= nowMinutes) return true;
     }
 
+    const slotMin = timeToMinutes(slot);
+
     if (selectedBarber && selectedBarber !== 'none') {
-      // Specific barber: blocked if that barber has a booking within ±30 min.
+      // Specific barber: blocked if that barber has an overlapping booking.
       return bookedSlots.some(
-        (bs) => isWithinConflictWindow(bs.time, slot) && bs.barberId === selectedBarber.id
+        (bs) =>
+          bs.barberId === selectedBarber.id &&
+          slotsOverlap(timeToMinutes(bs.time), bs.duration, slotMin, newDurationMinutes)
       );
     }
 
@@ -784,7 +820,9 @@ export default function BookingFlow({
       );
       if (workingBarbers.length === 0) return false;
       const bookedBarberIds = new Set(
-        bookedSlots.filter((bs) => isWithinConflictWindow(bs.time, slot)).map((bs) => bs.barberId)
+        bookedSlots
+          .filter((bs) => slotsOverlap(timeToMinutes(bs.time), bs.duration, slotMin, newDurationMinutes))
+          .map((bs) => bs.barberId)
       );
       return workingBarbers.every((b) => bookedBarberIds.has(b.id));
     }
@@ -805,9 +843,12 @@ export default function BookingFlow({
     const available = getAvailableBarbersForSlot(
       timeStr, dateStr, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
     );
-    // Also exclude barbers who are already booked within ±30 min of this time.
+    // Exclude barbers who have an overlapping booking (duration-aware).
+    const slotMin = timeToMinutes(timeStr);
     const bookedAtTime = new Set(
-      bookedSlots.filter((bs) => isWithinConflictWindow(bs.time, timeStr)).map((bs) => bs.barberId)
+      bookedSlots
+        .filter((bs) => slotsOverlap(timeToMinutes(bs.time), bs.duration, slotMin, newDurationMinutes))
+        .map((bs) => bs.barberId)
     );
     const free = available.filter((b) => !bookedAtTime.has(b.id));
     if (free.length === 0) return null;

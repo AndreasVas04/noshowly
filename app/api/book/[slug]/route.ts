@@ -47,12 +47,14 @@ function utcToLocalTime(utcIso: string, timezone: string): string {
 /** Shape returned for an active staff member on the public booking page. */
 type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'>;
 
-/** A booked appointment slot: local time + which barber is booked. */
+/** A booked appointment slot: local time + which barber is booked + duration. */
 type BookedSlot = {
   /** HH:MM local time in the salon's timezone. */
   time: string;
   /** UUID of the barber assigned to this appointment, or null if unassigned. */
   barberId: string | null;
+  /** Appointment duration in minutes. Defaults to 30 when not set. */
+  duration: number;
 };
 
 /** Global service available on the booking page. */
@@ -230,7 +232,7 @@ export async function GET(
 
     const { data: appointments } = await supabase
       .from('appointments')
-      .select('datetime, barber_id')
+      .select('datetime, barber_id, duration_minutes')
       .eq('salon_id', salonId)
       .in('status', ['scheduled', 'confirmed'])
       .gte('datetime', dayStart.toISOString())
@@ -255,6 +257,7 @@ export async function GET(
         .map((a) => ({
           time:     utcToLocalTime(a.datetime as string, salon.timezone),
           barberId: a.barber_id as string | null,
+          duration: (a.duration_minutes as number | null) ?? 30,
         }));
     }
   }
