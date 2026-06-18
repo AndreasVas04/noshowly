@@ -188,9 +188,47 @@ function getSlotsFromRecord(
 }
 
 /**
+ * Returns true if a barber is available on the given day_of_week, applying
+ * the same logic as the backend's findEligibleBarbers (appointment-helpers.ts):
+ *
+ *  - No availability records at all → always available (no schedule configured).
+ *  - Records exist for other days but NOT this day → unavailable (deliberately off).
+ *  - Record exists for this day → return is_available.
+ *
+ * @param barberId     - UUID of the barber to check.
+ * @param dow          - Day of week (0=Sun … 6=Sat).
+ * @param availability - All staff availability records.
+ * @returns            True if the barber is available on this day.
+ */
+function isBarberAvailableOnDay(
+  barberId: string,
+  dow: number,
+  availability: PublicAvailability[],
+): boolean {
+  const dayRecord = availability.find(
+    (a) => a.barber_id === barberId && a.day_of_week === dow
+  );
+
+  if (dayRecord !== undefined) {
+    // Explicit record for this day → use its is_available flag.
+    return dayRecord.is_available;
+  }
+
+  // No record for this day. Check whether the barber has ANY records at all.
+  // If they do, this day is deliberately unconfigured (= unavailable).
+  // If they don't, no schedule exists yet (= treat as always available).
+  const hasAnyRecord = availability.some((a) => a.barber_id === barberId);
+  return !hasAnyRecord;
+}
+
+/**
  * Checks whether a calendar date is selectable based on staff availability.
  * A date is available if at least one barber is available on that day_of_week.
- * Dates with no availability records at all are treated as available (fallback).
+ *
+ * Matches the backend logic in findEligibleBarbers (appointment-helpers.ts):
+ *  - Barber with NO records at all → available (no schedule configured).
+ *  - Barber with records for other days but NOT this day → unavailable.
+ *  - Barber with a record for this day → use is_available flag.
  *
  * @param dateStr        - YYYY-MM-DD date.
  * @param selectedBarber - Currently selected barber, 'none' for no-preference, or null.
@@ -209,21 +247,13 @@ function isDateAvailable(
   const dow = getDayOfWeek(dateStr);
 
   if (selectedBarber && selectedBarber !== 'none') {
-    const record = availability.find(
-      (a) => a.barber_id === selectedBarber.id && a.day_of_week === dow
-    );
-    // No record for this barber on this day → treat as available.
-    return record === undefined || record.is_available;
+    return isBarberAvailableOnDay(selectedBarber.id, dow, availability);
   }
 
-  // No preference — available if at least one barber in the provided list works on this day_of_week.
-  // Filter by the provided barbers so service-constrained callers only see relevant records.
+  // No preference — available if at least one barber in the provided list is available.
   const barberIdSet = new Set(barbers.map((b) => b.id));
-  const recordsForDay = availability.filter(
-    (a) => a.day_of_week === dow && barberIdSet.has(a.barber_id)
-  );
-  if (recordsForDay.length === 0) return true;
-  return recordsForDay.some((a) => a.is_available);
+  const relevantBarbers = barbers.filter((b) => barberIdSet.has(b.id));
+  return relevantBarbers.some((b) => isBarberAvailableOnDay(b.id, dow, availability));
 }
 
 /**

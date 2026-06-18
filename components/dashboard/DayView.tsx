@@ -26,7 +26,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AppointmentCard from '@/components/dashboard/AppointmentCard';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import type { AppointmentWithDetails, Barber } from '@/types';
+import type { AppointmentWithDetails, Barber, Salon } from '@/types';
 
 /**
  * Formats a Date as YYYY-MM-DD for the API query param.
@@ -65,6 +65,9 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
 
+  /** Salon timezone for correct time display (fetched once on mount). */
+  const [salonTimezone, setSalonTimezone] = useState<string | undefined>(undefined);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<AppointmentWithDetails | null>(null);
 
@@ -102,22 +105,31 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   }, [currentDate, fetchAppointments]);
 
   /**
-   * Fetches the salon's staff list once on mount for filter pills.
+   * Fetches the salon's staff list and timezone once on mount.
+   * Timezone is used for correct time display on appointment cards.
    */
-  const fetchBarbers = useCallback(async (): Promise<void> => {
+  const fetchSalonData = useCallback(async (): Promise<void> => {
     try {
-      const res = await fetch('/api/barbers', { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to load staff');
-      const data = (await res.json()) as { barbers: Barber[] };
-      setBarbers(data.barbers);
+      const [barbersRes, salonRes] = await Promise.all([
+        fetch('/api/barbers', { cache: 'no-store' }),
+        fetch('/api/salon',   { cache: 'no-store' }),
+      ]);
+      if (barbersRes.ok) {
+        const data = (await barbersRes.json()) as { barbers: Barber[] };
+        setBarbers(data.barbers);
+      }
+      if (salonRes.ok) {
+        const data = (await salonRes.json()) as { salon: Salon };
+        setSalonTimezone(data.salon.timezone ?? undefined);
+      }
     } catch (err) {
-      console.error('[DayView] fetchBarbers error:', err);
+      console.error('[DayView] fetchSalonData error:', err);
     }
   }, []);
 
   useEffect(() => {
-    fetchBarbers();
-  }, [fetchBarbers]);
+    fetchSalonData();
+  }, [fetchSalonData]);
 
   /**
    * Subscribes to appointment changes via Supabase Realtime.
@@ -405,6 +417,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
                 <AppointmentCard
                   appointment={appointment}
                   onClick={() => handleOpenEditModal(appointment)}
+                  timezone={salonTimezone}
                 />
               </motion.div>
             ))}

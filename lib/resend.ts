@@ -35,6 +35,17 @@ import { Resend } from 'resend';
  */
 const FROM_ADDRESS = process.env.RESEND_FROM_ADDRESS || 'onboarding@resend.dev';
 
+// Warn once at startup if using the shared test sender — makes it obvious in
+// Vercel logs why emails don't arrive for non-account-holder recipients.
+if (!process.env.RESEND_FROM_ADDRESS) {
+  console.warn(
+    '[resend] WARNING: RESEND_FROM_ADDRESS is not set. Using shared test sender ' +
+    '"onboarding@resend.dev" which ONLY delivers to the Resend account holder\'s email. ' +
+    'Set RESEND_FROM_ADDRESS to a verified domain (e.g. "Noshowly <reminders@noshowly.com>") ' +
+    'in your environment variables for production email delivery.'
+  );
+}
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 // ---------------------------------------------------------------------------
@@ -99,7 +110,7 @@ export async function sendEmail(
     }
 
     const emailId = data?.id ?? 'unknown';
-    console.log(`[resend/sendEmail] sent id=${emailId}`);
+    console.log(`[resend/sendEmail] sent id=${emailId} from=${FROM_ADDRESS}`);
     return { success: true, id: emailId };
 
   } catch (err) {

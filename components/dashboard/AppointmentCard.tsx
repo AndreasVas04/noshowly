@@ -42,12 +42,26 @@ function statusColor(status: string, isPastScheduled: boolean): string {
 
 /**
  * Formats an ISO datetime string as a 24-hour clock time string.
- * Uses the browser's local timezone (consistent with how appointments are displayed).
+ * Uses the salon's IANA timezone when provided so appointments display correctly
+ * regardless of the browser's local timezone. Falls back to browser timezone
+ * when no timezone is specified (backwards compatible).
  *
  * @param isoString - ISO 8601 datetime string (UTC).
+ * @param timezone  - Optional IANA timezone, e.g. "Europe/Nicosia".
  * @returns Formatted time string like "09:30".
  */
-function formatTime(isoString: string): string {
+function formatTime(isoString: string, timezone?: string): string {
+  if (timezone) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour:   '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(isoString));
+    const h = parts.find((p) => p.type === 'hour')?.value   ?? '00';
+    const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
+    return `${h === '24' ? '00' : h}:${m}`;
+  }
   const date = new Date(isoString);
   const h = date.getHours().toString().padStart(2, '0');
   const m = date.getMinutes().toString().padStart(2, '0');
@@ -66,6 +80,8 @@ function clientInitials(name: string | null): string {
 interface AppointmentCardProps {
   appointment: AppointmentWithDetails;
   onClick: () => void;
+  /** IANA timezone for displaying appointment times, e.g. "Europe/Nicosia". */
+  timezone?: string;
 }
 
 /**
@@ -75,8 +91,8 @@ interface AppointmentCardProps {
  * @param props.appointment - Appointment data with joined display names.
  * @param props.onClick     - Opens the edit modal.
  */
-export default function AppointmentCard({ appointment, onClick }: AppointmentCardProps) {
-  const time         = formatTime(appointment.datetime);
+export default function AppointmentCard({ appointment, onClick, timezone }: AppointmentCardProps) {
+  const time         = formatTime(appointment.datetime, timezone);
   const isCancelled  = appointment.status === 'cancelled';
 
   // Past: any non-cancelled appointment whose datetime has already elapsed.

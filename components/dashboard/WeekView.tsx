@@ -55,7 +55,7 @@ import {
 } from 'date-fns';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import type { AppointmentWithDetails, Barber } from '@/types';
+import type { AppointmentWithDetails, Barber, Salon } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,12 +74,26 @@ function toDateParam(date: Date): string {
 
 /**
  * Formats an ISO datetime string as a 24-hour time string.
- * Uses the browser's local timezone — consistent with how the dates are stored.
+ * Uses the salon's IANA timezone when provided so appointments display correctly
+ * regardless of the browser's local timezone. Falls back to browser timezone
+ * when no timezone is specified (backwards compatible).
  *
  * @param isoString - ISO 8601 datetime stored in the database (UTC).
+ * @param timezone  - Optional IANA timezone, e.g. "Europe/Nicosia".
  * @returns 24-hour time string like "09:30".
  */
-function formatTime(isoString: string): string {
+function formatTime(isoString: string, timezone?: string): string {
+  if (timezone) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour:   '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(isoString));
+    const h = parts.find((p) => p.type === 'hour')?.value   ?? '00';
+    const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
+    return `${h === '24' ? '00' : h}:${m}`;
+  }
   const d = new Date(isoString);
   const h = d.getHours().toString().padStart(2, '0');
   const m = d.getMinutes().toString().padStart(2, '0');
@@ -143,6 +157,8 @@ interface WeekCardProps {
   apt: AppointmentWithDetails;
   /** Called when the card is clicked to open the edit modal. */
   onClick: () => void;
+  /** IANA timezone for displaying appointment times. */
+  timezone?: string;
 }
 
 /**
@@ -179,7 +195,7 @@ function pillClasses(status: AppointmentWithDetails['status'], isPast: boolean):
  * @param props.apt     - The appointment data.
  * @param props.onClick - Opens the edit modal for this appointment.
  */
-function WeekCard({ apt, onClick }: WeekCardProps) {
+function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
   const isCancelled = apt.status === 'cancelled';
   const isPast      = isPastScheduled(apt);
 
@@ -207,7 +223,7 @@ function WeekCard({ apt, onClick }: WeekCardProps) {
     >
       {/* Time + optional "Past" label for past unanswered */}
       <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
-        {formatTime(apt.datetime)}
+        {formatTime(apt.datetime, timezone)}
         {isPast && (
           <span className="text-[9px] font-medium text-[#8A8680] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
             Past
@@ -247,6 +263,8 @@ interface DayColumnProps {
    * Used to open the add modal pre-filled with this day.
    */
   onColumnClick: () => void;
+  /** IANA timezone for displaying appointment times. */
+  timezone?: string;
 }
 
 /**
@@ -259,7 +277,7 @@ interface DayColumnProps {
  * @param props.onAppointmentClick - Called when a card is clicked.
  * @param props.onColumnClick      - Called when the empty column area is clicked.
  */
-function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: DayColumnProps) {
+function DayColumn({ day, appointments, onAppointmentClick, onColumnClick, timezone }: DayColumnProps) {
   const todayColumn = isToday(day);
 
   return (
@@ -303,6 +321,7 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick }: Day
             key={apt.id}
             apt={apt}
             onClick={() => onAppointmentClick(apt)}
+            timezone={timezone}
           />
         ))}
       </div>
@@ -345,6 +364,9 @@ export default function WeekView() {
   /** Staff members for the authenticated salon. */
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [isLoadingBarbers, setIsLoadingBarbers] = useState(true);
+
+  /** Salon timezone for correct time display (fetched once on mount). */
+  const [salonTimezone, setSalonTimezone] = useState<string | undefined>(undefined);
 
   /**
    * Which staff filter is active.
@@ -404,17 +426,27 @@ export default function WeekView() {
   // -------------------------------------------------------------------------
 
   /**
-   * Fetches the salon's staff list. Called once on mount.
+   * Fetches the salon's staff list and timezone. Called once on mount.
    * Does NOT set a default staff — selection always starts at null ("All") so
    * no appointments are hidden when the page loads.
    */
   const fetchBarbers = useCallback(async (): Promise<void> => {
     setIsLoadingBarbers(true);
     try {
-      const res = await fetch('/api/barbers', { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to load staff');
-      const data = (await res.json()) as { barbers: Barber[] };
-      setBarbers(data.barbers);
+      const [barbersRes, salonRes] = await Promise.all([
+        fetch('/api/barbers', { cache: 'no-store' }),
+        fetch('/api/salon',   { cache: 'no-store' }),
+      ]);
+      if (barbersRes.ok) {
+        const data = (await barbersRes.json()) as { barbers: Barber[] };
+        setBarbers(data.barbers);
+      } else {
+        setBarbers([]);
+      }
+      if (salonRes.ok) {
+        const data = (await salonRes.json()) as { salon: Salon };
+        setSalonTimezone(data.salon.timezone ?? undefined);
+      }
       // Always default to null ("All") — never silently hide appointments by
       // pre-selecting a specific staff member that the user has not chosen.
       setSelectedBarberId(null);
@@ -855,6 +887,7 @@ export default function WeekView() {
                 appointments={dayApts}
                 onAppointmentClick={handleAppointmentClick}
                 onColumnClick={() => handleColumnClick(day)}
+                timezone={salonTimezone}
               />
             );
           })}
@@ -894,7 +927,7 @@ export default function WeekView() {
                   ].join(' ')}
                 >
                   <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums font-body">
-                    {formatTime(apt.datetime)}
+                    {formatTime(apt.datetime, salonTimezone)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-semibold text-[#1A1A1A] truncate font-body ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
