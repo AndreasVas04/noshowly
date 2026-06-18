@@ -737,10 +737,28 @@ export default function BookingFlow({
   })();
 
   /**
+   * Returns true if an existing booked slot falls within ±30 minutes of the
+   * candidate slot. This matches the server-side conflict window used by
+   * POST /api/book/[slug]/appointments (gte/lte with a 30-minute range).
+   *
+   * @param bookedTime - HH:MM of an existing booking.
+   * @param slotTime   - HH:MM of the candidate slot.
+   * @returns          True if the two times are within 30 minutes of each other.
+   */
+  function isWithinConflictWindow(bookedTime: string, slotTime: string): boolean {
+    const [bh, bm] = bookedTime.split(':').map(Number);
+    const [sh, sm] = slotTime.split(':').map(Number);
+    return Math.abs((bh * 60 + bm) - (sh * 60 + sm)) <= 30;
+  }
+
+  /**
    * Determines whether a time slot should be blocked (past-time or fully booked).
    * - Today: also blocks slots at or before the current local time.
-   * - Specific barber: blocked if that barber has a booking at this time.
-   * - No preference: blocked only if ALL available barbers are booked at this time.
+   * - Specific barber: blocked if that barber has a booking within ±30 min.
+   * - No preference: blocked only if ALL available barbers are booked within ±30 min.
+   *
+   * Uses a ±30 minute conflict window, consistent with the backend's
+   * double-booking check in POST /api/book/[slug]/appointments.
    *
    * @param slot - HH:MM slot string.
    * @returns    True if the slot should not be selectable.
@@ -753,9 +771,9 @@ export default function BookingFlow({
     }
 
     if (selectedBarber && selectedBarber !== 'none') {
-      // Specific barber: blocked if that barber is already booked at this time.
+      // Specific barber: blocked if that barber has a booking within ±30 min.
       return bookedSlots.some(
-        (bs) => bs.time === slot && bs.barberId === selectedBarber.id
+        (bs) => isWithinConflictWindow(bs.time, slot) && bs.barberId === selectedBarber.id
       );
     }
 
@@ -766,7 +784,7 @@ export default function BookingFlow({
       );
       if (workingBarbers.length === 0) return false;
       const bookedBarberIds = new Set(
-        bookedSlots.filter((bs) => bs.time === slot).map((bs) => bs.barberId)
+        bookedSlots.filter((bs) => isWithinConflictWindow(bs.time, slot)).map((bs) => bs.barberId)
       );
       return workingBarbers.every((b) => bookedBarberIds.has(b.id));
     }
@@ -787,9 +805,9 @@ export default function BookingFlow({
     const available = getAvailableBarbersForSlot(
       timeStr, dateStr, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
     );
-    // Also exclude barbers who are already booked at this exact time.
+    // Also exclude barbers who are already booked within ±30 min of this time.
     const bookedAtTime = new Set(
-      bookedSlots.filter((bs) => bs.time === timeStr).map((bs) => bs.barberId)
+      bookedSlots.filter((bs) => isWithinConflictWindow(bs.time, timeStr)).map((bs) => bs.barberId)
     );
     const free = available.filter((b) => !bookedAtTime.has(b.id));
     if (free.length === 0) return null;

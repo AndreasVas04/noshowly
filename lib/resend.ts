@@ -22,12 +22,18 @@ import { Resend } from 'resend';
 // ---------------------------------------------------------------------------
 
 /**
- * The verified sending address used for all reminder emails.
+ * The verified sending address used for all transactional emails.
  * Must match a domain verified in the Resend dashboard.
+ *
+ * Set RESEND_FROM_ADDRESS in environment variables to use your verified domain
+ * (e.g. "reminders@noshowly.com"). Falls back to Resend's shared test sender
+ * which can ONLY deliver to the Resend account holder's email — all other
+ * recipients are silently rejected by the API.
+ *
  * The display name is intentionally blank — salons want their own name shown,
  * which is handled via the email subject and body content.
  */
-const FROM_ADDRESS = 'onboarding@resend.dev';
+const FROM_ADDRESS = process.env.RESEND_FROM_ADDRESS || 'onboarding@resend.dev';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
