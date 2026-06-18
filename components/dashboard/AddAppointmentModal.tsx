@@ -1198,7 +1198,7 @@ export default function AddAppointmentModal({
             )}
 
             {isEditMode && appointment?.status !== 'cancelled' && appointment?.client_email && (
-              <p className="text-[10px] text-[#8A8680] italic mt-1">Demo mode: emails are delivered to the account holder's email only.</p>
+              <p className="text-[10px] text-[#8A8680] italic mt-1">Demo mode: reminder emails are sent only to the demo account owner, not to clients.</p>
             )}
 
             {/* ml-auto pushes Close + Save to the right; wraps to its own row on small screens */}
