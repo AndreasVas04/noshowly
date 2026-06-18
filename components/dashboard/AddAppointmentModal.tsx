@@ -1197,6 +1197,10 @@ export default function AddAppointmentModal({
               </button>
             )}
 
+            {isEditMode && appointment?.status !== 'cancelled' && appointment?.client_email && (
+              <p className="text-[10px] text-[#8A8680] italic mt-1">Demo mode: emails are delivered to the account holder's email only.</p>
+            )}
+
             {/* ml-auto pushes Close + Save to the right; wraps to its own row on small screens */}
             <div className="flex items-center gap-2 ml-auto">
 
