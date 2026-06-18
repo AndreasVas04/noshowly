@@ -1193,7 +1193,7 @@ export default function AddAppointmentModal({
                   transition-colors shrink-0
                 "
               >
-                {isSendingTestReminder ? 'Sending...' : 'Send test reminder'}
+                {isSendingTestReminder ? 'Sending...' : 'Send reminder'}
               </button>
             )}
 

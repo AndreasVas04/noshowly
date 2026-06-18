@@ -135,7 +135,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   const cancelUrl  = `${appUrl}/api/confirm/${token}?response=no`;
 
   // Step 8: Build and send the email.
-  const subject = `[Test] ${getEmailSubject(salon.name, salon.email_subject)}`;
+  const subject = getEmailSubject(salon.name, salon.email_subject);
   const html = getEmailHTML(
     salon.name,
     clientName,
