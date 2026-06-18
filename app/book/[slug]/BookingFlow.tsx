@@ -1555,6 +1555,9 @@ export default function BookingFlow({
               <p className="font-body text-xs text-[#8A8680]">
                 {"You'll receive a reminder before your appointment."}
               </p>
+              <p className="font-body text-[11px] text-[#8A8680] italic mt-1">
+                (Demo mode: emails are delivered to the demo account only.)
+              </p>
 
               {selectedDate && selectedTime && (
                 <button
