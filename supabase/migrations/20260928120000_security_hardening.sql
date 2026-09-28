@@ -1,9 +1,13 @@
 -- Migration: security hardening for Row Level Security.
 --
--- Run once in the Supabase SQL Editor. It is safe to run again.
+-- Applied in order with the other files in supabase/migrations (see
+-- supabase/README.md). It is safe to run again.
 -- Everything runs in one transaction. The self-check at the end reads the
 -- tables the public booking page uses as an anonymous visitor; if any of those
 -- reads fails, the whole migration is rolled back and nothing changes.
+-- Once 20260928140000_private_booking_reads.sql has removed anonymous access,
+-- the self-check is skipped. Running this file again after that file puts the
+-- public read policies of step 3 back, so run that file again afterwards.
 --
 -- What it changes:
 --   1. Salon owners can no longer write to public.users directly (plan,
@@ -128,7 +132,8 @@ END $$;
 --    the guard off:
 --      CREATE OR REPLACE FUNCTION public.protect_demo_account() RETURNS trigger
 --      LANGUAGE plpgsql AS $f$ BEGIN RETURN NEW; END; $f$;
---    make the change, then run this file again to switch it back on.
+--    make the change, then run the CREATE OR REPLACE FUNCTION statement below
+--    again to switch it back on.
 CREATE OR REPLACE FUNCTION public.protect_demo_account()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -176,7 +181,9 @@ END $$;
 -- Self-check: the booking page's reads, as an anonymous visitor.
 DO $$
 BEGIN
-  IF pg_has_role(current_user, 'anon', 'MEMBER') THEN
+  IF NOT has_table_privilege('anon', 'public.booking_pages', 'SELECT') THEN
+    RAISE NOTICE 'Self-check skipped: anonymous visitors can no longer read the booking tables';
+  ELSIF pg_has_role(current_user, 'anon', 'MEMBER') THEN
     SET LOCAL ROLE anon;
     PERFORM id, name, timezone, phone, currency, opening_time, closing_time
       FROM public.salons LIMIT 1;
