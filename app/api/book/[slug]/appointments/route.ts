@@ -17,8 +17,8 @@
  *  9. Find an existing client (read-only) and check their own conflicts.
  * 10. Create the client when needed.
  * 11. Create the appointment.
- * 12. Create pending email reminder record (24 h before).
- * 13. Send a booking confirmation email to the client (if email provided).
+ * 12. Send the booking confirmation email through the email gateway, after
+ *     the response (lib/reminders/gateway.ts).
  *
  * Scheduling rules come from lib/availability.ts, the same module the booking
  * page uses to offer times, so what is offered is what is accepted.
@@ -32,8 +32,9 @@
  *  - Staff and service ids from the request must belong to the salon and be active.
  */
 
-import { sendEmail } from '@/lib/resend';
+import { after } from 'next/server';
 import { createAdminSupabaseClient, type AdminSupabaseClient } from '@/lib/supabase/admin';
+import { sendAppointmentEmail } from '@/lib/reminders/gateway';
 import {
   getBookingPageBySlug,
   loadBusyIntervals,
@@ -91,131 +92,6 @@ const EXCLUSION_VIOLATION = '23P01';
 
 /** Matches a UUID, so malformed ids are rejected before reaching the database. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// ---------------------------------------------------------------------------
-// Booking confirmation email template
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the HTML body for the booking acknowledgement email sent to the client
- * immediately after they book via the public booking page.
- *
- * Design principles (same as reminder emails):
- *  - Noshowly is completely invisible — only the salon's name is shown.
- *  - No YES/NO buttons — this is a booking acknowledgement, not a reminder.
- *  - The appointment is still 'scheduled' (pending) at this point; the copy
- *    must NOT say "confirmed". Use "booked" instead.
- *  - Inline CSS only for broad email client compatibility.
- *
- * @param salonName   - The salon display name.
- * @param clientName  - The client's name.
- * @param serviceType - Service booked, or null.
- * @param staffName   - Staff member name, or null if no preference.
- * @param datetimeUTC - UTC ISO timestamp of the appointment.
- * @param timezone    - IANA timezone for date/time display.
- * @returns           Complete HTML document string.
- */
-function getConfirmationEmailHTML(
-  salonName: string,
-  clientName: string,
-  serviceType: string | null,
-  staffName: string | null,
-  datetimeUTC: string,
-  timezone: string,
-): string {
-  const service = serviceType?.trim() || 'appointment';
-
-  // Format date and time in the salon's local timezone.
-  const dateTimeStr = (() => {
-    try {
-      return new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      }).format(new Date(datetimeUTC));
-    } catch {
-      return new Date(datetimeUTC).toUTCString();
-    }
-  })();
-
-  // Escape HTML special characters to prevent injection via user-supplied strings.
-  const escape = (s: string) =>
-    s.replace(/&/g, '&amp;')
-     .replace(/</g, '&lt;')
-     .replace(/>/g, '&gt;')
-     .replace(/"/g, '&quot;')
-     .replace(/'/g, '&#39;');
-
-  const safeSalon   = escape(salonName);
-  const safeClient  = escape(clientName);
-  const safeService = escape(service);
-  const safeStaff   = staffName ? escape(staffName) : null;
-  const safeDate    = escape(dateTimeStr);
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Appointment Booked — ${safeSalon}</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
-    <tr>
-      <td align="center">
-        <table width="100%" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden;">
-          <tr>
-            <td style="background:#18181b;padding:28px 32px;">
-              <p style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">
-                ${safeSalon}
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:32px;">
-              <p style="margin:0 0 8px;font-size:16px;color:#3f3f46;">Hi ${safeClient},</p>
-              <p style="margin:0 0 24px;font-size:16px;color:#3f3f46;line-height:1.5;">
-                Your appointment has been booked.
-              </p>
-              <table width="100%" cellpadding="0" cellspacing="0"
-                style="background:#f4f4f5;border-radius:6px;margin-bottom:28px;">
-                <tr>
-                  <td style="padding:20px 24px;">
-                    <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#71717a;
-                               text-transform:uppercase;letter-spacing:0.5px;">Service</p>
-                    <p style="margin:0 0 ${safeStaff ? '16px' : '0'};font-size:16px;color:#18181b;font-weight:600;">
-                      ${safeService}
-                    </p>
-                    ${safeStaff ? `<p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#71717a;
-                               text-transform:uppercase;letter-spacing:0.5px;">Staff</p>
-                    <p style="margin:0 0 16px;font-size:16px;color:#18181b;font-weight:600;">${safeStaff}</p>` : ''}
-                    <p style="margin:${safeStaff || service !== 'appointment' ? '0 0 6px' : '16px 0 6px'};font-size:13px;font-weight:600;color:#71717a;
-                               text-transform:uppercase;letter-spacing:0.5px;">Date &amp; Time</p>
-                    <p style="margin:0;font-size:16px;color:#18181b;font-weight:600;">${safeDate}</p>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:0;font-size:14px;color:#71717a;text-align:center;">See you soon!</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 32px;border-top:1px solid #f4f4f5;">
-              <p style="margin:0;font-size:13px;color:#a1a1aa;text-align:center;">
-                If you have questions, contact ${safeSalon} directly.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
-}
 
 // ---------------------------------------------------------------------------
 // Request parsing helpers
@@ -682,76 +558,26 @@ async function handleBookingPost(
   }
 
   const appointmentId = appointment.id;
-  const appointmentTime = new Date(datetimeUTC).getTime();
 
-  // Step 12: Create pending email reminder record (24 h before appointment).
-  // Only created if the client supplied an email address.
-  const remindersToInsert: Array<{
-    appointment_id: string;
-    type: 'email';
-    send_at: string;
-    status: 'pending';
-    token: string;
-  }> = [];
-
-  // Email: only if the client supplied an email address (per lib/plans.ts EMAIL_REMINDER_WINDOW).
-  if (clientEmail) {
-    const emailToken = crypto.randomUUID();
-    remindersToInsert.push({
-      appointment_id: appointmentId,
-      type:           'email',
-      send_at:        new Date(appointmentTime - 24 * 60 * 60 * 1000).toISOString(),
-      status:         'pending',
-      token:          emailToken,
+  // Step 12: Booking confirmation email: "your appointment has been booked",
+  // with the date and time in the salon's timezone and no YES/NO buttons —
+  // the client just booked it themselves, and confirming right away would
+  // mark the appointment 'confirmed', which stops the 24-hour reminder (the
+  // email that asks for confirmation). Recorded as 'email_confirmation' and
+  // sent through the email gateway (plan, monthly cap and sending limits) to
+  // the address on the client record, after the response, so a failed email
+  // never blocks or delays the booking. No row is written for the 24-hour
+  // reminder: the reminder job claims it when it is due.
+  after(async () => {
+    const result = await sendAppointmentEmail({
+      kind: 'email_confirmation',
+      appointmentId,
+      buttons: false,
     });
-  }
-
-  const { error: reminderError } = await supabase
-    .from('reminders')
-    .insert(remindersToInsert);
-
-  if (reminderError) {
-    // Log but do not fail the booking — the appointment is created; reminders can be
-    // re-created manually or on the next cron pass if needed.
-    console.error('[POST /api/book/[slug]/appointments] reminder insert error:', JSON.stringify(reminderError), '| appointmentId:', appointmentId);
-  }
-
-  // Step 13: Send a booking confirmation email to the client immediately (if email provided).
-  // This is separate from the 24 h reminder — it confirms the booking was received.
-  // A failed confirmation email must never block the booking response.
-  if (clientEmail) {
-    // Look up the staff member's name to include in the confirmation.
-    let barberName: string | null = null;
-    if (resolvedBarberId) {
-      // Use resolvedBarberId — may differ from the request's barberId when auto-assigned.
-      const { data: barberRow } = await supabase
-        .from('barbers')
-        .select('name')
-        .eq('id', resolvedBarberId)
-        .single();
-      barberName = barberRow?.name ?? null;
+    if (result.status === 'failed') {
+      console.error('[POST /api/book/[slug]/appointments] confirmation email failed:', result.reason, '| appointmentId:', appointmentId);
     }
-
-    const confirmHtml = getConfirmationEmailHTML(
-      salon.name,
-      clientName,
-      resolvedServiceName,
-      barberName,
-      datetimeUTC,
-      salon.timezone,
-    );
-
-    const emailResult = await sendEmail(
-      clientEmail,
-      `Appointment booked at ${salon.name}`,
-      confirmHtml,
-    );
-
-    if (!emailResult.success) {
-      // Log but do not fail — the appointment exists, only the confirmation email failed.
-      console.error('[POST /api/book/[slug]/appointments] confirmation email failed:', emailResult.error);
-    }
-  }
+  });
 
   return Response.json(
     { appointmentId, barberName: assignedBarber?.name ?? null, durationMinutes },

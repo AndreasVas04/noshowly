@@ -13,6 +13,12 @@
  *  - All inputs are validated before touching the database.
  *  - Appointments are never hard-deleted; status is set to 'cancelled' instead.
  *    This preserves history and allows future reporting.
+ *
+ * Email links: when an appointment is moved to another time or client, or
+ * cancelled, the YES/NO links of its 24-hour reminder and booking
+ * confirmation are retired (lib/reminders/store.ts cancelReminderLinks),
+ * including links the client already answered, so old emails cannot act on
+ * it or show it as confirmed, and a new 24-hour reminder can go out.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -28,6 +34,7 @@ import {
   isValidDuration,
 } from '@/lib/availability';
 import { resolveTimeZone } from '@/lib/time';
+import { cancelReminderLinks } from '@/lib/reminders/store';
 import type {
   Appointment,
   AppointmentWithDetails,
@@ -561,6 +568,21 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'Failed to update appointment' }, { status: 500 });
   }
 
+  // Step 9: Retire the email links when the time or the client changes, or
+  // the appointment is cancelled: old YES/NO buttons stop working, and the
+  // reminder job can claim a new 24-hour reminder for the new time.
+  const datetimeChanged =
+    updates.datetime !== undefined &&
+    new Date(updates.datetime).getTime() !== new Date(current.datetime).getTime();
+  const clientChanged = 'client_id' in updates && updates.client_id !== current.client_id;
+  if (datetimeChanged || clientChanged || updates.status === 'cancelled') {
+    const reminderError = await cancelReminderLinks(supabase, id);
+    if (reminderError) {
+      // Log but do not fail — the appointment is already updated.
+      console.error('[PUT /api/appointments/:id] Failed to retire reminder links:', reminderError);
+    }
+  }
+
   return Response.json({ appointment: appointment as Appointment }, { status: 200 });
 }
 
@@ -622,17 +644,14 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
     return Response.json({ error: 'Failed to cancel appointment' }, { status: 500 });
   }
 
-  // Step 4: Cancel any pending reminders for this appointment.
-  // Prevents the cron job from sending reminders for cancelled appointments.
-  const { error: reminderError } = await supabase
-    .from('reminders')
-    .update({ status: 'cancelled' })
-    .eq('appointment_id', id)
-    .eq('status', 'pending');
+  // Step 4: Retire the appointment's email links (pending, sent and already
+  // answered 24-hour reminders and booking confirmations), so old YES/NO
+  // buttons stop working. The reminder job never emails cancelled appointments.
+  const reminderError = await cancelReminderLinks(supabase, id);
 
   if (reminderError) {
     // Log but do not fail — the appointment is already cancelled.
-    console.error('[DELETE /api/appointments/:id] Failed to cancel reminders:', reminderError.message);
+    console.error('[DELETE /api/appointments/:id] Failed to cancel reminders:', reminderError);
   }
 
   return Response.json({ appointment: appointment as Appointment }, { status: 200 });

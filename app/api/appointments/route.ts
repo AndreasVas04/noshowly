@@ -26,14 +26,13 @@
  *  - All inputs are validated before touching the database.
  */
 
+import { after } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
-import { createClient } from '@supabase/supabase-js';
 import type {
   Appointment,
   AppointmentWithDetails,
   AppointmentStatus,
-  Database,
 } from '@/types';
 import {
   appointmentsOverlap,
@@ -43,10 +42,7 @@ import {
 } from '@/lib/appointment-helpers';
 import { isBarberEligibleForService, isValidDuration } from '@/lib/availability';
 import { dayRangeUtc, isValidDateString, resolveTimeZone } from '@/lib/time';
-import { planAllowsEmail } from '@/lib/plans';
-import type { UserPlan } from '@/lib/plans';
-import { sendEmail } from '@/lib/resend';
-import { getEmailHTML, getEmailSubject } from '@/lib/reminder-templates';
+import { sendAppointmentEmail } from '@/lib/reminders/gateway';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -544,113 +540,25 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Failed to create appointment' }, { status: 500 });
   }
 
-  // Step 7: Send immediate YES/NO confirmation email for 'scheduled' appointments.
-  // Same email the cron sends ~24h before, but triggered immediately so the client
-  // can confirm right away. Skipped for 'confirmed' (auto-confirmed <23h bookings),
-  // plans that don't allow email, or clients without an email address.
-  // This is fire-and-forget — failures are logged but never block the 201 response.
-  if (requestedStatus === 'scheduled' && clientId && planAllowsEmail(userData.plan as UserPlan)) {
-    try {
-      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-      if (serviceRoleKey && supabaseUrl) {
-        const adminSupabase = createClient<Database>(supabaseUrl, serviceRoleKey);
-
-        // Fetch client email — only proceed if the client has one.
-        // Scoped to this salon: the service-role client bypasses RLS, and the
-        // client_id comes from the request body.
-        const { data: clientData } = await adminSupabase
-          .from('clients')
-          .select('name, email')
-          .eq('id', clientId)
-          .eq('salon_id', salon.id)
-          .single();
-
-        if (clientData?.email) {
-          // Fetch full salon data for email template fields.
-          const { data: salonData } = await adminSupabase
-            .from('salons')
-            .select('name, timezone, email_footer, email_subject, email_greeting, email_body, email_closing, email_confirmation_enabled')
-            .eq('id', salon.id)
-            .single();
-
-          const salonDisplayName = salonData?.name ?? 'Your salon';
-          const clientName = clientData.name ?? 'there';
-          const timezone = salonData?.timezone ?? 'UTC';
-          const token = crypto.randomUUID();
-          const sendAt = new Date().toISOString();
-
-          // Create a 'pending' reminder record with a unique token for YES/NO links.
-          const { data: reminder, error: reminderInsertError } = await adminSupabase
-            .from('reminders')
-            .insert({
-              appointment_id: (appointment as Appointment).id,
-              type: 'email' as const,
-              send_at: sendAt,
-              status: 'pending' as const,
-              token,
-            })
-            .select()
-            .single();
-
-          if (reminder && !reminderInsertError) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-            const confirmUrl = `${appUrl}/api/confirm/${token}?response=yes`;
-            const cancelUrl = `${appUrl}/api/confirm/${token}?response=no`;
-
-            const subject = getEmailSubject(salonDisplayName, salonData?.email_subject);
-            const html = getEmailHTML(
-              salonDisplayName,
-              clientName,
-              serviceTypeName,
-              datetimeParsed.toISOString(),
-              timezone,
-              confirmUrl,
-              cancelUrl,
-              salonData?.email_footer,
-              salonData?.email_confirmation_enabled ?? true,
-              salonData?.email_greeting,
-              salonData?.email_body,
-              salonData?.email_closing,
-            );
-
-            const result = await sendEmail(clientData.email, subject, html);
-
-            if (result.success) {
-              // Mark reminder as sent and record the timestamp.
-              await adminSupabase
-                .from('reminders')
-                .update({ status: 'sent' as const, sent_at: new Date().toISOString() })
-                .eq('id', reminder.id);
-
-              // Increment the monthly email usage counter.
-              await adminSupabase
-                .from('users')
-                .update({
-                  email_reminders_used_this_month: (userData.email_reminders_used_this_month ?? 0) + 1,
-                })
-                .eq('id', authUser.id);
-
-              console.log(`[POST /api/appointments] Immediate reminder sent for appt=${(appointment as Appointment).id}`);
-            } else {
-              // Email failed — mark reminder as failed. Cron will NOT retry because
-              // the reminder record exists (though with 'failed' status, not 'sent').
-              console.error(`[POST /api/appointments] Immediate reminder failed for appt=${(appointment as Appointment).id}:`, result.error);
-              await adminSupabase
-                .from('reminders')
-                .update({ status: 'failed' as const })
-                .eq('id', reminder.id);
-            }
-          } else {
-            console.error('[POST /api/appointments] Failed to insert reminder record:', reminderInsertError?.message);
-          }
-        }
+  // Step 7: Booking confirmation email with YES/NO buttons for 'scheduled'
+  // appointments that are still ahead ("Please confirm your appointment on
+  // Tuesday 6 October at 10:00"). Recorded as 'email_confirmation', so the
+  // 24-hour reminder still goes out (see lib/reminders/rules.ts). Sent through
+  // the email gateway (plan, monthly cap and sending limits) after the response,
+  // so it never delays or fails the 201. Nothing is sent for 'confirmed'
+  // appointments or clients without an email address.
+  if (requestedStatus === 'scheduled' && clientId && datetimeParsed.getTime() > Date.now()) {
+    const appointmentId = (appointment as Appointment).id;
+    after(async () => {
+      const result = await sendAppointmentEmail({
+        kind: 'email_confirmation',
+        appointmentId,
+        buttons: true,
+      });
+      if (result.status === 'sent') {
+        console.log(`[POST /api/appointments] Booking confirmation sent for appt=${appointmentId}`);
       }
-    } catch (err) {
-      // Fire-and-forget — log but never fail the appointment creation response.
-      console.error('[POST /api/appointments] Immediate reminder error (non-fatal):', err);
-    }
+    });
   }
 
   return Response.json({ appointment: appointment as Appointment }, { status: 201 });

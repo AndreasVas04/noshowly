@@ -35,8 +35,8 @@ The account includes sample staff, services, and bookings.
 ## Features
 
 - **Public booking page** — shareable link with custom slug, headline, and description
-- **Email reminders** — automated reminders sent 24 hours before each appointment with customisable templates via Resend
-- **YES/NO confirmation** — clients confirm or cancel by clicking email buttons; dashboard updates in real time
+- **Email reminders** — a booking confirmation right after each booking and a reminder 24 hours before the appointment, with customisable templates via Resend; dates and times are always in the business's timezone
+- **YES/NO confirmation** — email buttons open a page where clients confirm or cancel (opening a link never changes anything); dashboard updates in real time
 - **Appointment dashboard** — today view and week view with staff filtering and live status updates
 - **Client management** — phone-deduped client records with notes and appointment history
 - **Staff and services** — manage team members, service catalogue (name, duration, price), and per-staff availability
@@ -56,7 +56,7 @@ The account includes sample staff, services, and bookings.
 | Email | Resend |
 | Payments | Stripe |
 | Hosting | Vercel |
-| Cron jobs | Supabase pg_cron |
+| Cron jobs | Supabase pg_cron (or Vercel Cron) |
 
 ---
 
@@ -93,7 +93,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 npm test
 ```
 
-Unit tests (Vitest) cover the timezone, scheduling and client de-duplication helpers in `lib/`.
+Unit tests (Vitest) cover the timezone, scheduling, client de-duplication and reminder email helpers in `lib/`.
 
 ---
 
@@ -109,6 +109,8 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 # Resend
 RESEND_API_KEY=
+# Sender address on a domain verified in Resend, e.g. reminders@example.com
+RESEND_FROM_ADDRESS=
 
 # Stripe
 STRIPE_SECRET_KEY=
@@ -116,9 +118,23 @@ STRIPE_WEBHOOK_SECRET=
 STRIPE_BASIC_PRICE_ID=
 
 # App
+# Absolute URL of the app, used for the links in emails
 NEXT_PUBLIC_APP_URL=
+# Required by /api/cron/send-reminders
 CRON_SECRET=
 ```
+
+---
+
+## Reminder Emails
+
+`/api/cron/send-reminders` sends the 24-hour reminders that are due. Schedule it every 15 minutes, either as a Supabase pg_cron job (`POST` with an `X-Cron-Secret: <CRON_SECRET>` header) or as a Vercel Cron job (`GET`; Vercel sends `Authorization: Bearer <CRON_SECRET>`). A missed run is caught up by the next one.
+
+- **Booking confirmation**, right after a booking: with YES/NO buttons for appointments created in the dashboard, a "your appointment has been booked" notice for public bookings.
+- **24-hour reminder** with YES/NO buttons, for appointments still awaiting confirmation. It is held back until 12 hours after a booking confirmation, so a client never gets both minutes apart.
+- **Test email** from the appointment's "Send reminder" button, marked as a test; its buttons never change anything.
+
+Every email goes through `lib/reminders/gateway.ts`, which applies the plan and usage checks and the anti-abuse limits, and records each email in the `reminders` table before sending it. A reminder that fails to send is retried by later runs, at most 3 times in 24 hours; an email the provider rejects as invalid (for example the address) is not retried. If the provider refuses the account itself (API key, sender domain, quota), the run stops and the reminders stay due.
 
 ---
 
