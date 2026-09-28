@@ -10,6 +10,10 @@
  *     service assignments (barber_services), weekly availability.
  *  4. Publish — CTA to go live or take offline.
  *
+ * Auto-save never disables the field being typed in, runs one save at a time
+ * per section, and only applies server values to fields the owner has not
+ * changed since the request was sent.
+ *
  * Design: brand-dark palette, shadcn Input + Button.
  * Security: all mutations go through API routes.
  */
@@ -21,6 +25,9 @@ import { Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MAX_DURATION_MINUTES, MIN_DURATION_MINUTES } from '@/lib/availability';
+import { normaliseBreaks, timeSlotsToWorkingDay, workingDayToTimeSlots } from '@/lib/schedule';
+import { normaliseTime } from '@/lib/time';
 import type { Barber, BarberService, BookingPage, Service, StaffAvailability } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -32,11 +39,13 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 /**
  * Per-day availability state — multiple breaks model.
- * Internally converted to/from the time_slots JSONB column in the DB.
+ * Internally converted to/from the time_slots JSONB column in the DB
+ * (see lib/schedule.ts).
  *
  * Working model: a contiguous work window with zero or more break gaps.
  *   No breaks:   time_slots = [{ start: work_start, end: work_end }]
  *   N breaks:    time_slots interleaved — [work_start→b0.start, b0.end→b1.start, …, bN.end→work_end]
+ * Breaks are clamped to the working window on save; empty or inverted ones are dropped.
  */
 type DayState = {
   is_available: boolean;
@@ -138,13 +147,13 @@ function makeDefaultDayState(dayOfWeek: number): DayState {
  * Builds the initial BarberFormState for a barber, merging in any
  * existing staff_availability records from the database.
  *
- * Converts the DB time_slots array into the DayState breaks model:
- *   1 slot  → work_start=slot[0].start, work_end=slot[0].end, breaks=[]
- *   2+ slots → work_start=slot[0].start, work_end=slot[last].end,
- *               breaks=[{ start: slot[0].end, end: slot[1].start }]
- *              (3+ slot legacy data: treated as a single break using first gap)
+ * Converts the stored intervals into the DayState breaks model: the working
+ * window runs from the first start to the last end, and every gap between
+ * intervals becomes a break — so all breaks are loaded, not just the first
+ * (a later auto-save would otherwise delete the rest).
  *
- * Prefers the JSONB `time_slots` column; falls back to legacy start/end_time columns.
+ * Prefers the JSONB `time_slots` column; falls back to the legacy
+ * start/end_time columns (Postgres TIME, e.g. "09:00:00").
  *
  * @param barber       - The barber row from the database.
  * @param availability - All staff_availability records (all barbers).
@@ -156,54 +165,26 @@ function buildBarberForm(barber: Barber, availability: StaffAvailability[]): Bar
 
   for (let dow = 0; dow <= 6; dow++) {
     const rec = barberRecords.find((a) => a.day_of_week === dow);
-    if (rec) {
-      // Convert DB record to DayState breaks model.
-      if (rec.time_slots && rec.time_slots.length > 0) {
-        // Primary: convert JSONB time_slots array to breaks model.
-        const slots = rec.time_slots as Array<{ start: string; end: string }>;
-        if (slots.length === 1) {
-          // Single slot — no breaks.
-          days[dow] = {
-            is_available: rec.is_available,
-            work_start:   slots[0].start,
-            work_end:     slots[0].end,
-            breaks:       [],
-          };
-        } else {
-          // 2+ slots: work spans first start → last end; one break sits between slot[0] end and slot[1] start.
-          // For 3+ legacy slots we just use the first gap as the break (backwards-compatible simplification).
-          days[dow] = {
-            is_available: rec.is_available,
-            work_start:   slots[0].start,
-            work_end:     slots[slots.length - 1].end,
-            breaks:       [{ start: slots[0].end, end: slots[1].start }],
-          };
-        }
-      } else if (rec.start_time_1 && rec.end_time_1) {
-        // Legacy fallback: reconstruct from start/end_time columns.
-        if (rec.start_time_2 && rec.end_time_2) {
-          days[dow] = {
-            is_available: rec.is_available,
-            work_start:   rec.start_time_1,
-            work_end:     rec.end_time_2,
-            breaks:       [{ start: rec.end_time_1, end: rec.start_time_2 }],
-          };
-        } else {
-          days[dow] = {
-            is_available: rec.is_available,
-            work_start:   rec.start_time_1,
-            work_end:     rec.end_time_1,
-            breaks:       [],
-          };
-        }
-      } else if (rec.is_available) {
-        // Available but no time info — apply sensible defaults.
-        days[dow] = { is_available: true, work_start: '09:00', work_end: '17:00', breaks: [] };
-      } else {
-        days[dow] = makeDefaultDayState(dow);
-      }
-    } else {
+    if (!rec) {
       days[dow] = makeDefaultDayState(dow);
+      continue;
+    }
+
+    const workingDay =
+      timeSlotsToWorkingDay(rec.time_slots) ??
+      timeSlotsToWorkingDay([
+        { start: rec.start_time_1, end: rec.end_time_1 },
+        { start: rec.start_time_2, end: rec.end_time_2 },
+      ]);
+
+    if (workingDay) {
+      days[dow] = { is_available: rec.is_available, ...workingDay };
+    } else if (rec.is_available) {
+      // Available but no time info — apply sensible defaults.
+      days[dow] = { is_available: true, work_start: '09:00', work_end: '17:00', breaks: [] };
+    } else {
+      // Day off (stored without times): keep it off, with default hours for when it is switched on.
+      days[dow] = { ...makeDefaultDayState(dow), is_available: false };
     }
   }
 
@@ -213,6 +194,53 @@ function buildBarberForm(barber: Barber, availability: StaffAvailability[]): Bar
     photo_url: barber.photo_url ?? '',
     availability: days,
   };
+}
+
+/**
+ * Returns the problem with a working day's hours, or null when they are valid
+ * (or the day is off). Used to hold back auto-save until the hours make sense.
+ *
+ * @param day - The day as edited.
+ */
+function getWorkingHoursError(day: DayState): string | null {
+  if (!day.is_available) return null;
+  const start = normaliseTime(day.work_start);
+  const end   = normaliseTime(day.work_end);
+  if (!start || !end) return 'Enter a start and end time.';
+  if (start >= end) return 'Working hours must end after they start.';
+  return null;
+}
+
+/**
+ * Returns true when a break has no effect once cleaned: it is empty, ends
+ * before it starts, or lies outside the working hours.
+ *
+ * @param day - The day the break belongs to.
+ * @param brk - The break as edited.
+ */
+function isBreakIgnored(day: DayState, brk: { start: string; end: string }): boolean {
+  return normaliseBreaks(day.work_start, day.work_end, [brk]).length === 0;
+}
+
+/** Returns true when two break lists are identical. */
+function sameBreaks(a: { start: string; end: string }[], b: { start: string; end: string }[]): boolean {
+  return a.length === b.length && a.every((brk, i) => brk.start === b[i].start && brk.end === b[i].end);
+}
+
+/**
+ * Keeps what the owner typed unless the field is unchanged since a save
+ * request was sent, in which case the saved server value is applied.
+ * Differences in surrounding whitespace only (the server trims) are kept as
+ * typed so a trailing space is not removed mid-sentence.
+ *
+ * @param current - Field value now.
+ * @param sent    - Field value when the request was sent.
+ * @param saved   - Value returned by the server.
+ */
+function applySavedText(current: string, sent: string, saved: string): string {
+  if (current !== sent) return current;
+  if (current.trim() === saved.trim()) return current;
+  return saved;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +358,8 @@ export default function BookingPage() {
   const [addingBarber, setAddingBarber] = useState(false);
   const [addBarberError, setAddBarberError] = useState('');
   const [barberSaveStatuses, setBarberSaveStatuses] = useState<Record<string, SaveStatus>>({});
+  /** Per-barber message when auto-save is held back because working hours are invalid. */
+  const [availabilityErrors, setAvailabilityErrors] = useState<Record<string, string>>({});
   const [deletingBarberId, setDeletingBarberId] = useState<string | null>(null);
   /** Photo remove state: barberId whose photo is being removed, or null. */
   const [removingPhotoForId, setRemovingPhotoForId] = useState<string | null>(null);
@@ -355,6 +385,12 @@ export default function BookingPage() {
    * Same pattern as doSaveBookingPageRef — prevents stale closures in debounce timers.
    */
   const handleSaveBarberRef = useRef<(id: string) => Promise<void>>(async () => {});
+  /** True while a booking page settings save is in flight; another change queues one more save. */
+  const bookingSaveInFlightRef = useRef(false);
+  const bookingSaveQueuedRef = useRef(false);
+  /** Per-barber: a save is in flight / another save is queued behind it. */
+  const barberSaveInFlightRef = useRef<Record<string, boolean>>({});
+  const barberSaveQueuedRef = useRef<Record<string, boolean>>({});
 
   // ── Crop modal ──────────────────────────────────────────────────────────────
   /** Non-null when the crop modal is open. */
@@ -649,16 +685,25 @@ export default function BookingPage() {
 
     setBookingSaveStatus('saving');
 
+    // Values as sent — fields changed after this point keep the newer input.
+    const sent = {
+      description:   bookingDescription,
+      custom_title:  customPageTitle,
+      custom_intro:  customIntro,
+      require_phone: requirePhone,
+      require_email: requireEmail,
+    };
+
     try {
       const res = await fetch('/api/booking-page', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description:                bookingDescription.trim() || null,
-          custom_title:               customPageTitle.trim() || null,
-          custom_intro:               customIntro.trim() || null,
-          require_phone:              requirePhone,
-          require_email:              requireEmail,
+          description:                sent.description.trim() || null,
+          custom_title:               sent.custom_title.trim() || null,
+          custom_intro:               sent.custom_intro.trim() || null,
+          require_phone:              sent.require_phone,
+          require_email:              sent.require_email,
         }),
       });
 
@@ -670,12 +715,13 @@ export default function BookingPage() {
       }
 
       const data = (await res.json()) as { bookingPage: BookingPage };
-      setBookingPage(data.bookingPage);
-      setBookingDescription(data.bookingPage.description ?? '');
-      setCustomPageTitle(data.bookingPage.custom_title ?? '');
-      setCustomIntro(data.bookingPage.custom_intro ?? '');
-      setRequirePhone(data.bookingPage.require_phone ?? true);
-      setRequireEmail(data.bookingPage.require_email ?? true);
+      const saved = data.bookingPage;
+      setBookingPage(saved);
+      setBookingDescription((current) => applySavedText(current, sent.description, saved.description ?? ''));
+      setCustomPageTitle((current) => applySavedText(current, sent.custom_title, saved.custom_title ?? ''));
+      setCustomIntro((current) => applySavedText(current, sent.custom_intro, saved.custom_intro ?? ''));
+      setRequirePhone((current) => (current === sent.require_phone ? (saved.require_phone ?? true) : current));
+      setRequireEmail((current) => (current === sent.require_email ? (saved.require_email ?? true) : current));
       setBookingSaveStatus('saved');
       setTimeout(() => setBookingSaveStatus('idle'), 2000);
     } catch {
@@ -692,8 +738,30 @@ export default function BookingPage() {
   function scheduleBookingSave(): void {
     if (bookingDebounceRef.current) clearTimeout(bookingDebounceRef.current);
     bookingDebounceRef.current = setTimeout(() => {
-      void doSaveBookingPageRef.current();
+      void runBookingSave();
     }, 800);
+  }
+
+  /**
+   * Runs one booking page save at a time. A change made while a save is in
+   * flight queues one more save with the latest values, so an older request
+   * can never finish after (and overwrite) a newer one.
+   */
+  async function runBookingSave(): Promise<void> {
+    if (bookingSaveInFlightRef.current) {
+      bookingSaveQueuedRef.current = true;
+      return;
+    }
+    bookingSaveInFlightRef.current = true;
+    try {
+      await doSaveBookingPageRef.current();
+    } finally {
+      bookingSaveInFlightRef.current = false;
+      if (bookingSaveQueuedRef.current) {
+        bookingSaveQueuedRef.current = false;
+        void runBookingSave();
+      }
+    }
   }
 
   /**
@@ -706,8 +774,31 @@ export default function BookingPage() {
   function scheduleBarberSave(barberId: string): void {
     if (barberDebounceRefs.current[barberId]) clearTimeout(barberDebounceRefs.current[barberId]);
     barberDebounceRefs.current[barberId] = setTimeout(() => {
-      void handleSaveBarberRef.current(barberId);
+      void runBarberSave(barberId);
     }, 800);
+  }
+
+  /**
+   * Runs one save at a time per barber (see runBookingSave). The queued save
+   * reads the latest form state through handleSaveBarberRef.
+   *
+   * @param barberId - UUID of the barber to save.
+   */
+  async function runBarberSave(barberId: string): Promise<void> {
+    if (barberSaveInFlightRef.current[barberId]) {
+      barberSaveQueuedRef.current[barberId] = true;
+      return;
+    }
+    barberSaveInFlightRef.current[barberId] = true;
+    try {
+      await handleSaveBarberRef.current(barberId);
+    } finally {
+      barberSaveInFlightRef.current[barberId] = false;
+      if (barberSaveQueuedRef.current[barberId]) {
+        barberSaveQueuedRef.current[barberId] = false;
+        void runBarberSave(barberId);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -868,45 +959,36 @@ export default function BookingPage() {
   }
 
   /**
-   * Copies the entire breaks array from the source day to all other available days.
-   * Only copies if the source day has at least one break.
+   * Copies the breaks of the source day to every other available day, fitted
+   * to each day's own working hours: breaks are clamped to that day's hours
+   * and breaks outside them are dropped.
    *
    * @param barberId  - UUID of the barber.
    * @param sourceDow - Day of week to copy breaks from.
    */
   function copyBreakToAllDays(barberId: string, sourceDow: number): void {
-    let changed = false;
-    setBarberForms((prev) => {
-      const form = prev[barberId];
-      if (!form) return prev;
-      const sourceDay = form.availability[sourceDow];
-      // Only proceed if the source day actually has at least one break.
-      if (!sourceDay || sourceDay.breaks.length === 0) return prev;
+    const form = barberForms[barberId];
+    const sourceDay = form?.availability[sourceDow];
+    // Only proceed if the source day actually has at least one break.
+    if (!form || !sourceDay || sourceDay.breaks.length === 0) return;
 
-      // Check if all working days already have identical breaks — skip if so.
-      const srcBreaks = sourceDay.breaks;
-      const allMatch = Object.entries(form.availability).every(([, day]) => {
-        if (!day || !day.is_available) return true;
-        if (day.breaks.length !== srcBreaks.length) return false;
-        return day.breaks.every((b, i) => b.start === srcBreaks[i].start && b.end === srcBreaks[i].end);
-      });
-      if (allMatch) return prev;
+    const updatedDays: Record<number, DayState> = {};
+    for (let dow = 0; dow <= 6; dow++) {
+      const day = form.availability[dow];
+      if (!day || !day.is_available || dow === sourceDow) continue;
+      const breaks = normaliseBreaks(day.work_start, day.work_end, sourceDay.breaks);
+      if (!sameBreaks(breaks, day.breaks)) updatedDays[dow] = { ...day, breaks };
+    }
+    if (Object.keys(updatedDays).length === 0) return;
 
-      changed = true;
-      // Deep copy the breaks array to avoid shared references across days.
-      const breaksCopy = srcBreaks.map((brk) => ({ ...brk }));
-      const newAvailability = { ...form.availability };
-      for (let dow = 0; dow <= 6; dow++) {
-        const day = form.availability[dow];
-        if (!day || !day.is_available) continue;
-        newAvailability[dow] = { ...day, breaks: breaksCopy };
-      }
-      return {
-        ...prev,
-        [barberId]: { ...form, availability: newAvailability },
-      };
-    });
-    if (changed) scheduleBarberSave(barberId);
+    setBarberForms((prev) => ({
+      ...prev,
+      [barberId]: {
+        ...prev[barberId],
+        availability: { ...prev[barberId].availability, ...updatedDays },
+      },
+    }));
+    scheduleBarberSave(barberId);
   }
 
   /**
@@ -1281,6 +1363,21 @@ export default function BookingPage() {
     const trimmedName = form.name.trim();
     if (!trimmedName) return;
 
+    // Hold back the save while a working day has impossible hours.
+    const hoursProblem = WEEK_DAYS
+      .map(({ label, value }) => {
+        const problem = getWorkingHoursError(form.availability[value] ?? makeDefaultDayState(value));
+        return problem ? `${label}: ${problem}` : null;
+      })
+      .find((problem) => problem !== null);
+    setAvailabilityErrors((prev) => {
+      const next = { ...prev };
+      if (hoursProblem) next[barberId] = hoursProblem;
+      else delete next[barberId];
+      return next;
+    });
+    if (hoursProblem) return;
+
     setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'saving' }));
     let savedOk = false;
 
@@ -1308,31 +1405,14 @@ export default function BookingPage() {
       );
 
       // 2. Save all 7 days of availability.
-      // Convert DayState breaks array → time_slots for the DB.
-      // No breaks:   [{ start: work_start, end: work_end }]
-      // N breaks:    interleave — [work_start→b0.start, b0.end→b1.start, …, bN.end→work_end]
-      const days = Object.entries(form.availability).map(([dowStr, day]) => {
-        let timeSlots: { start: string; end: string }[] = [];
-        if (day.is_available) {
-          if (day.breaks.length === 0) {
-            timeSlots = [{ start: day.work_start, end: day.work_end }];
-          } else {
-            // Sort breaks by start time so gaps are interleaved correctly.
-            const sorted = [...day.breaks].sort((a, b) => a.start.localeCompare(b.start));
-            let current = day.work_start;
-            for (const brk of sorted) {
-              timeSlots.push({ start: current, end: brk.start });
-              current = brk.end;
-            }
-            timeSlots.push({ start: current, end: day.work_end });
-          }
-        }
-        return {
-          day_of_week:  parseInt(dowStr, 10),
-          is_available: day.is_available,
-          time_slots:   timeSlots,
-        };
-      });
+      // Convert the DayState breaks model → time_slots for the DB: the working
+      // window minus every break, with breaks clamped to the working hours and
+      // empty or inverted breaks dropped (lib/schedule.ts).
+      const days = Object.entries(form.availability).map(([dowStr, day]) => ({
+        day_of_week:  parseInt(dowStr, 10),
+        is_available: day.is_available,
+        time_slots:   day.is_available ? workingDayToTimeSlots(day) : [],
+      }));
 
       const availRes = await fetch('/api/staff-availability', {
         method: 'POST',
@@ -1453,9 +1533,12 @@ export default function BookingPage() {
     if (!trimmedName) { setAddSvcError('Service name is required.'); return; }
     if (trimmedName.length > 50) { setAddSvcError('Name must be 50 characters or fewer.'); return; }
 
-    const durationNum = addSvcForm.duration ? parseInt(addSvcForm.duration, 10) : null;
-    if (addSvcForm.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
-      setAddSvcError('Duration must be a positive number of minutes.'); return;
+    const durationNum = addSvcForm.duration ? Number(addSvcForm.duration) : null;
+    if (
+      durationNum !== null &&
+      (!Number.isInteger(durationNum) || durationNum < MIN_DURATION_MINUTES || durationNum > MAX_DURATION_MINUTES)
+    ) {
+      setAddSvcError(`Duration must be a whole number of minutes between ${MIN_DURATION_MINUTES} and ${MAX_DURATION_MINUTES}.`); return;
     }
     const priceNum = addSvcForm.price ? parseFloat(addSvcForm.price) : null;
     if (addSvcForm.price && (isNaN(priceNum!) || priceNum! < 0)) {
@@ -1502,9 +1585,12 @@ export default function BookingPage() {
     if (!trimmedName) { alert('Service name is required.'); return; }
     if (trimmedName.length > 50) { alert('Name must be 50 characters or fewer.'); return; }
 
-    const durationNum = form.duration ? parseInt(form.duration, 10) : null;
-    if (form.duration && (isNaN(durationNum!) || durationNum! <= 0)) {
-      alert('Duration must be a positive number of minutes.'); return;
+    const durationNum = form.duration ? Number(form.duration) : null;
+    if (
+      durationNum !== null &&
+      (!Number.isInteger(durationNum) || durationNum < MIN_DURATION_MINUTES || durationNum > MAX_DURATION_MINUTES)
+    ) {
+      alert(`Duration must be a whole number of minutes between ${MIN_DURATION_MINUTES} and ${MAX_DURATION_MINUTES}.`); return;
     }
     const priceNum = form.price ? parseFloat(form.price) : null;
     if (form.price && (isNaN(priceNum!) || priceNum! < 0)) {
@@ -1767,12 +1853,32 @@ export default function BookingPage() {
       });
 
       if (res.ok) {
-        // Sync returned rows to get canonical DB values.
+        // Sync returned rows to get real ids and canonical DB values, but keep
+        // any override the owner changed while this request was in flight.
         const data = (await res.json()) as { barberServices: BarberService[] };
-        setBarberServiceAssignments((prev) => [
-          ...prev.filter((ba) => ba.barber_id !== barberId),
-          ...data.barberServices,
-        ]);
+        setBarberServiceAssignments((prev) => {
+          const current = prev.filter((ba) => ba.barber_id === barberId);
+          const merged = data.barberServices.map((savedRow) => {
+            const sentRow = assignments.find((a) => a.service_id === savedRow.service_id);
+            const currentRow = current.find((ba) => ba.service_id === savedRow.service_id);
+            if (!sentRow || !currentRow) return savedRow;
+            return {
+              ...savedRow,
+              price_override:
+                currentRow.price_override === sentRow.price_override
+                  ? savedRow.price_override
+                  : currentRow.price_override,
+              duration_minutes_override:
+                currentRow.duration_minutes_override === sentRow.duration_minutes_override
+                  ? savedRow.duration_minutes_override
+                  : currentRow.duration_minutes_override,
+            };
+          });
+          return [...prev.filter((ba) => ba.barber_id !== barberId), ...merged];
+        });
+      } else {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(data.error ?? 'Failed to save the price or duration. Please check the values.');
       }
     } catch (err) {
       console.error('[BookingPage] handleSaveBarberServiceOverrides error:', err);
@@ -1956,7 +2062,6 @@ export default function BookingPage() {
                           onChange={(e) => { setCustomPageTitle(e.target.value); scheduleBookingSave(); }}
                           placeholder="e.g. Book your appointment at Elena's Studio"
                           maxLength={100}
-                          disabled={bookingSaveStatus === 'saving'}
                           className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
                         />
                         <p className="text-xs text-[#8A8680]">The first thing clients see. Leave blank to use your business name.</p>
@@ -1979,7 +2084,6 @@ export default function BookingPage() {
                           placeholder="e.g. We offer haircuts, coloring and more. Book your slot online in seconds."
                           maxLength={800}
                           rows={3}
-                          disabled={bookingSaveStatus === 'saving'}
                           className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                         />
                         <p className="text-xs text-[#8A8680]">A short description shown below the headline. Leave blank to skip.</p>
@@ -2002,7 +2106,6 @@ export default function BookingPage() {
                           placeholder="e.g. Book your appointment online. We confirm within 24 hours."
                           maxLength={500}
                           rows={2}
-                          disabled={bookingSaveStatus === 'saving'}
                           className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                         />
                         <p className="text-xs text-[#8A8680]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
@@ -2403,7 +2506,6 @@ export default function BookingPage() {
                           value={form.name}
                           onChange={(e) => updateBarberField(barber.id, 'name', e.target.value)}
                           maxLength={50}
-                          disabled={isSaving}
                           className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-sm text-[#1A1A1A]"
                         />
                       </div>
@@ -2420,7 +2522,6 @@ export default function BookingPage() {
                           placeholder="Short description shown on the booking page"
                           maxLength={300}
                           rows={2}
-                          disabled={isSaving}
                           className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                         />
                       </div>
@@ -2477,7 +2578,6 @@ export default function BookingPage() {
                                           }
                                           onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
                                           placeholder={svc.price != null ? String(svc.price) : 'Same as service'}
-                                          disabled={isSavingAssignments}
                                           className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                         />
                                       </div>
@@ -2490,7 +2590,8 @@ export default function BookingPage() {
                                       <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Duration (min)</p>
                                       <input
                                         type="number"
-                                        min={1}
+                                        min={MIN_DURATION_MINUTES}
+                                        max={MAX_DURATION_MINUTES}
                                         step={1}
                                         value={assignment.duration_minutes_override ?? ''}
                                         onChange={(e) =>
@@ -2498,7 +2599,6 @@ export default function BookingPage() {
                                         }
                                         onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
                                         placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
-                                        disabled={isSavingAssignments}
                                         className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                       />
                                       {svc.duration_minutes != null && (
@@ -2522,6 +2622,11 @@ export default function BookingPage() {
                       <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">
                         Weekly availability
                       </p>
+                      {availabilityErrors[barber.id] && (
+                        <p role="alert" className="text-xs text-red-600 mb-3">
+                          {availabilityErrors[barber.id]} Changes are saved once this is fixed.
+                        </p>
+                      )}
                       <div className="space-y-2">
                         {WEEK_DAYS.map(({ label, value: dow }) => {
                           const day = form.availability[dow] ?? makeDefaultDayState(dow);
@@ -2558,7 +2663,6 @@ export default function BookingPage() {
                                           type="time"
                                           value={day.work_start}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_start', e.target.value)}
-                                          disabled={isSaving}
                                           style={{ width: '110px' }}
                                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
@@ -2567,7 +2671,6 @@ export default function BookingPage() {
                                           type="time"
                                           value={day.work_end}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_end', e.target.value)}
-                                          disabled={isSaving}
                                           style={{ width: '110px' }}
                                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                         />
@@ -2584,7 +2687,6 @@ export default function BookingPage() {
                                               type="time"
                                               value={brk.start}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'start', e.target.value)}
-                                              disabled={isSaving}
                                               style={{ width: '110px' }}
                                               className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                             />
@@ -2593,11 +2695,15 @@ export default function BookingPage() {
                                               type="time"
                                               value={brk.end}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'end', e.target.value)}
-                                              disabled={isSaving}
                                               style={{ width: '110px' }}
                                               className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                                             />
                                           </div>
+                                          {isBreakIgnored(day, brk) && (
+                                            <p className="text-xs text-amber-700">
+                                              Not saved: a break must end after it starts and fall within working hours.
+                                            </p>
+                                          )}
                                           <div className="flex items-center gap-3 pt-0.5">
                                             <button
                                               type="button"
@@ -2606,7 +2712,7 @@ export default function BookingPage() {
                                             >
                                               × Remove break
                                             </button>
-                                            {i === 0 && day.breaks.length === 1 && (
+                                            {i === day.breaks.length - 1 && (
                                               <button
                                                 type="button"
                                                 onClick={() => copyBreakToAllDays(barber.id, dow)}
