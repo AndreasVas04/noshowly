@@ -26,6 +26,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { isDemoAccount } from '@/lib/demo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +82,14 @@ export default function ResetPasswordPage() {
         setExchangeError(
           'No active session found. Please use the link from your password reset email.'
         );
+        setExchangeStatus('error');
+        return;
+      }
+
+      // The demo account is shared, so its password cannot be changed.
+      // The database blocks the change too (supabase/security_hardening.sql).
+      if (isDemoAccount(session.user.email)) {
+        setExchangeError('The demo account password cannot be changed.');
         setExchangeStatus('error');
         return;
       }
