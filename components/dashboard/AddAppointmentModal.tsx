@@ -486,18 +486,21 @@ export default function AddAppointmentModal({
     (b) => b.active || (isEditMode && b.id === appointment?.barber_id)
   );
 
-  // In create mode, default barberId to the first staff member once the list loads.
-  // Uses the functional form of setForm so the list can be read without
-  // listing form.barberId as a dependency (avoids overwriting a user's selection).
+  // In create mode, once the list loads, keep the pre-selected (initialBarberId)
+  // or chosen staff member only when they are listed, and default to the first
+  // listed one otherwise. An inactive staff member (e.g. from the week view's
+  // filter) is not listed: keeping them would save them while the dropdown
+  // shows someone else. Uses the functional form of setForm so the list can be
+  // read without listing form.barberId as a dependency.
   useEffect(() => {
-    if (isEditMode) return;
-    const firstActive = barbers.find((b) => b.active);
-    if (!firstActive) return;
+    if (isEditMode || isLoadingBarbers) return;
+    const listed = barbers.filter((b) => b.active);
     setForm((prev) => {
-      if (prev.barberId) return prev; // Keep initialBarberId or user's own selection.
-      return { ...prev, barberId: firstActive.id };
+      if (listed.some((b) => b.id === prev.barberId)) return prev;
+      const fallback = listed[0]?.id ?? '';
+      return prev.barberId === fallback ? prev : { ...prev, barberId: fallback };
     });
-  }, [barbers, isEditMode]);
+  }, [barbers, isEditMode, isLoadingBarbers]);
 
   // ---------------------------------------------------------------------------
   // Handlers
