@@ -16,7 +16,9 @@
  * The booking page computes the bookable times from this data with the shared
  * rules in lib/availability.ts; the booking POST re-checks them.
  *
- * Returns 404 if the slug does not exist or the booking page is not active.
+ * Returns 404 if the slug does not exist or the booking page is not active,
+ * and 403 "not accepting online bookings" when the owner's trial has ended or
+ * their subscription is inactive (lib/booking-data.ts salonAcceptsBookings).
  *
  * Security:
  *  - No authentication — this page is intentionally public.
@@ -28,9 +30,11 @@
 
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import {
+  NOT_ACCEPTING_BOOKINGS_MESSAGE,
   getBookingPageBySlug,
   loadBusyIntervals,
   loadPublicBookingData,
+  salonAcceptsBookings,
 } from '@/lib/booking-data';
 import { isValidDateString } from '@/lib/time';
 import type {
@@ -76,6 +80,7 @@ type BookingPageResponse = {
  *
  * @returns 200 BookingPageResponse
  * @returns 400 { error: string }                     — invalid date
+ * @returns 403 { error: string }                     — the business is not taking bookings
  * @returns 404 { error: "Booking page not found" }
  * @returns 500 { error: string }
  */
@@ -97,6 +102,14 @@ export async function GET(
     const bookingPage = await getBookingPageBySlug(supabase, slug);
     if (!bookingPage || !bookingPage.is_active) {
       return Response.json({ error: 'Booking page not found' }, { status: 404 });
+    }
+
+    // Step 1b: The owner's account must take bookings (paid plan or running trial).
+    if (!(await salonAcceptsBookings(supabase, bookingPage.salon_id))) {
+      return Response.json(
+        { error: NOT_ACCEPTING_BOOKINGS_MESSAGE },
+        { status: 403, headers: { 'Cache-Control': 'no-store' } }
+      );
     }
 
     // Step 2: Salon, active staff, active services, staff/service links, availability.

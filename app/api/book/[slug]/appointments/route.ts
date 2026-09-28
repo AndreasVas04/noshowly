@@ -7,7 +7,9 @@
  * validated before anything is written:
  *  1. Parse the body and reject bot submissions (hidden honeypot field).
  *  2. Validate every field: real calendar date, HH:MM time, formats, lengths.
- *  3. Load the active booking page and enforce its required contact fields.
+ *  3. Load the active booking page, check that the owner's account takes
+ *     bookings (a paid plan or a trial that has not ended, otherwise 403
+ *     "not accepting online bookings") and enforce its required contact fields.
  *  4. Load the salon's staff, services and availability; convert to UTC.
  *  5. Enforce the booking window (minimum notice, maximum days ahead).
  *  6. Validate the service (required when the salon has active services).
@@ -36,9 +38,11 @@ import { after } from 'next/server';
 import { createAdminSupabaseClient, type AdminSupabaseClient } from '@/lib/supabase/admin';
 import { sendAppointmentEmail } from '@/lib/reminders/gateway';
 import {
+  NOT_ACCEPTING_BOOKINGS_MESSAGE,
   getBookingPageBySlug,
   loadBusyIntervals,
   loadPublicBookingData,
+  salonAcceptsBookings,
 } from '@/lib/booking-data';
 import {
   DEFAULT_OPENING_HOURS,
@@ -184,6 +188,7 @@ async function clientHasOverlap(
  *
  * @returns 201 { appointmentId: string, barberName: string | null, durationMinutes: number }
  * @returns 400 { error: string }               — validation failure
+ * @returns 403 { error: string }               — the business is not taking bookings
  * @returns 404 { error: "Booking page not found" }
  * @returns 409 { error: string }               — the time is no longer available
  * @returns 429 { error: string }               — too many bookings for this email/phone
@@ -308,6 +313,11 @@ async function handleBookingPost(
     return Response.json({ error: 'Booking page not found' }, { status: 404 });
   }
   const salonId = bookingPage.salon_id;
+
+  // The owner's account must take bookings: a paid plan or a trial that has not ended.
+  if (!(await salonAcceptsBookings(supabase, salonId))) {
+    return Response.json({ error: NOT_ACCEPTING_BOOKINGS_MESSAGE }, { status: 403 });
+  }
 
   if (bookingPage.require_phone && !clientPhone) {
     return Response.json({ error: 'Phone number is required' }, { status: 400 });
