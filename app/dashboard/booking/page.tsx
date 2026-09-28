@@ -1286,8 +1286,6 @@ export default function BookingPage() {
         body: JSON.stringify({ photo_url: url }),
       });
 
-      console.log('[handleCropApply] PUT /api/barbers/%s — status: %d', barberId, saveRes.status);
-
       if (!saveRes.ok) {
         const errData = (await saveRes.json()) as { error?: string };
         alert(errData.error ?? 'Photo uploaded but failed to save. Please try again.');

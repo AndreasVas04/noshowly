@@ -2,7 +2,7 @@
  * app/dashboard/week/page.tsx
  *
  * Week view page — shows all appointments for the current week in a 7-column
- * grid (desktop) or a 3-day sliding window (mobile).
+ * grid (desktop) or one day at a time with a day picker (mobile).
  *
  * The WeekView component owns all navigation state and data fetching.
  *

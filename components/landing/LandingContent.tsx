@@ -107,66 +107,35 @@ interface PricingCardProps {
   price: number;
   description: string;
   features: string[];
-  featured: boolean;
 }
 
 /**
- * Renders a single pricing plan card on the landing page.
- * The featured (Professional) card uses a dark forest green design.
+ * Renders the plan card on the landing page, in the dark forest green design.
  *
- * @param props - Plan name, price, description, features list, and featured flag.
+ * @param props - Plan name, price, description and features list.
  */
-function PricingCard({ name, price, description, features, featured }: PricingCardProps) {
-  if (featured) {
-    return (
-      <div className="rounded-2xl p-8 flex flex-col h-full bg-[#1B4332] text-white relative">
-        <h3 className="font-heading text-2xl font-bold mb-1">{name}</h3>
-        <div className="flex items-end gap-1 mb-4">
-          <span className="font-heading text-4xl font-bold">${price}</span>
-          <span className="text-sm mb-1.5 text-white/60">/month</span>
-        </div>
-        <p className="text-sm mb-7 leading-relaxed text-white/70 font-body">{description}</p>
-
-        <ul className="space-y-3 flex-1 mb-8">
-          {features.map((f) => (
-            <li key={f} className="flex items-start gap-2.5 text-sm font-body">
-              <Check className="h-4 w-4 mt-0.5 shrink-0 text-[#86EFAC]" aria-hidden="true" />
-              <span className="text-white/85">{f}</span>
-            </li>
-          ))}
-        </ul>
-
-        <Link
-          href="/register"
-          className="h-11 rounded-lg text-sm font-semibold transition-colors inline-flex items-center justify-center bg-white text-[#1B4332] hover:bg-[#E8F2EC] font-body"
-        >
-          Get started
-        </Link>
-      </div>
-    );
-  }
-
+function PricingCard({ name, price, description, features }: PricingCardProps) {
   return (
-    <div className="rounded-2xl p-8 flex flex-col h-full bg-white border border-[#E8E4DC] text-[#1A1A1A] hover:-translate-y-1 hover:shadow-lg transition-all duration-200">
-      <h3 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">{name}</h3>
+    <div className="rounded-2xl p-8 flex flex-col h-full bg-[#1B4332] text-white relative">
+      <h3 className="font-heading text-2xl font-bold mb-1">{name}</h3>
       <div className="flex items-end gap-1 mb-4">
-        <span className="font-heading text-4xl font-bold text-[#1A1A1A]">${price}</span>
-        <span className="text-sm mb-1.5 text-[#8A8680]">/month</span>
+        <span className="font-heading text-4xl font-bold">${price}</span>
+        <span className="text-sm mb-1.5 text-white/60">/month</span>
       </div>
-      <p className="text-sm mb-7 leading-relaxed text-[#8A8680] font-body">{description}</p>
+      <p className="text-sm mb-7 leading-relaxed text-white/70 font-body">{description}</p>
 
       <ul className="space-y-3 flex-1 mb-8">
         {features.map((f) => (
           <li key={f} className="flex items-start gap-2.5 text-sm font-body">
-            <Check className="h-4 w-4 mt-0.5 shrink-0 text-[#1B4332]" aria-hidden="true" />
-            <span className="text-[#1A1A1A]/80">{f}</span>
+            <Check className="h-4 w-4 mt-0.5 shrink-0 text-[#86EFAC]" aria-hidden="true" />
+            <span className="text-white/85">{f}</span>
           </li>
         ))}
       </ul>
 
       <Link
         href="/register"
-        className="h-11 rounded-lg text-sm font-semibold transition-colors inline-flex items-center justify-center bg-[#1A1A1A] text-white hover:bg-[#2D2D2D] font-body"
+        className="h-11 rounded-lg text-sm font-semibold transition-colors inline-flex items-center justify-center bg-white text-[#1B4332] hover:bg-[#E8F2EC] font-body"
       >
         Get started
       </Link>
@@ -577,7 +546,6 @@ export default function LandingContent() {
                 'Appointment management',
                 'Flat monthly price',
               ]}
-              featured={true}
             />
           </FadeIn>
 
