@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import { isDemoAccount } from '@/lib/demo';
 import { planAllowsEmail } from '@/lib/plans';
+import { normaliseTime } from '@/lib/time';
 import type { UserPlan } from '@/lib/plans';
 import type { Salon } from '@/types';
 
@@ -84,6 +85,7 @@ const CURRENCY_OPTIONS = [
 ] as const;
 
 const COMMON_TIMEZONES = [
+  'UTC',
   'America/New_York',
   'America/Chicago',
   'America/Denver',
@@ -301,8 +303,8 @@ export default function SettingsPage() {
         setEmailGreeting(salon.email_greeting ?? '');
         setEmailBody(salon.email_body ?? '');
         setEmailClosing(salon.email_closing ?? '');
-        setOpeningTime(salon.opening_time ?? '09:00');
-        setClosingTime(salon.closing_time ?? '20:00');
+        setOpeningTime(normaliseTime(salon.opening_time) ?? '09:00');
+        setClosingTime(normaliseTime(salon.closing_time) ?? '20:00');
 
         // Fetch the user's plan from users table via browser Supabase client.
         // RLS ensures only the authenticated user's own row is accessible.
@@ -786,7 +788,11 @@ export default function SettingsPage() {
                 }}
                 className="w-full h-10 rounded-lg border border-[#E5E2DB] px-3 text-sm text-[#1A1A1A] bg-white outline-none focus:border-[#1B4332] transition-colors"
               >
-                {COMMON_TIMEZONES.map((tz) => (
+                {/* The salon's current timezone is always listed, even when it is not a common one. */}
+                {((COMMON_TIMEZONES as readonly string[]).includes(timezone)
+                  ? COMMON_TIMEZONES
+                  : [timezone, ...COMMON_TIMEZONES]
+                ).map((tz) => (
                   <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
                 ))}
               </select>

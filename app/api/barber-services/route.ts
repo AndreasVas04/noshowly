@@ -9,8 +9,9 @@
  * PUT  /api/barber-services
  *   Replaces all service assignments for a single barber.
  *   Body: { barber_id: string, assignments: { service_id, price_override?, duration_minutes_override? }[] }
- *   Deletes existing assignments for the barber and creates new ones atomically.
- *   Returns the freshly inserted rows so the client can sync real IDs.
+ *   Upserts the new set on (barber_id, service_id) and then removes the rows
+ *   not in it, so repeated or overlapping requests never fail on the unique key.
+ *   Returns the saved rows so the client can sync real IDs.
  *
  * Security:
  *  - Authentication is verified on every request before anything else.
@@ -21,7 +22,11 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { BarberService } from '@/types';
+
+/** Matches a UUID (barber and service ids). */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // GET — list all barber/service assignments for the salon
@@ -91,13 +96,15 @@ type AssignmentInput = {
  *   barber_id:   string,           // UUID of the barber to update
  *   assignments: {                  // Services to assign (empty = no assignments)
  *     service_id:                 string,
- *     price_override?:            number | null,
- *     duration_minutes_override?: number | null,
+ *     price_override?:            number | null,   // 0 or more
+ *     duration_minutes_override?: number | null,   // integer minutes, 1–480
  *   }[]
  * }
  *
- * Implementation: deletes all existing rows for barber_id, then inserts the
- * new set. This is simpler and safer than diffing — the list is always small.
+ * Implementation: upserts the new set on the (barber_id, service_id) unique
+ * key, then deletes this barber's rows for services not in the set. Each step
+ * is idempotent, so a repeated request is harmless and two overlapping
+ * requests cannot hit a duplicate key; the one that finishes last wins.
  *
  * @returns 200 { success: true, barberServices: BarberService[] }
  * @returns 400 { error: string }       — validation failure
@@ -130,6 +137,10 @@ export async function PUT(request: Request): Promise<Response> {
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
   const raw = body as Record<string, unknown>;
 
   if (typeof raw.barber_id !== 'string' || !raw.barber_id.trim()) {
@@ -140,28 +151,44 @@ export async function PUT(request: Request): Promise<Response> {
   }
 
   const barberId = raw.barber_id.trim();
+  if (!UUID_PATTERN.test(barberId)) {
+    return Response.json({ error: 'Barber not found' }, { status: 404 });
+  }
   const rawAssignments = raw.assignments as Record<string, unknown>[];
 
   // Validate and normalise each assignment entry.
   const assignments: AssignmentInput[] = [];
   for (const a of rawAssignments) {
+    if (typeof a !== 'object' || a === null) {
+      return Response.json({ error: 'Each assignment must be an object' }, { status: 400 });
+    }
     if (typeof a.service_id !== 'string' || !a.service_id.trim()) {
       return Response.json({ error: 'Each assignment must have a non-empty service_id string' }, { status: 400 });
     }
-    // price_override: number | null | undefined — validate if present.
-    if (a.price_override !== undefined && a.price_override !== null && typeof a.price_override !== 'number') {
-      return Response.json({ error: 'price_override must be a number or null' }, { status: 400 });
+    if (!UUID_PATTERN.test(a.service_id.trim())) {
+      return Response.json({ error: 'One or more services not found' }, { status: 400 });
     }
-    // duration_minutes_override: integer | null | undefined — validate if present.
+    const serviceId = a.service_id.trim().toLowerCase();
+    if (assignments.some((existing) => existing.service_id === serviceId)) {
+      return Response.json({ error: 'Each service can only be assigned once' }, { status: 400 });
+    }
+    // price_override: number ≥ 0 | null | undefined — validate if present.
+    if (a.price_override !== undefined && a.price_override !== null && !isValidPrice(a.price_override)) {
+      return Response.json({ error: 'price_override must be a number of 0 or more, or null' }, { status: 400 });
+    }
+    // duration_minutes_override: integer 1–480 | null | undefined — validate if present.
     if (
       a.duration_minutes_override !== undefined &&
       a.duration_minutes_override !== null &&
-      typeof a.duration_minutes_override !== 'number'
+      !isValidDuration(a.duration_minutes_override)
     ) {
-      return Response.json({ error: 'duration_minutes_override must be a number or null' }, { status: 400 });
+      return Response.json(
+        { error: 'duration_minutes_override must be an integer between 1 and 480, or null' },
+        { status: 400 }
+      );
     }
     assignments.push({
-      service_id: a.service_id.trim(),
+      service_id: serviceId,
       price_override: (a.price_override as number | null | undefined) ?? null,
       duration_minutes_override: (a.duration_minutes_override as number | null | undefined) ?? null,
     });
@@ -210,39 +237,47 @@ export async function PUT(request: Request): Promise<Response> {
     }
   }
 
-  // Step 6: Delete existing assignments for this barber, then insert new ones.
-  // Scoped to salon_id to prevent cross-salon mutations even if RLS is bypassed.
-  const { error: deleteError } = await supabase
-    .from('barber_services')
-    .delete()
-    .eq('barber_id', barberId)
-    .eq('salon_id', salon.id);
-
-  if (deleteError) {
-    console.error('[PUT /api/barber-services] Delete error:', deleteError.message);
-    return Response.json({ error: 'Failed to update assignments' }, { status: 500 });
-  }
-
+  // Step 6: Upsert the new set on the (barber_id, service_id) unique key.
+  // Existing rows keep their ids; there is no moment where they are missing.
   if (assignments.length > 0) {
-    const { error: insertError } = await supabase
+    const { error: upsertError } = await supabase
       .from('barber_services')
-      .insert(
+      .upsert(
         assignments.map((a) => ({
           salon_id: salon.id,
           barber_id: barberId,
           service_id: a.service_id,
           price_override: a.price_override ?? null,
           duration_minutes_override: a.duration_minutes_override ?? null,
-        }))
+        })),
+        { onConflict: 'barber_id,service_id' }
       );
 
-    if (insertError) {
-      console.error('[PUT /api/barber-services] Insert error:', insertError.message);
+    if (upsertError) {
+      console.error('[PUT /api/barber-services] Upsert error:', upsertError.message);
       return Response.json({ error: 'Failed to save assignments' }, { status: 500 });
     }
   }
 
-  // Step 7: Fetch and return the freshly inserted rows so the client can sync real IDs.
+  // Step 6b: Remove this barber's assignments that are not in the new set.
+  // Scoped to salon_id to prevent cross-salon mutations even if RLS is bypassed.
+  // The ids were checked against UUID_PATTERN and this salon's services above.
+  let removeQuery = supabase
+    .from('barber_services')
+    .delete()
+    .eq('barber_id', barberId)
+    .eq('salon_id', salon.id);
+  if (serviceIds.length > 0) {
+    removeQuery = removeQuery.not('service_id', 'in', `(${serviceIds.join(',')})`);
+  }
+  const { error: deleteError } = await removeQuery;
+
+  if (deleteError) {
+    console.error('[PUT /api/barber-services] Delete error:', deleteError.message);
+    return Response.json({ error: 'Failed to update assignments' }, { status: 500 });
+  }
+
+  // Step 7: Fetch and return the saved rows so the client can sync real IDs.
   const { data: freshRows, error: fetchError } = await supabase
     .from('barber_services')
     .select('*')

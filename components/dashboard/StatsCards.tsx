@@ -12,18 +12,19 @@
  * Premium design: white shadcn Cards with colored left border and subtle tinted
  * background, brand-dark typography, Framer Motion fade-in on load.
  *
- * Fetches today's appointments from GET /api/appointments?date=YYYY-MM-DD.
+ * Fetches today's appointments from GET /api/appointments?date=YYYY-MM-DD,
+ * where "today" is the current date in the salon's timezone (from /api/salon).
  * Response shape: { appointments: AppointmentWithDetails[] }
  */
 
 'use client';
 
 import { useState, useEffect } from 'react';
-import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Clock, XCircle } from 'lucide-react';
-import type { AppointmentWithDetails } from '@/types';
+import { resolveTimeZone, todayInZone } from '@/lib/time';
+import type { AppointmentWithDetails, Salon } from '@/types';
 
 /** Aggregated counts for today's appointments, split by status. */
 type DayStats = {
@@ -108,19 +109,27 @@ export default function StatsCards() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const today = format(new Date(), 'yyyy-MM-dd');
+    async function loadStats(): Promise<void> {
+      try {
+        // "Today" is the salon's date, not the browser's.
+        const salonRes = await fetch('/api/salon', { cache: 'no-store' });
+        if (!salonRes.ok) return;
+        const { salon } = (await salonRes.json()) as { salon: Salon };
+        const today = todayInZone(resolveTimeZone(salon.timezone));
 
-    fetch(`/api/appointments?date=${today}`)
-      .then(async (res) => {
+        const res = await fetch(`/api/appointments?date=${today}`, { cache: 'no-store' });
         if (!res.ok) return;
         // API returns { appointments: AppointmentWithDetails[] } — destructure accordingly.
         const payload = (await res.json()) as { appointments: AppointmentWithDetails[] };
         setStats(computeStats(payload.appointments));
-      })
-      .catch(() => {
+      } catch {
         // Silently fail — stats are non-critical display only.
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void loadStats();
   }, []);
 
   const cards: StatConfig[] = [

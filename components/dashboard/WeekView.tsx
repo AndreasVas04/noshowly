@@ -36,68 +36,52 @@
  *  - scheduled (past, time has elapsed): grey/muted + "Past" label
  *  - cancelled: dashed border, red tint, reduced opacity
  *
+ * Weeks and days are calendar days in the salon's timezone (fetched from
+ * /api/salon): "today", week boundaries and the column an appointment lands
+ * in all follow the salon's clock, wherever the owner's browser is. Nothing
+ * date-dependent is rendered until the timezone is known, which also keeps
+ * the server render free of dates.
+ *
  * This is a Client Component because it owns all navigation and modal state.
  */
 
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  format,
-  addWeeks,
-  subWeeks,
-  startOfWeek,
-  endOfWeek,
-  eachDayOfInterval,
-  isToday,
-  isSameDay,
-  isSameWeek,
-} from 'date-fns';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import {
+  addDaysToDate,
+  formatDateOnly,
+  formatTimeInZone,
+  resolveTimeZone,
+  startOfWeekDate,
+  todayInZone,
+  utcToZonedParts,
+} from '@/lib/time';
 import type { AppointmentWithDetails, Barber, Salon } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Formats a Date as a YYYY-MM-DD string used as an API query parameter and
- * as a map key when grouping appointments by day.
- *
- * @param date - The date to format.
- * @returns ISO date string, e.g. "2026-04-01".
- */
-function toDateParam(date: Date): string {
-  return format(date, 'yyyy-MM-dd');
+/** Returns the browser's timezone, used only if the salon's cannot be loaded. */
+function browserTimeZone(): string {
+  try {
+    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return 'UTC';
+  }
 }
 
 /**
- * Formats an ISO datetime string as a 24-hour time string.
- * Uses the salon's IANA timezone when provided so appointments display correctly
- * regardless of the browser's local timezone. Falls back to browser timezone
- * when no timezone is specified (backwards compatible).
+ * Returns the seven salon dates (Mon–Sun) of the week containing a date.
  *
- * @param isoString - ISO 8601 datetime stored in the database (UTC).
- * @param timezone  - Optional IANA timezone, e.g. "Europe/Nicosia".
- * @returns 24-hour time string like "09:30".
+ * @param anchor - Any 'YYYY-MM-DD' date in the week.
  */
-function formatTime(isoString: string, timezone?: string): string {
-  if (timezone) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour:   '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(new Date(isoString));
-    const h = parts.find((p) => p.type === 'hour')?.value   ?? '00';
-    const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
-    return `${h === '24' ? '00' : h}:${m}`;
-  }
-  const d = new Date(isoString);
-  const h = d.getHours().toString().padStart(2, '0');
-  const m = d.getMinutes().toString().padStart(2, '0');
-  return `${h}:${m}`;
+function getWeekDays(anchor: string): string[] {
+  const monday = startOfWeekDate(anchor, 1);
+  return Array.from({ length: 7 }, (_, i) => addDaysToDate(monday, i));
 }
 
 /**
@@ -114,31 +98,30 @@ function isPastScheduled(apt: AppointmentWithDetails): boolean {
 
 /**
  * Filters appointments by the currently selected staff context, then returns
- * only those on the given calendar day.
+ * only those on the given salon calendar day.
  *
- * Day comparison is done in local browser timezone so the column a card lands
- * in matches the time the owner sees — consistent with how date navigation works.
+ * Day comparison uses the salon's timezone, so the column a card lands in
+ * matches the time shown on it and the week the salon sees.
  *
  * @param appointments    - Full list of appointments for the week.
  * @param selectedBarber  - Filtering context:
  *                          null         → show all (default, or 0-staff case)
  *                          'unassigned' → show only appointments with no barber
  *                          UUID string  → show only that staff member's appointments
- * @param day             - Calendar day to filter by.
+ * @param day             - Salon calendar day ('YYYY-MM-DD') to filter by.
+ * @param timezone        - Salon timezone.
  * @returns Appointments matching both the staff filter and the given day, sorted
  *          chronologically (API returns them in order already, so this preserves it).
  */
 function getAppointmentsForDayAndStaff(
   appointments: AppointmentWithDetails[],
   selectedBarber: string | null,
-  day: Date
+  day: string,
+  timezone: string,
 ): AppointmentWithDetails[] {
-  const dayKey = toDateParam(day);
-
   return appointments.filter((apt) => {
-    // Day filter — compare the appointment's local date to the target day key.
-    // Both use browser local timezone, so they are consistent with each other.
-    if (toDateParam(new Date(apt.datetime)) !== dayKey) return false;
+    // Day filter — the appointment's date in the salon's timezone.
+    if (utcToZonedParts(apt.datetime, timezone).date !== day) return false;
 
     // Staff filter
     if (selectedBarber === null)           return true;  // "All": show everything
@@ -158,7 +141,7 @@ interface WeekCardProps {
   /** Called when the card is clicked to open the edit modal. */
   onClick: () => void;
   /** IANA timezone for displaying appointment times. */
-  timezone?: string;
+  timezone: string;
 }
 
 /**
@@ -223,7 +206,7 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
     >
       {/* Time + optional "Past" label for past unanswered */}
       <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
-        {formatTime(apt.datetime, timezone)}
+        {formatTimeInZone(apt.datetime, timezone)}
         {isPast && (
           <span className="text-[9px] font-medium text-[#8A8680] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
             Past
@@ -252,8 +235,10 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
 
 /** Props for a single day column in the desktop week grid. */
 interface DayColumnProps {
-  /** The calendar day this column represents. */
-  day: Date;
+  /** The salon calendar day ('YYYY-MM-DD') this column represents. */
+  day: string;
+  /** Whether this column is today in the salon's timezone. */
+  isToday: boolean;
   /** Appointments to show in this column (already filtered by staff). */
   appointments: AppointmentWithDetails[];
   /** Called when the user clicks an appointment card. */
@@ -264,7 +249,7 @@ interface DayColumnProps {
    */
   onColumnClick: () => void;
   /** IANA timezone for displaying appointment times. */
-  timezone?: string;
+  timezone: string;
 }
 
 /**
@@ -277,9 +262,7 @@ interface DayColumnProps {
  * @param props.onAppointmentClick - Called when a card is clicked.
  * @param props.onColumnClick      - Called when the empty column area is clicked.
  */
-function DayColumn({ day, appointments, onAppointmentClick, onColumnClick, timezone }: DayColumnProps) {
-  const todayColumn = isToday(day);
-
+function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick, onColumnClick, timezone }: DayColumnProps) {
   return (
     <div
       className={`
@@ -296,11 +279,11 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick, timez
       >
         <p className={`text-xs uppercase tracking-wide leading-none font-body
           ${todayColumn ? 'text-[#1B4332] font-bold' : 'text-[#8A8680] font-semibold'}`}>
-          {format(day, 'EEE')}
+          {formatDateOnly(day, { weekday: 'short' })}
         </p>
         <p className={`text-sm mt-0.5 leading-none font-body
           ${todayColumn ? 'text-[#1B4332] font-bold' : 'text-[#2D2D2D] font-bold'}`}>
-          {format(day, 'd')}
+          {Number(day.slice(8, 10))}
         </p>
       </div>
 
@@ -308,7 +291,7 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick, timez
       <div
         role="button"
         tabIndex={-1}
-        aria-label={`Add appointment on ${format(day, 'EEEE, MMMM d')}`}
+        aria-label={`Add appointment on ${formatDateOnly(day, { weekday: 'long', month: 'long', day: 'numeric' })}`}
         onClick={onColumnClick}
         className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#FAFAF8] cursor-pointer"
       >
@@ -342,20 +325,23 @@ function DayColumn({ day, appointments, onAppointmentClick, onColumnClick, timez
 export default function WeekView() {
 
   // -------------------------------------------------------------------------
-  // Week navigation state
+  // Week navigation state (salon dates, 'YYYY-MM-DD')
   // -------------------------------------------------------------------------
+
+  /** Salon timezone for dates and times; null until loaded. */
+  const [salonTimezone, setSalonTimezone] = useState<string | null>(null);
 
   /**
    * Anchor date determines which Mon–Sun week strip is displayed.
-   * Any date within the desired week works; startOfWeek is derived from it.
+   * Any date within the desired week works. Null until the timezone is known.
    */
-  const [anchor, setAnchor] = useState<Date>(() => new Date());
+  const [anchor, setAnchor] = useState<string | null>(null);
 
   /**
    * selectedDay is only used on mobile to determine which single day to display.
    * On desktop all 7 columns are shown simultaneously.
    */
-  const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Staff state
@@ -364,9 +350,6 @@ export default function WeekView() {
   /** Staff members for the authenticated salon. */
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [isLoadingBarbers, setIsLoadingBarbers] = useState(true);
-
-  /** Salon timezone for correct time display (fetched once on mount). */
-  const [salonTimezone, setSalonTimezone] = useState<string | undefined>(undefined);
 
   /**
    * Which staff filter is active.
@@ -392,8 +375,8 @@ export default function WeekView() {
   // -------------------------------------------------------------------------
 
   const [modalOpen, setModalOpen] = useState(false);
-  /** Date to pre-fill when opening the add modal. */
-  const [modalInitialDate, setModalInitialDate] = useState<Date>(() => new Date());
+  /** Salon date to pre-fill when opening the add modal. */
+  const [modalInitialDate, setModalInitialDate] = useState<string | undefined>(undefined);
   /**
    * Staff UUID to pre-select when the modal opens from a day column click.
    * Undefined when opened via the "Add appointment" header button or when
@@ -407,18 +390,19 @@ export default function WeekView() {
   // Derived date values (recomputed each render — cheap)
   // -------------------------------------------------------------------------
 
-  const weekStart  = startOfWeek(anchor, { weekStartsOn: 1 });
-  const weekEnd    = endOfWeek(anchor, { weekStartsOn: 1 });
-  const weekDays   = eachDayOfInterval({ start: weekStart, end: weekEnd });
-  const isCurrentWeek = isSameWeek(anchor, new Date(), { weekStartsOn: 1 });
+  const today    = salonTimezone ? todayInZone(salonTimezone) : null;
+  const weekDays = anchor ? getWeekDays(anchor) : [];
+  const weekStart = weekDays[0] ?? null;
+  const weekEnd   = weekDays[6] ?? null;
+  const isCurrentWeek = !today || weekStart === startOfWeekDate(today, 1);
 
   /** Human-readable week label, e.g. "Mar 30 – Apr 5". */
   const weekLabel = (() => {
-    const startStr = format(weekStart, 'MMM d');
-    const endYear  = weekEnd.getFullYear() !== new Date().getFullYear()
-      ? `, ${weekEnd.getFullYear()}`
-      : '';
-    return `${startStr} – ${format(weekEnd, 'MMM d')}${endYear}`;
+    if (!weekStart || !weekEnd) return '';
+    const startStr = formatDateOnly(weekStart, { month: 'short', day: 'numeric' });
+    const endStr   = formatDateOnly(weekEnd, { month: 'short', day: 'numeric' });
+    const endYear  = today && weekEnd.slice(0, 4) !== today.slice(0, 4) ? `, ${weekEnd.slice(0, 4)}` : '';
+    return `${startStr} – ${endStr}${endYear}`;
   })();
 
   // -------------------------------------------------------------------------
@@ -426,12 +410,14 @@ export default function WeekView() {
   // -------------------------------------------------------------------------
 
   /**
-   * Fetches the salon's staff list and timezone. Called once on mount.
+   * Fetches the salon's staff list and timezone. Called once on mount; opens
+   * the current week in the salon's timezone once the timezone is known.
    * Does NOT set a default staff — selection always starts at null ("All") so
    * no appointments are hidden when the page loads.
    */
   const fetchBarbers = useCallback(async (): Promise<void> => {
     setIsLoadingBarbers(true);
+    let timeZone: string | null = null;
     try {
       const [barbersRes, salonRes] = await Promise.all([
         fetch('/api/barbers', { cache: 'no-store' }),
@@ -445,7 +431,7 @@ export default function WeekView() {
       }
       if (salonRes.ok) {
         const data = (await salonRes.json()) as { salon: Salon };
-        setSalonTimezone(data.salon.timezone ?? undefined);
+        timeZone = resolveTimeZone(data.salon.timezone);
       }
       // Always default to null ("All") — never silently hide appointments by
       // pre-selecting a specific staff member that the user has not chosen.
@@ -455,22 +441,28 @@ export default function WeekView() {
       setBarbers([]);
       setSelectedBarberId(null);
     } finally {
+      const zone = timeZone ?? browserTimeZone();
+      const todayDate = todayInZone(zone);
+      setSalonTimezone(zone);
+      setAnchor((a) => a ?? todayDate);
+      setSelectedDay((d) => d ?? todayDate);
       setIsLoadingBarbers(false);
     }
   }, []);
 
   /**
    * Fetches all appointments for the given Mon–Sun range in a single request.
+   * The dates are salon dates; the API applies the salon's timezone.
    * Staff filtering is done client-side so switching staff pills is instant.
    *
-   * @param start - Monday of the target week.
-   * @param end   - Sunday of the target week.
+   * @param start - Monday of the target week ('YYYY-MM-DD').
+   * @param end   - Sunday of the target week ('YYYY-MM-DD').
    */
-  const fetchWeekAppointments = useCallback(async (start: Date, end: Date): Promise<void> => {
+  const fetchWeekAppointments = useCallback(async (start: string, end: string): Promise<void> => {
     setIsLoadingApts(true);
     setError(null);
     try {
-      const url = `/api/appointments?start=${toDateParam(start)}&end=${toDateParam(end)}`;
+      const url = `/api/appointments?start=${start}&end=${end}`;
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -487,24 +479,23 @@ export default function WeekView() {
     }
   }, []);
 
-  // Fetch barbers and appointments in parallel on mount.
+  // Fetch staff and the salon timezone on mount.
   useEffect(() => {
     fetchBarbers();
-    fetchWeekAppointments(weekStart, weekEnd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchBarbers]);
 
-  // Re-fetch appointments whenever the user navigates to a different week.
+  // Fetch appointments whenever the visible week changes (and once the timezone is known).
   useEffect(() => {
-    fetchWeekAppointments(weekStart, weekEnd);
+    if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor]);
+  }, [weekStart]);
 
   /**
    * Subscribes to appointment changes via Supabase Realtime.
    * Refetches the week on any INSERT, UPDATE, or DELETE so the grid stays current.
    */
   useEffect(() => {
+    if (!weekStart || !weekEnd) return;
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
@@ -522,7 +513,7 @@ export default function WeekView() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, fetchWeekAppointments]);
+  }, [weekStart, fetchWeekAppointments]);
 
   // -------------------------------------------------------------------------
   // Derived visibility flags
@@ -556,25 +547,25 @@ export default function WeekView() {
 
   /** Move to the previous week; keep selectedDay on the same weekday. */
   function handlePrevWeek(): void {
-    setAnchor((a) => subWeeks(a, 1));
-    setSelectedDay((d) => subWeeks(d, 1));
+    setAnchor((a) => (a ? addDaysToDate(a, -7) : a));
+    setSelectedDay((d) => (d ? addDaysToDate(d, -7) : d));
   }
 
   /** Move to the next week; keep selectedDay on the same weekday. */
   function handleNextWeek(): void {
-    setAnchor((a) => addWeeks(a, 1));
-    setSelectedDay((d) => addWeeks(d, 1));
+    setAnchor((a) => (a ? addDaysToDate(a, 7) : a));
+    setSelectedDay((d) => (d ? addDaysToDate(d, 7) : d));
   }
 
   /** Reset to today's week and select today. Hidden when already on current week. */
   function handleThisWeek(): void {
-    const today = new Date();
+    if (!today) return;
     setAnchor(today);
     setSelectedDay(today);
   }
 
   /** Select a day (mobile only — switches the single-day view). */
-  function handleDaySelect(day: Date): void {
+  function handleDaySelect(day: string): void {
     setSelectedDay(day);
     setAnchor(day);
   }
@@ -588,9 +579,9 @@ export default function WeekView() {
    * Pre-fills the date and — when a named staff member is currently selected — the staff.
    * When "All" (null) or "Unassigned" is active, no staff is pre-selected.
    *
-   * @param day - The day column the user clicked.
+   * @param day - The salon date of the column the user clicked.
    */
-  function handleColumnClick(day: Date): void {
+  function handleColumnClick(day: string): void {
     setEditingAppointment(null);
     setModalInitialDate(day);
     // Pre-select staff only when a real staff member (not null/"unassigned") is viewed.
@@ -608,7 +599,7 @@ export default function WeekView() {
    */
   function handleHeaderAddClick(): void {
     setEditingAppointment(null);
-    setModalInitialDate(selectedDay);
+    setModalInitialDate(selectedDay ?? undefined);
     setModalInitialBarberId(undefined);
     setModalOpen(true);
   }
@@ -636,14 +627,14 @@ export default function WeekView() {
   function handleModalSaved(): void {
     setModalOpen(false);
     setEditingAppointment(null);
-    fetchWeekAppointments(weekStart, weekEnd);
+    if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd);
   }
 
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
-  const isLoading = isLoadingBarbers || isLoadingApts;
+  const isLoading = isLoadingBarbers || isLoadingApts || !salonTimezone || !selectedDay;
 
   /** Shared pill class helper for staff filter buttons. */
   function staffPillClass(active: boolean): string {
@@ -785,14 +776,14 @@ export default function WeekView() {
       ===================================================================== */}
       <div className="flex lg:hidden items-center gap-1 mb-4">
         {weekDays.map((day) => {
-          const isSelected   = isSameDay(day, selectedDay);
-          const isCurrentDay = isToday(day);
+          const isSelected   = day === selectedDay;
+          const isCurrentDay = day === today;
           return (
             <button
-              key={toDateParam(day)}
+              key={day}
               type="button"
               onClick={() => handleDaySelect(day)}
-              aria-label={format(day, 'EEEE, MMMM d')}
+              aria-label={formatDateOnly(day, { weekday: 'long', month: 'long', day: 'numeric' })}
               aria-pressed={isSelected}
               className={`
                 flex flex-col items-center justify-center
@@ -807,10 +798,10 @@ export default function WeekView() {
               `}
             >
               <span className="text-xs font-semibold uppercase tracking-wide leading-none">
-                {format(day, 'EEE')}
+                {formatDateOnly(day, { weekday: 'short' })}
               </span>
               <span className="text-sm font-bold mt-0.5 leading-none">
-                {format(day, 'd')}
+                {Number(day.slice(8, 10))}
               </span>
             </button>
           );
@@ -864,7 +855,7 @@ export default function WeekView() {
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700">{error}</p>
           <button
-            onClick={() => fetchWeekAppointments(weekStart, weekEnd)}
+            onClick={() => { if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd); }}
             className="text-sm text-red-600 underline mt-1 hover:text-red-800"
           >
             Try again
@@ -875,15 +866,16 @@ export default function WeekView() {
       {/* =====================================================================
           DESKTOP: 7-column week grid (lg+)
       ===================================================================== */}
-      {!isLoading && !error && (
+      {!isLoading && !error && salonTimezone && (
         <div className="hidden lg:flex gap-2 overflow-x-auto pb-1">
           {weekDays.map((day) => {
-            const dayApts = getAppointmentsForDayAndStaff(appointments, selectedBarberId, day);
+            const dayApts = getAppointmentsForDayAndStaff(appointments, selectedBarberId, day, salonTimezone);
 
             return (
               <DayColumn
-                key={toDateParam(day)}
+                key={day}
                 day={day}
+                isToday={day === today}
                 appointments={dayApts}
                 onAppointmentClick={handleAppointmentClick}
                 onColumnClick={() => handleColumnClick(day)}
@@ -897,10 +889,10 @@ export default function WeekView() {
       {/* =====================================================================
           MOBILE: single selected-day view (< lg)
       ===================================================================== */}
-      {!isLoading && !error && (
+      {!isLoading && !error && salonTimezone && selectedDay && (
         <div className="lg:hidden space-y-2">
           {(() => {
-            const dayApts = getAppointmentsForDayAndStaff(appointments, selectedBarberId, selectedDay);
+            const dayApts = getAppointmentsForDayAndStaff(appointments, selectedBarberId, selectedDay, salonTimezone);
 
             if (dayApts.length === 0) {
               return (
@@ -927,7 +919,7 @@ export default function WeekView() {
                   ].join(' ')}
                 >
                   <div className="w-12 shrink-0 text-sm font-bold text-[#1A1A1A] tabular-nums font-body">
-                    {formatTime(apt.datetime, salonTimezone)}
+                    {formatTimeInZone(apt.datetime, salonTimezone)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-semibold text-[#1A1A1A] truncate font-body ${apt.status === 'cancelled' ? 'line-through' : ''}`}>
@@ -958,7 +950,8 @@ export default function WeekView() {
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
-            + Add for {format(selectedDay, 'EEE d')}
+            {/* Weekday and day formatted separately: en-US puts the day first ("5 Mon"). */}
+            + Add for {formatDateOnly(selectedDay, { weekday: 'short' })} {formatDateOnly(selectedDay, { day: 'numeric' })}
           </button>
         </div>
       )}
@@ -966,14 +959,17 @@ export default function WeekView() {
       {/* =====================================================================
           ADD / EDIT MODAL
       ===================================================================== */}
-      <AddAppointmentModal
-        isOpen={modalOpen}
-        onClose={handleModalClose}
-        onSaved={handleModalSaved}
-        initialDate={modalInitialDate}
-        initialBarberId={modalInitialBarberId}
-        appointment={editingAppointment ?? undefined}
-      />
+      {salonTimezone && (
+        <AddAppointmentModal
+          isOpen={modalOpen}
+          onClose={handleModalClose}
+          onSaved={handleModalSaved}
+          timezone={salonTimezone}
+          initialDate={modalInitialDate}
+          initialBarberId={modalInitialBarberId}
+          appointment={editingAppointment ?? undefined}
+        />
+      )}
 
     </div>
   );

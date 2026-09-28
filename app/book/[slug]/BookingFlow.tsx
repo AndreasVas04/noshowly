@@ -5,65 +5,80 @@
  * for the public booking page.
  *
  * Steps:
- *  0. staff    — Select a staff member (skipped when only 1 staff + no-preference off)
- *  1. service  — Select a service (from selected staff member's services)
+ *  0. staff    — Select a staff member, or "Any available staff" when more than
+ *                one can be booked (skipped when only one staff member)
+ *  1. service  — Select a service the chosen staff member can perform
  *  2. datetime — Pick a date (calendar), then pick a time slot
  *  3. details  — Enter name + required contact fields (controlled per booking page settings)
  *  4. success  — Booking confirmed; option to download .ics calendar file
  *
  * Steps with no choices are auto-skipped.
  *
- * Slot conflict logic:
- *  - Specific barber selected: a slot is blocked if that barber is already booked.
- *  - No preference: a slot is blocked only if ALL available barbers are booked at that time.
- *  - No-preference slots show how many barbers are still available ("2 available").
- *  - On submit with no preference, the least-busy barber is auto-assigned.
+ * Bookable times come from the shared rules in lib/availability.ts, the same
+ * rules POST /api/book/[slug]/appointments enforces:
+ *  - the whole appointment, with the staff member's own duration, must fit in
+ *    one of their working intervals and inside the salon's opening hours;
+ *  - it must not overlap their other appointments (busy times are fetched
+ *    per date);
+ *  - it must start at least MIN_NOTICE_MINUTES from now and at most
+ *    MAX_ADVANCE_DAYS ahead.
+ * With "Any available staff", a time is offered when any eligible staff member
+ * is free; the server assigns the one with the fewest appointments that day.
+ *
+ * All dates and times are in the salon's timezone, and the page says so.
  *
  * Noshowly branding is completely invisible — clients see only the salon's name.
  */
 
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Barber, BarberService, Service, StaffAvailability } from '@/types';
+import {
+  DEFAULT_OPENING_HOURS,
+  eligibleBarberIds,
+  getAvailableSlots,
+  getBookableIntervals,
+  getEffectiveDuration,
+  getEffectivePrice,
+  getSalonHoursInterval,
+  isBarberEligibleForService,
+  isDateWithinBookingWindow,
+  lastBookableDate,
+  type SlotCandidate,
+} from '@/lib/availability';
+import { MAX_PHONE_INPUT_LENGTH, validateEmail, validatePhone } from '@/lib/contact';
+import { dayOfWeekForDate, formatDateOnly, resolveZonedTime, todayInZone } from '@/lib/time';
+import type {
+  PublicAvailability,
+  PublicBarber,
+  PublicBusyInterval,
+  PublicSalon,
+  PublicService,
+  PublicServiceAssignment,
+} from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type TimeSlot = { start: string; end: string };
-
-type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'>;
-
-type PublicAvailability = Pick<
-  StaffAvailability,
-  'barber_id' | 'day_of_week' | 'is_available' | 'time_slots' | 'start_time_1' | 'end_time_1' | 'start_time_2' | 'end_time_2'
->;
-
-type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
+type Step = 'staff' | 'service' | 'datetime' | 'details' | 'success';
 
 /**
- * Links a barber to a service they can perform.
- * Includes optional price/duration overrides so the booking flow can display
- * the effective price/duration when a specific barber is selected.
+ * The visitor's staff choice: a specific person, 'any' ("Any available
+ * staff"), or null before choosing and for salons without staff.
  */
-type BarberServiceLink = Pick<
-  BarberService,
-  'barber_id' | 'service_id' | 'price_override' | 'duration_minutes_override'
->;
+type StaffChoice = PublicBarber | 'any' | null;
 
-/** A booked appointment slot: local HH:MM time + which barber is assigned + duration. */
-type BookedSlot = {
-  time: string;
-  barberId: string | null;
-  /** Appointment duration in minutes. Defaults to 30 when not set. */
-  duration: number;
+/** Details returned by the booking API once the appointment exists. */
+type ConfirmedBooking = {
+  appointmentId: string;
+  /** Staff member the appointment was booked with (assigned by the server for "any"). */
+  barberName: string | null;
+  durationMinutes: number;
 };
-
-type Step = 'staff' | 'service' | 'datetime' | 'details' | 'success';
 
 type Props = {
   slug: string;
@@ -75,20 +90,15 @@ type Props = {
   requirePhone: boolean;
   /** Whether clients must supply an email address. Controlled by booking page settings. */
   requireEmail: boolean;
-  salon: {
-    name: string;
-    timezone: string;
-    phone: string | null;
-    opening_time: string | null;
-    closing_time: string | null;
-    /** ISO 4217 currency code for price display, e.g. 'USD', 'EUR'. */
-    currency: string;
-  };
+  /** Salon info; timezone is a valid IANA name and hours are 'HH:MM' or null. */
+  salon: PublicSalon;
+  /** Active staff, ordered by name. */
   barbers: PublicBarber[];
   /** Active global services for this salon, ordered by name. */
   globalServices: PublicService[];
-  /** Links barbers to the services they can perform (from barber_services table). */
-  barberServiceAssignments: BarberServiceLink[];
+  /** All staff/service links of the salon (from barber_services), with overrides. */
+  barberServiceAssignments: PublicServiceAssignment[];
+  /** Weekly availability of the active staff. */
   staffAvailability: PublicAvailability[];
 };
 
@@ -119,250 +129,8 @@ function getCurrencySymbol(code: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Time-slot helpers
+// Formatting helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Generates 30-minute time slots between opening and closing times.
- *
- * @param openingTime - HH:MM start of day, e.g. "09:00".
- * @param closingTime - HH:MM end of day, e.g. "20:00".
- * @returns           Array of HH:MM slot strings.
- */
-function generateTimeSlots(openingTime: string | null, closingTime: string | null): string[] {
-  const [oh, om] = (openingTime ?? '09:00').split(':').map(Number);
-  const [ch, cm] = (closingTime ?? '20:00').split(':').map(Number);
-  const start = oh * 60 + om;
-  const end   = ch * 60 + cm;
-  const slots: string[] = [];
-  for (let m = start; m < end; m += 30) {
-    const h   = Math.floor(m / 60);
-    const min = m % 60;
-    slots.push(`${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`);
-  }
-  return slots;
-}
-
-/**
- * Returns the day-of-week (0=Sun, 1=Mon … 6=Sat) for a YYYY-MM-DD date string.
- * Uses noon UTC to avoid any off-by-one from timezone conversions.
- *
- * @param dateStr - ISO date string, e.g. "2026-04-15".
- * @returns       Day of week integer.
- */
-function getDayOfWeek(dateStr: string): number {
-  return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
-}
-
-/**
- * Returns the working time slots from a single staff availability record.
- * Prefers the JSONB time_slots array (unlimited breaks); falls back to legacy columns.
- *
- * @param record     - Staff availability record.
- * @param salonOpen  - Salon opening time HH:MM.
- * @param salonClose - Salon closing time HH:MM.
- * @returns          Sorted array of HH:MM slot strings.
- */
-function getSlotsFromRecord(
-  record: PublicAvailability,
-  salonOpen: string | null,
-  salonClose: string | null,
-): string[] {
-  const slots = new Set<string>();
-
-  if (record.time_slots && record.time_slots.length > 0) {
-    for (const ts of record.time_slots as TimeSlot[]) {
-      for (const s of generateTimeSlots(ts.start, ts.end)) slots.add(s);
-    }
-  } else if (record.start_time_1 && record.end_time_1) {
-    for (const s of generateTimeSlots(record.start_time_1, record.end_time_1)) slots.add(s);
-    if (record.start_time_2 && record.end_time_2) {
-      for (const s of generateTimeSlots(record.start_time_2, record.end_time_2)) slots.add(s);
-    }
-  } else {
-    // No time info on record: fall back to salon hours.
-    for (const s of generateTimeSlots(salonOpen, salonClose)) slots.add(s);
-  }
-
-  return [...slots].sort();
-}
-
-/**
- * Returns true if a barber is available on the given day_of_week, applying
- * the same logic as the backend's findEligibleBarbers (appointment-helpers.ts):
- *
- *  - No availability records at all → always available (no schedule configured).
- *  - Records exist for other days but NOT this day → unavailable (deliberately off).
- *  - Record exists for this day → return is_available.
- *
- * @param barberId     - UUID of the barber to check.
- * @param dow          - Day of week (0=Sun … 6=Sat).
- * @param availability - All staff availability records.
- * @returns            True if the barber is available on this day.
- */
-function isBarberAvailableOnDay(
-  barberId: string,
-  dow: number,
-  availability: PublicAvailability[],
-): boolean {
-  const dayRecord = availability.find(
-    (a) => a.barber_id === barberId && a.day_of_week === dow
-  );
-
-  if (dayRecord !== undefined) {
-    // Explicit record for this day → use its is_available flag.
-    return dayRecord.is_available;
-  }
-
-  // No record for this day. Check whether the barber has ANY records at all.
-  // If they do, this day is deliberately unconfigured (= unavailable).
-  // If they don't, no schedule exists yet (= treat as always available).
-  const hasAnyRecord = availability.some((a) => a.barber_id === barberId);
-  return !hasAnyRecord;
-}
-
-/**
- * Checks whether a calendar date is selectable based on staff availability.
- * A date is available if at least one barber is available on that day_of_week.
- *
- * Matches the backend logic in findEligibleBarbers (appointment-helpers.ts):
- *  - Barber with NO records at all → available (no schedule configured).
- *  - Barber with records for other days but NOT this day → unavailable.
- *  - Barber with a record for this day → use is_available flag.
- *
- * @param dateStr        - YYYY-MM-DD date.
- * @param selectedBarber - Currently selected barber, 'none' for no-preference, or null.
- * @param barbers        - All active barbers.
- * @param availability   - All staff availability records.
- * @returns              True if the date is selectable.
- */
-function isDateAvailable(
-  dateStr: string,
-  selectedBarber: PublicBarber | 'none' | null,
-  barbers: PublicBarber[],
-  availability: PublicAvailability[],
-): boolean {
-  if (barbers.length === 0 || availability.length === 0) return true;
-
-  const dow = getDayOfWeek(dateStr);
-
-  if (selectedBarber && selectedBarber !== 'none') {
-    return isBarberAvailableOnDay(selectedBarber.id, dow, availability);
-  }
-
-  // No preference — available if at least one barber in the provided list is available.
-  const barberIdSet = new Set(barbers.map((b) => b.id));
-  const relevantBarbers = barbers.filter((b) => barberIdSet.has(b.id));
-  return relevantBarbers.some((b) => isBarberAvailableOnDay(b.id, dow, availability));
-}
-
-/**
- * Returns available barbers who have a working slot at the given time on the given date.
- * Used to compute per-slot availability counts and for "all booked" detection.
- *
- * @param slot         - HH:MM time slot.
- * @param dateStr      - YYYY-MM-DD date.
- * @param barbers      - All active barbers.
- * @param availability - All staff availability records.
- * @param salonOpen    - Salon opening time.
- * @param salonClose   - Salon closing time.
- * @returns            Barbers who have this slot scheduled on this day_of_week.
- */
-function getAvailableBarbersForSlot(
-  slot: string,
-  dateStr: string,
-  barbers: PublicBarber[],
-  availability: PublicAvailability[],
-  salonOpen: string | null,
-  salonClose: string | null,
-): PublicBarber[] {
-  const dow = getDayOfWeek(dateStr);
-  return barbers.filter((barber) => {
-    const record = availability.find((a) => a.barber_id === barber.id && a.day_of_week === dow);
-    if (!record) return false;
-    if (!record.is_available) return false;
-    return getSlotsFromRecord(record, salonOpen, salonClose).includes(slot);
-  });
-}
-
-/**
- * Generates available time slots for a given date based on staff availability.
- * Uses all barbers' schedules for no-preference, or just the selected barber's.
- *
- * @param dateStr        - YYYY-MM-DD date.
- * @param selectedBarber - Selected barber, 'none', or null.
- * @param barbers        - All active barbers.
- * @param availability   - All staff availability records.
- * @param salonOpen      - Salon opening time.
- * @param salonClose     - Salon closing time.
- * @returns              Sorted array of HH:MM slot strings.
- */
-function getSlotsForDate(
-  dateStr: string,
-  selectedBarber: PublicBarber | 'none' | null,
-  barbers: PublicBarber[],
-  availability: PublicAvailability[],
-  salonOpen: string | null,
-  salonClose: string | null,
-): string[] {
-  const dow = getDayOfWeek(dateStr);
-  const allSlots = new Set<string>();
-
-  const effectiveBarbers: PublicBarber[] =
-    selectedBarber && selectedBarber !== 'none' ? [selectedBarber] : barbers;
-
-  if (availability.length === 0 || effectiveBarbers.length === 0) {
-    return generateTimeSlots(salonOpen, salonClose);
-  }
-
-  for (const barber of effectiveBarbers) {
-    const record = availability.find(
-      (a) => a.barber_id === barber.id && a.day_of_week === dow
-    );
-
-    if (!record) {
-      // No record → use salon hours as fallback.
-      for (const s of generateTimeSlots(salonOpen, salonClose)) allSlots.add(s);
-    } else if (record.is_available) {
-      for (const s of getSlotsFromRecord(record, salonOpen, salonClose)) allSlots.add(s);
-    }
-    // is_available === false: this barber contributes no slots.
-  }
-
-  return [...allSlots].sort();
-}
-
-/**
- * Converts a local date + time in the given IANA timezone to a UTC ISO string.
- * Used when submitting the booking to the API.
- *
- * @param dateStr  - YYYY-MM-DD local date.
- * @param timeStr  - HH:MM local time.
- * @param timezone - IANA timezone, e.g. "Europe/Nicosia".
- * @returns        UTC ISO 8601 string.
- */
-function localToUTC(dateStr: string, timeStr: string, timezone: string): string {
-  const naiveUTC = new Date(`${dateStr}T${timeStr}:00Z`);
-
-  const tzParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year:   'numeric',
-    month:  '2-digit',
-    day:    '2-digit',
-    hour:   '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(naiveUTC);
-
-  const p: Record<string, string> = {};
-  for (const part of tzParts) if (part.type !== 'literal') p[part.type] = part.value;
-
-  const hour = p.hour === '24' ? '00' : p.hour;
-  const tzAsUTC = new Date(`${p.year}-${p.month}-${p.day}T${hour}:${p.minute}:${p.second}Z`);
-  const offsetMs = tzAsUTC.getTime() - naiveUTC.getTime();
-  return new Date(naiveUTC.getTime() - offsetMs).toISOString();
-}
 
 /** Formats "14:30" → "2:30 PM". */
 function formatTime12h(time: string): string {
@@ -372,13 +140,17 @@ function formatTime12h(time: string): string {
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
 }
 
-/** Formats "2026-04-15" → "Wednesday, April 15". */
+/**
+ * Formats "2026-04-15" → "Wednesday, April 15".
+ * Formats in UTC so the day shown is the date itself, in every browser timezone.
+ */
 function formatDateLong(dateStr: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month:   'long',
-    day:     'numeric',
-  }).format(new Date(`${dateStr}T12:00:00Z`));
+  return formatDateOnly(dateStr, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+/** Formats an IANA timezone for display, e.g. "America/New_York" → "America/New York". */
+function formatTimeZoneLabel(timeZone: string): string {
+  return timeZone.replace(/_/g, ' ');
 }
 
 /** Builds initials from a name (up to 2 characters). */
@@ -389,31 +161,17 @@ function getInitials(name: string): string {
 }
 
 /**
- * Computes the effective price and duration for a service given the selected barber.
- * Uses the barber-specific override if one exists; falls back to the global service defaults.
+ * Formats a set of numbers as a single value or a range, e.g. "30" or "30–45".
  *
- * @param service                 - The global service definition.
- * @param barberId                - UUID of the currently selected barber, or null for no-preference.
- * @param barberServiceAssignments - All barber-service assignments for this salon.
- * @returns                        Effective { price, duration } — either from override or global default.
+ * @param values - Numbers to summarise.
+ * @param format - Formats one number.
+ * @returns      The label, or null when there are no values.
  */
-function getEffectivePriceAndDuration(
-  service: PublicService,
-  barberId: string | null,
-  barberServiceAssignments: BarberServiceLink[],
-): { price: number | null; duration: number | null } {
-  if (barberId) {
-    const assignment = barberServiceAssignments.find(
-      (ba) => ba.barber_id === barberId && ba.service_id === service.id
-    );
-    if (assignment) {
-      return {
-        price:    assignment.price_override    ?? service.price,
-        duration: assignment.duration_minutes_override ?? service.duration_minutes,
-      };
-    }
-  }
-  return { price: service.price, duration: service.duration_minutes };
+function formatRange(values: number[], format: (n: number) => string): string | null {
+  if (values.length === 0) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return min === max ? format(min) : `${format(min)}–${format(max)}`;
 }
 
 /**
@@ -421,24 +179,18 @@ function getEffectivePriceAndDuration(
  *
  * @param salonName       - Name of the salon (shown in the event title).
  * @param service         - Service name.
- * @param dateStr         - YYYY-MM-DD date.
- * @param timeStr         - HH:MM local time.
- * @param timezone        - IANA timezone.
- * @param durationMinutes - Duration in minutes; defaults to 30.
+ * @param start           - Appointment start instant.
+ * @param durationMinutes - Appointment length in minutes.
  * @returns               iCalendar text content.
  */
 function buildICS(
   salonName: string,
   service: string,
-  dateStr: string,
-  timeStr: string,
-  timezone: string,
-  durationMinutes: number | null,
+  start: Date,
+  durationMinutes: number,
 ): string {
-  const utcStart = localToUTC(dateStr, timeStr, timezone);
-  const dtStart  = new Date(utcStart);
-  const dtEnd    = new Date(dtStart.getTime() + (durationMinutes ?? 30) * 60_000);
-  const fmt      = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const end = new Date(start.getTime() + durationMinutes * 60_000);
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
   return [
     'BEGIN:VCALENDAR',
@@ -446,8 +198,8 @@ function buildICS(
     'PRODID:-//Booking//EN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
-    `DTSTART:${fmt(dtStart)}`,
-    `DTEND:${fmt(dtEnd)}`,
+    `DTSTART:${fmt(start)}`,
+    `DTEND:${fmt(end)}`,
     `SUMMARY:${service || 'Appointment'} at ${salonName}`,
     `DESCRIPTION:Your appointment at ${salonName}.`,
     'STATUS:CONFIRMED',
@@ -480,46 +232,48 @@ const MONTH_NAMES = [
 const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
 /**
- * A simple month-grid calendar that allows selecting a future date.
- * Unavailable dates are greyed out and not clickable.
+ * A simple month-grid calendar for picking a salon date.
+ * Dates outside the booking window or with no bookable staff are greyed out.
  *
- * @param selected           - Currently selected YYYY-MM-DD date, or null.
- * @param onSelect           - Callback when a date is clicked.
- * @param timezone           - Salon timezone for determining "today".
- * @param checkAvailability  - Optional function; false return greys out the date.
+ * @param selected     - Currently selected YYYY-MM-DD date, or null.
+ * @param onSelect     - Callback when a date is clicked.
+ * @param today        - Today's date in the salon timezone.
+ * @param lastDate     - Last bookable date in the salon timezone.
+ * @param isSelectable - Returns false for dates that cannot be booked.
  */
 function CalendarPicker({
   selected,
   onSelect,
-  timezone,
-  checkAvailability,
+  today,
+  lastDate,
+  isSelectable,
 }: {
   selected: string | null;
   onSelect: (date: string) => void;
-  timezone: string;
-  checkAvailability?: (dateStr: string) => boolean;
+  today: string;
+  lastDate: string;
+  isSelectable: (dateStr: string) => boolean;
 }) {
-  const todayStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year:  'numeric',
-    month: '2-digit',
-    day:   '2-digit',
-  }).format(new Date());
+  const initial = selected ?? today;
+  const [viewYear, setViewYear]   = useState(() => Number(initial.slice(0, 4)));
+  const [viewMonth, setViewMonth] = useState(() => Number(initial.slice(5, 7)) - 1);
 
-  const today = new Date(`${todayStr}T12:00:00Z`);
-  const [viewYear, setViewYear]   = useState(today.getUTCFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getUTCMonth());
-
-  const daysInMonth    = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth    = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate();
+  const firstDayOfWeek = new Date(Date.UTC(viewYear, viewMonth, 1)).getUTCDay();
   const leadingEmpty   = Array.from({ length: firstDayOfWeek });
 
+  const monthKey     = `${viewYear}-${(viewMonth + 1).toString().padStart(2, '0')}`;
+  const canGoBack    = monthKey > today.slice(0, 7);
+  const canGoForward = monthKey < lastDate.slice(0, 7);
+
   function prevMonth() {
+    if (!canGoBack) return;
     if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
     else setViewMonth((m) => m - 1);
   }
 
   function nextMonth() {
+    if (!canGoForward) return;
     if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); }
     else setViewMonth((m) => m + 1);
   }
@@ -531,7 +285,8 @@ function CalendarPicker({
         <button
           type="button"
           onClick={prevMonth}
-          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332]"
+          disabled={!canGoBack}
+          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332] disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Previous month"
         >
           &#8592;
@@ -542,7 +297,8 @@ function CalendarPicker({
         <button
           type="button"
           onClick={nextMonth}
-          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332]"
+          disabled={!canGoForward}
+          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332] disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Next month"
         >
           &#8594;
@@ -562,12 +318,10 @@ function CalendarPicker({
       <div className="grid grid-cols-7 gap-0.5">
         {leadingEmpty.map((_, i) => <div key={`e${i}`} />)}
         {Array.from({ length: daysInMonth }, (_, i) => {
-          const day     = i + 1;
-          const dateStr = `${viewYear}-${(viewMonth + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-          const isPast  = dateStr < todayStr;
-          const isUnavailable = !isPast && checkAvailability ? !checkAvailability(dateStr) : false;
-          const isDisabled = isPast || isUnavailable;
-          const isToday    = dateStr === todayStr;
+          const day        = i + 1;
+          const dateStr    = `${monthKey}-${day.toString().padStart(2, '0')}`;
+          const isDisabled = !isSelectable(dateStr);
+          const isToday    = dateStr === today;
           const isSelected = dateStr === selected;
 
           return (
@@ -620,21 +374,45 @@ export default function BookingFlow({
   staffAvailability,
 }: Props) {
   const currencySymbol = getCurrencySymbol(salon.currency);
+  const timeZone = salon.timezone;
+  const salonHours = { opening_time: salon.opening_time, closing_time: salon.closing_time };
 
   // -------------------------------------------------------------------------
-  // Step navigation
+  // Staff
   // -------------------------------------------------------------------------
 
-  const hasBarbers = barbers.length > 0;
+  /** Salons with active staff always book a specific staff member. */
+  const salonHasStaff = barbers.length > 0;
 
-  const [step, setStep] = useState<Step>(hasBarbers ? 'staff' : 'service');
+  /**
+   * Staff members who can be booked: with services configured, only those who
+   * can perform at least one active service.
+   */
+  const bookableBarbers =
+    globalServices.length === 0
+      ? barbers
+      : barbers.filter((b) =>
+          globalServices.some((s) => isBarberEligibleForService(s.id, b.id, barberServiceAssignments))
+        );
+  const bookableBarberIds = bookableBarbers.map((b) => b.id);
+
+  /** "Any available staff" is offered when there is more than one person to choose from. */
+  const offerAnyStaff = bookableBarbers.length > 1;
+
+  /** True when the staff step has a real choice to make. */
+  const hasStaffChoice = salonHasStaff && bookableBarbers.length !== 1;
 
   // -------------------------------------------------------------------------
-  // Booking selections
+  // Step navigation and booking selections
   // -------------------------------------------------------------------------
 
-  const [selectedBarber, setSelectedBarber] = useState<PublicBarber | null | 'none'>(
-    !hasBarbers ? null : barbers.length === 1 ? barbers[0] : null
+  const [step, setStep] = useState<Step>(() => {
+    if (hasStaffChoice) return 'staff';
+    return globalServices.length > 0 ? 'service' : 'datetime';
+  });
+
+  const [selectedStaff, setSelectedStaff] = useState<StaffChoice>(() =>
+    salonHasStaff && bookableBarbers.length === 1 ? bookableBarbers[0] : null
   );
   const [selectedService, setSelectedService] = useState<PublicService | null>(null);
   const [selectedDate,    setSelectedDate]    = useState<string | null>(null);
@@ -648,254 +426,201 @@ export default function BookingFlow({
   const [clientPhone,  setClientPhone]  = useState('');
   const [clientEmail,  setClientEmail]  = useState('');
   const [clientNotes,  setClientNotes]  = useState('');
+  /**
+   * Honeypot: hidden from people, so it must stay empty. Bots tend to fill it in.
+   * Its name means nothing to browser autofill, which could fill a field such
+   * as "company" even though it is hidden.
+   */
+  const [honeypot,     setHoneypot]     = useState('');
   const [detailsError, setDetailsError] = useState('');
 
   // -------------------------------------------------------------------------
-  // Booked slots (fetched per selected date, per-barber aware)
+  // Current time (client-only, so the server render never depends on it)
   // -------------------------------------------------------------------------
 
-  const [bookedSlots,  setBookedSlots]  = useState<BookedSlot[]>([]);
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Busy times (fetched per selected date)
+  // -------------------------------------------------------------------------
+
+  const [busy,         setBusy]         = useState<PublicBusyInterval[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotsError,   setSlotsError]   = useState('');
+  /** Increments per request so a slow, outdated response never overwrites a newer one. */
+  const busyRequestRef = useRef(0);
 
   // -------------------------------------------------------------------------
   // Submit state
   // -------------------------------------------------------------------------
 
-  const [submitting,  setSubmitting]  = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [confirmedId, setConfirmedId] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<ConfirmedBooking | null>(null);
 
   // -------------------------------------------------------------------------
-  // Services derived from selected barber
+  // Derived selection data
+  // -------------------------------------------------------------------------
+
+  const specificBarber = selectedStaff && selectedStaff !== 'any' ? selectedStaff : null;
+
+  /**
+   * Services the visitor can pick:
+   *  - specific staff member: the services they are eligible for;
+   *  - "any" (or not chosen yet): services at least one bookable staff member can perform;
+   *  - salon without staff: every active service.
+   */
+  const availableServices: PublicService[] = !salonHasStaff
+    ? globalServices
+    : specificBarber
+      ? globalServices.filter((s) => isBarberEligibleForService(s.id, specificBarber.id, barberServiceAssignments))
+      : globalServices.filter((s) => eligibleBarberIds(s.id, bookableBarberIds, barberServiceAssignments).length > 0);
+
+  /**
+   * Staff ids a service could be booked with for the current staff choice.
+   *
+   * @param serviceId - Service, or null when none is selected.
+   */
+  function staffIdsFor(serviceId: string | null): string[] {
+    if (!salonHasStaff) return [];
+    if (specificBarber) return [specificBarber.id];
+    return eligibleBarberIds(serviceId, bookableBarberIds, barberServiceAssignments);
+  }
+
+  /**
+   * Builds the slot candidates for a date: one per eligible staff member with
+   * their bookable intervals and own duration, or a single staff-less
+   * candidate working the salon hours for salons without staff.
+   *
+   * @param date - 'YYYY-MM-DD' in the salon timezone.
+   */
+  function buildCandidates(date: string): SlotCandidate[] {
+    const dayOfWeek = dayOfWeekForDate(date);
+    if (!salonHasStaff) {
+      return [{
+        barberId: null,
+        intervals: [getSalonHoursInterval(salonHours) ?? DEFAULT_OPENING_HOURS],
+        durationMinutes: getEffectiveDuration(selectedService, null, barberServiceAssignments),
+      }];
+    }
+    return staffIdsFor(selectedService?.id ?? null).map((barberId) => ({
+      barberId,
+      intervals: getBookableIntervals(barberId, dayOfWeek, staffAvailability, salonHours),
+      durationMinutes: getEffectiveDuration(selectedService, barberId, barberServiceAssignments),
+    }));
+  }
+
+  /**
+   * Returns the duration label for a service with the current staff choice,
+   * e.g. "45" or "30–45" when staff overrides differ. Null when neither the
+   * service nor any override defines a duration.
+   *
+   * @param service - The service.
+   */
+  function serviceDurationLabel(service: PublicService): string | null {
+    const ids: Array<string | null> = salonHasStaff ? staffIdsFor(service.id) : [null];
+    const defined =
+      service.duration_minutes != null ||
+      barberServiceAssignments.some(
+        (a) => a.service_id === service.id && a.duration_minutes_override != null && ids.includes(a.barber_id)
+      );
+    if (!defined) return null;
+    return formatRange(
+      (ids.length > 0 ? ids : [null]).map((id) => getEffectiveDuration(service, id, barberServiceAssignments)),
+      (n) => `${n}`,
+    );
+  }
+
+  /**
+   * Returns the price label for a service with the current staff choice,
+   * e.g. "€25.00" or "€20.00–€25.00". Null when no price is set.
+   *
+   * @param service - The service.
+   */
+  function servicePriceLabel(service: PublicService): string | null {
+    const ids: Array<string | null> = salonHasStaff ? staffIdsFor(service.id) : [null];
+    const prices = (ids.length > 0 ? ids : [null])
+      .map((id) => getEffectivePrice(service, id, barberServiceAssignments))
+      .filter((p): p is number => p !== null);
+    return formatRange(prices, (n) => `${currencySymbol}${n.toFixed(2)}`);
+  }
+
+  const today    = now ? todayInZone(timeZone, now) : null;
+  const lastDate = now ? lastBookableDate(timeZone, now) : null;
+
+  /**
+   * Returns true when a date can be picked: inside the booking window and at
+   * least one candidate works that day.
+   *
+   * @param date - 'YYYY-MM-DD' in the salon timezone.
+   */
+  function isDateSelectable(date: string): boolean {
+    if (!now || !isDateWithinBookingWindow(date, timeZone, now)) return false;
+    return buildCandidates(date).some((c) => c.intervals.length > 0);
+  }
+
+  /** Bookable start times on the selected date. */
+  const timeSlots: string[] =
+    now && selectedDate && !loadingSlots && !slotsError
+      ? getAvailableSlots({
+          date: selectedDate,
+          timeZone,
+          candidates: buildCandidates(selectedDate),
+          busy,
+          now,
+        }).map((slot) => slot.time)
+      : [];
+
+  // -------------------------------------------------------------------------
+  // Effects
   // -------------------------------------------------------------------------
 
   /**
-   * Returns the services available for the current barber selection.
-   * - Specific barber: returns global services they are assigned to (via barber_services).
-   *   If no assignments exist for this barber, returns all global services (backwards compat).
-   * - 'none' (no preference): returns all global services.
-   * - null (no selection): returns all global services (shown before staff is chosen).
+   * Fetches the busy times for a date from GET /api/book/[slug]?date=.
+   *
+   * @param date - 'YYYY-MM-DD' in the salon timezone.
    */
-  const availableServices: PublicService[] = (() => {
-    if (selectedBarber === null || selectedBarber === 'none') {
-      return globalServices;
+  async function loadBusy(date: string): Promise<void> {
+    const requestId = ++busyRequestRef.current;
+    setLoadingSlots(true);
+    setSlotsError('');
+
+    try {
+      const res = await fetch(`/api/book/${encodeURIComponent(slug)}?date=${date}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      const data = (await res.json()) as { busy?: PublicBusyInterval[] };
+      if (requestId === busyRequestRef.current) setBusy(data.busy ?? []);
+    } catch (err) {
+      console.error('[BookingFlow] Failed to load booked times:', err);
+      if (requestId === busyRequestRef.current) {
+        setBusy([]);
+        setSlotsError('Could not load the available times. Please try again.');
+      }
+    } finally {
+      if (requestId === busyRequestRef.current) setLoadingSlots(false);
     }
+  }
 
-    // Specific barber: filter to services they are assigned to.
-    const assignedServiceIds = new Set(
-      barberServiceAssignments
-        .filter((ba) => ba.barber_id === selectedBarber.id)
-        .map((ba) => ba.service_id)
-    );
-
-    if (assignedServiceIds.size === 0) {
-      // No assignments → all global services available (backwards compatible).
-      return globalServices;
-    }
-
-    return globalServices.filter((svc) => assignedServiceIds.has(svc.id));
-  })();
-
-  // When "no preference" is selected and a service is chosen, restrict slot calculations
-  // to only barbers who are assigned to that service via barber_services.
-  // If no assignments exist for the service, all barbers are eligible (backwards compat).
-  const effectiveBarbers: PublicBarber[] = (() => {
-    if (selectedBarber !== 'none' || !selectedService) return barbers;
-
-    const assignedBarberIds = new Set(
-      barberServiceAssignments
-        .filter((ba) => ba.service_id === selectedService.id)
-        .map((ba) => ba.barber_id)
-    );
-
-    if (assignedBarberIds.size === 0) {
-      // No assignments for this service → all barbers eligible.
-      return barbers;
-    }
-
-    return barbers.filter((b) => assignedBarberIds.has(b.id));
-  })();
-
-  // -------------------------------------------------------------------------
-  // Auto-advance: skip staff step when only one barber and no-preference is off
-  // -------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (step === 'staff' && barbers.length === 1) {
-      setSelectedBarber(barbers[0]);
-      setStep(globalServices.length > 0 ? 'service' : 'datetime');
-    }
-  }, [step, barbers, globalServices]);
-
-  // -------------------------------------------------------------------------
-  // Fetch booked slots when the selected date changes
-  // -------------------------------------------------------------------------
-
+  // Fetch busy times whenever the selected date changes.
   useEffect(() => {
     if (!selectedDate) return;
     setSelectedTime(null);
-    setLoadingSlots(true);
-
-    fetch(`/api/book/${slug}?date=${selectedDate}`)
-      .then((r) => r.json())
-      .then((data: { bookedSlots?: BookedSlot[] }) => {
-        setBookedSlots(data.bookedSlots ?? []);
-      })
-      .catch(() => setBookedSlots([]))
-      .finally(() => setLoadingSlots(false));
+    void loadBusy(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, slug]);
 
-  // -------------------------------------------------------------------------
-  // Derived data
-  // -------------------------------------------------------------------------
-
-  const timeSlots = selectedDate
-    ? getSlotsForDate(selectedDate, selectedBarber, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time)
-    : generateTimeSlots(salon.opening_time, salon.closing_time);
-
-  const todayStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: salon.timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-
-  const nowMinutes = (() => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: salon.timezone,
-      hour: '2-digit', minute: '2-digit', hour12: false,
-    }).formatToParts(new Date());
-    const h = parseInt(parts.find((p) => p.type === 'hour')?.value   ?? '0');
-    const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0');
-    return h * 60 + m;
-  })();
-
-  /**
-   * Returns the resolved duration in minutes for the currently selected service/barber.
-   * Uses barber-specific override when available, then global service duration, then 30.
-   */
-  const newDurationMinutes: number = (() => {
-    if (!selectedService) return 30;
-    const { duration } = getEffectivePriceAndDuration(
-      selectedService,
-      selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null,
-      barberServiceAssignments,
-    );
-    return duration ?? 30;
-  })();
-
-  /**
-   * Converts an HH:MM string to minutes since midnight.
-   *
-   * @param time - "HH:MM" 24-hour string.
-   * @returns    Total minutes since 00:00.
-   */
-  function timeToMinutes(time: string): number {
-    const [h, m] = time.split(':').map(Number);
-    return h * 60 + m;
-  }
-
-  /**
-   * Returns true if an existing booked slot overlaps with a candidate slot.
-   * Two time ranges [A, A+dA) and [B, B+dB) overlap when: A < B+dB AND B < A+dA.
-   * Consistent with the server-side appointmentsOverlap() in appointment-helpers.ts.
-   *
-   * @param bookedStartMin  - Existing booking start in minutes since midnight.
-   * @param bookedDuration  - Existing booking duration in minutes.
-   * @param slotStartMin    - Candidate slot start in minutes since midnight.
-   * @param slotDuration    - Candidate slot duration in minutes.
-   * @returns               True if the two time ranges overlap.
-   */
-  function slotsOverlap(
-    bookedStartMin: number,
-    bookedDuration: number,
-    slotStartMin: number,
-    slotDuration: number,
-  ): boolean {
-    return bookedStartMin < slotStartMin + slotDuration && slotStartMin < bookedStartMin + bookedDuration;
-  }
-
-  /**
-   * Determines whether a time slot should be blocked (past-time or fully booked).
-   * - Today: also blocks slots at or before the current local time.
-   * - Specific barber: blocked if that barber has an overlapping booking.
-   * - No preference: blocked only if ALL available barbers have overlapping bookings.
-   *
-   * Uses duration-aware overlap, consistent with the backend's
-   * double-booking check in POST /api/book/[slug]/appointments.
-   *
-   * @param slot - HH:MM slot string.
-   * @returns    True if the slot should not be selectable.
-   */
-  function isSlotBlocked(slot: string): boolean {
-    // Past-time guard for today.
-    if (selectedDate === todayStr) {
-      const [h, m] = slot.split(':').map(Number);
-      if (h * 60 + m <= nowMinutes) return true;
-    }
-
-    const slotMin = timeToMinutes(slot);
-
-    if (selectedBarber && selectedBarber !== 'none') {
-      // Specific barber: blocked if that barber has an overlapping booking.
-      return bookedSlots.some(
-        (bs) =>
-          bs.barberId === selectedBarber.id &&
-          slotsOverlap(timeToMinutes(bs.time), bs.duration, slotMin, newDurationMinutes)
-      );
-    }
-
-    // No preference: blocked only if ALL barbers who offer this service and work this slot are booked.
-    if (selectedDate) {
-      const workingBarbers = getAvailableBarbersForSlot(
-        slot, selectedDate, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
-      );
-      if (workingBarbers.length === 0) return false;
-      const bookedBarberIds = new Set(
-        bookedSlots
-          .filter((bs) => slotsOverlap(timeToMinutes(bs.time), bs.duration, slotMin, newDurationMinutes))
-          .map((bs) => bs.barberId)
-      );
-      return workingBarbers.every((b) => bookedBarberIds.has(b.id));
-    }
-
-    return false;
-  }
-
-  /**
-   * Finds the least-busy barber available at the given date and time.
-   * Used to auto-assign a barber when the client chose "No preference".
-   * Counts existing bookings in bookedSlots (for the selected date) per barber.
-   *
-   * @param dateStr - YYYY-MM-DD date.
-   * @param timeStr - HH:MM local time.
-   * @returns       UUID of the chosen barber, or null if no one is available.
-   */
-  function getLeastBusyBarber(dateStr: string, timeStr: string): string | null {
-    const available = getAvailableBarbersForSlot(
-      timeStr, dateStr, effectiveBarbers, staffAvailability, salon.opening_time, salon.closing_time
-    );
-    // Exclude barbers who have an overlapping booking (duration-aware).
-    const slotMin = timeToMinutes(timeStr);
-    const bookedAtTime = new Set(
-      bookedSlots
-        .filter((bs) => slotsOverlap(timeToMinutes(bs.time), bs.duration, slotMin, newDurationMinutes))
-        .map((bs) => bs.barberId)
-    );
-    const free = available.filter((b) => !bookedAtTime.has(b.id));
-    if (free.length === 0) return null;
-
-    // Count total bookings on this date per free barber.
-    const bookingCount: Record<string, number> = {};
-    for (const b of free) bookingCount[b.id] = 0;
-    for (const bs of bookedSlots) {
-      if (bs.barberId && bookingCount[bs.barberId] !== undefined) {
-        bookingCount[bs.barberId]++;
-      }
-    }
-
-    return free.reduce((least, b) =>
-      (bookingCount[b.id] ?? 0) < (bookingCount[least.id] ?? 0) ? b : least
-    ).id;
-  }
+  // While picking a time, drop a selection that is no longer offered
+  // (e.g. it fell inside the minimum notice as time passed).
+  useEffect(() => {
+    if (step !== 'datetime' || loadingSlots || !selectedTime) return;
+    if (!timeSlots.includes(selectedTime)) setSelectedTime(null);
+  }, [step, loadingSlots, selectedTime, timeSlots]);
 
   // -------------------------------------------------------------------------
   // Submit handler
@@ -917,41 +642,40 @@ export default function BookingFlow({
       setDetailsError('Your phone number is required.');
       return;
     }
-    if (phone && !phone.startsWith('+')) {
-      setDetailsError('Phone must include country code (e.g. +357 99 123 456).');
-      return;
+    if (phone) {
+      const phoneCheck = validatePhone(phone);
+      if (!phoneCheck.ok) { setDetailsError(`${phoneCheck.error}.`); return; }
     }
     if (requireEmail && !email) {
       setDetailsError('Your email is required to receive email reminders.');
       return;
+    }
+    if (email) {
+      const emailCheck = validateEmail(email);
+      if (!emailCheck.ok) { setDetailsError(`${emailCheck.error}.`); return; }
     }
     if (!selectedDate || !selectedTime) {
       setDetailsError('Please select a date and time.');
       return;
     }
 
-    // Determine which barber to assign when no preference was selected.
-    const assignedBarberId =
-      selectedBarber && selectedBarber !== 'none'
-        ? selectedBarber.id
-        : getLeastBusyBarber(selectedDate, selectedTime);
-
     setSubmitting(true);
 
     try {
-      const res = await fetch(`/api/book/${slug}/appointments`, {
+      const res = await fetch(`/api/book/${encodeURIComponent(slug)}/appointments`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          service_id:   selectedService?.id   ?? null,
-          service_name: selectedService?.name ?? null,
-          barber_id:    assignedBarberId,
+          service_id:   selectedService?.id ?? null,
+          // null = "Any available staff" (or no staff): the server assigns.
+          barber_id:    specificBarber?.id ?? null,
           date:         selectedDate,
           time:         selectedTime,
           client_name:  name,
           client_phone: phone || null,
           client_email: email || null,
           notes:        notes || null,
+          hp_field:     honeypot,
         }),
       });
 
@@ -966,11 +690,21 @@ export default function BookingFlow({
           errMsg = `Server error (${res.status}). Please try again.`;
         }
         setSubmitError(errMsg);
+        // The time was taken in the meantime: refresh so it disappears from the list.
+        if (res.status === 409) void loadBusy(selectedDate);
         return;
       }
 
-      const data = (await res.json()) as { appointmentId: string };
-      setConfirmedId(data.appointmentId);
+      const data = (await res.json()) as {
+        appointmentId: string;
+        barberName?: string | null;
+        durationMinutes?: number;
+      };
+      setConfirmed({
+        appointmentId:   data.appointmentId,
+        barberName:      data.barberName ?? specificBarber?.name ?? null,
+        durationMinutes: data.durationMinutes ?? getEffectiveDuration(selectedService, specificBarber?.id, barberServiceAssignments),
+      });
       setStep('success');
     } catch (err) {
       console.error('[BookingFlow] fetch error:', err);
@@ -985,39 +719,52 @@ export default function BookingFlow({
   // -------------------------------------------------------------------------
 
   function handleDownloadICS(): void {
-    if (!selectedDate || !selectedTime) return;
-    const service  = selectedService?.name ?? 'Appointment';
-    const duration = selectedService?.duration_minutes ?? null;
-    const ics = buildICS(salon.name, service, selectedDate, selectedTime, salon.timezone, duration);
+    if (!selectedDate || !selectedTime || !confirmed) return;
+    const start = resolveZonedTime(selectedDate, selectedTime, timeZone);
+    if (!start.ok) return;
+    const service = selectedService?.name ?? 'Appointment';
+    const ics = buildICS(salon.name, service, start.date, confirmed.durationMinutes);
     downloadFile(ics, 'appointment.ics', 'text/calendar');
   }
 
   // -------------------------------------------------------------------------
-  // Helper: select a barber and advance to next step
+  // Navigation helpers
   // -------------------------------------------------------------------------
 
   /**
-   * Selects a barber and advances to the next step.
+   * Selects a staff member (or "any") and advances to the next step.
    * If global services exist, go to service step; otherwise skip to datetime.
    *
-   * @param barber - The selected barber, or 'none' for no preference.
+   * @param choice - The selected staff member, or 'any'.
    */
-  function handleSelectBarber(barber: PublicBarber | 'none') {
-    setSelectedBarber(barber);
+  function handleSelectStaff(choice: PublicBarber | 'any') {
+    setSelectedStaff(choice);
     setSelectedService(null);
     setSelectedDate(null);
     setSelectedTime(null);
     setStep(globalServices.length > 0 ? 'service' : 'datetime');
   }
 
+  /**
+   * Selects a service and advances to the date step. The chosen time is
+   * cleared because the duration (and so the free times) may differ.
+   *
+   * @param service - The selected service.
+   */
+  function handleSelectService(service: PublicService) {
+    setSelectedService(service);
+    setSelectedTime(null);
+    setStep('datetime');
+  }
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
-  // Sidebar step list — only show Staff step when there are barbers.
+  // Sidebar step list — only show the Staff step when there is a choice to make.
   const FLOW_STEPS: { id: Step; label: string }[] = [
-    ...(hasBarbers ? [{ id: 'staff' as Step, label: 'Staff member' }] : []),
-    { id: 'service' as Step, label: 'Service' },
+    ...(hasStaffChoice ? [{ id: 'staff' as Step, label: 'Staff member' }] : []),
+    ...(globalServices.length > 0 ? [{ id: 'service' as Step, label: 'Service' }] : []),
     { id: 'datetime' as Step, label: 'Date & time' },
     { id: 'details' as Step, label: 'Your details' },
   ];
@@ -1033,17 +780,27 @@ export default function BookingFlow({
     return 'upcoming';
   }
 
-  const currentStepLabel =
-    step === 'success' ? 'Done' : (FLOW_STEPS.find((s) => s.id === step)?.label ?? '');
+  /** Who the appointment is with, for the summaries. */
+  const staffLabel: string | null =
+    confirmed?.barberName
+      ? `with ${confirmed.barberName}`
+      : specificBarber
+        ? `with ${specificBarber.name}`
+        : selectedStaff === 'any'
+          ? 'Any available staff'
+          : null;
 
-  // ── Sidebar content (shared between desktop sidebar and mobile summary) ──
+  const selectedServiceDuration = selectedService ? serviceDurationLabel(selectedService) : null;
+  const selectedServicePrice    = selectedService ? servicePriceLabel(selectedService) : null;
 
   /** Booking summary lines for sidebar. */
   const hasSummary =
     selectedService !== null ||
-    (selectedBarber !== null && selectedBarber !== 'none') ||
+    staffLabel !== null ||
     selectedDate !== null ||
     selectedTime !== null;
+
+  const timeZoneNote = `Times are shown in ${formatTimeZoneLabel(timeZone)} time.`;
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -1072,24 +829,21 @@ export default function BookingFlow({
                     {selectedService.name}
                   </p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    {selectedService.duration_minutes && (
+                    {selectedServiceDuration && (
                       <span className="font-body text-white/40 text-[11px]">
-                        {selectedService.duration_minutes} min
+                        {selectedServiceDuration} min
                       </span>
                     )}
-                    {(() => {
-                      const eff = getEffectivePriceAndDuration(selectedService, selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null, barberServiceAssignments);
-                      return eff.price != null ? (
-                        <span className="font-body text-white/60 text-[11px] font-medium">
-                          {currencySymbol}{eff.price.toFixed(2)}
-                        </span>
-                      ) : null;
-                    })()}
+                    {selectedServicePrice && (
+                      <span className="font-body text-white/60 text-[11px] font-medium">
+                        {selectedServicePrice}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
-              {selectedBarber && selectedBarber !== 'none' && (
-                <p className="font-body text-white/50 text-[11px]">with {selectedBarber.name}</p>
+              {staffLabel && (
+                <p className="font-body text-white/50 text-[11px]">{staffLabel}</p>
               )}
               {selectedDate && (
                 <p className="font-body text-white/60 text-[11px]">{formatDateLong(selectedDate)}</p>
@@ -1155,7 +909,7 @@ export default function BookingFlow({
           {/* ----------------------------------------------------------------
               STEP: staff selection
           ---------------------------------------------------------------- */}
-          {step === 'staff' && hasBarbers && (
+          {step === 'staff' && (
             <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden shadow-sm">
               <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
                 <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">
@@ -1164,35 +918,59 @@ export default function BookingFlow({
                 <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you'd like to see</p>
               </div>
 
-              <div className="divide-y divide-[#E5E2DB]/60">
-                {barbers.map((b) => (
-                  <button
-                    key={b.id}
-                    type="button"
-                    onClick={() => handleSelectBarber(b)}
-                    className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
-                  >
-                    {b.photo_url ? (
-                      <img
-                        src={b.photo_url}
-                        alt={b.name}
-                        className="w-14 h-14 rounded-full object-cover shrink-0 border-2 border-[#E5E2DB] group-hover:border-[#1B4332]/40 transition-colors"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-[#E8F2EC] border-2 border-transparent group-hover:border-[#1B4332]/30 flex items-center justify-center text-sm font-semibold text-[#1B4332] shrink-0 transition-colors">
-                        {getInitials(b.name)}
+              {bookableBarbers.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="font-body text-sm text-[#8A8680]">
+                    Online booking is not available right now. Please contact us directly.
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[#E5E2DB]/60">
+                  {offerAnyStaff && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectStaff('any')}
+                      className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
+                    >
+                      <div className="w-14 h-14 rounded-full bg-[#F5F3EF] border-2 border-transparent group-hover:border-[#1B4332]/30 flex items-center justify-center text-lg text-[#1B4332] shrink-0 transition-colors">
+                        &#10033;
                       </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-body text-sm font-semibold text-[#1A1A1A]">{b.name}</p>
-                      {b.bio && (
-                        <p className="font-body text-xs text-[#8A8680] mt-0.5 line-clamp-2">{b.bio}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-body text-sm font-semibold text-[#1A1A1A]">Any available staff</p>
+                        <p className="font-body text-xs text-[#8A8680] mt-0.5">See every free time and we&apos;ll assign someone</p>
+                      </div>
+                      <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
+                    </button>
+                  )}
+                  {bookableBarbers.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => handleSelectStaff(b)}
+                      className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
+                    >
+                      {b.photo_url ? (
+                        <img
+                          src={b.photo_url}
+                          alt={b.name}
+                          className="w-14 h-14 rounded-full object-cover shrink-0 border-2 border-[#E5E2DB] group-hover:border-[#1B4332]/40 transition-colors"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-[#E8F2EC] border-2 border-transparent group-hover:border-[#1B4332]/30 flex items-center justify-center text-sm font-semibold text-[#1B4332] shrink-0 transition-colors">
+                          {getInitials(b.name)}
+                        </div>
                       )}
-                    </div>
-                    <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
-                  </button>
-                ))}
-              </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-body text-sm font-semibold text-[#1A1A1A]">{b.name}</p>
+                        {b.bio && (
+                          <p className="font-body text-xs text-[#8A8680] mt-0.5 line-clamp-2">{b.bio}</p>
+                        )}
+                      </div>
+                      <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1215,19 +993,14 @@ export default function BookingFlow({
                   <div className="p-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {availableServices.map((svc) => {
-                        // Compute effective price/duration: use barber override when a specific barber is selected.
-                        const specificBarberId =
-                          selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null;
-                        const effective = getEffectivePriceAndDuration(
-                          svc,
-                          specificBarberId,
-                          barberServiceAssignments,
-                        );
+                        // Effective price/duration: the staff member's overrides when one is selected.
+                        const durationLabel = serviceDurationLabel(svc);
+                        const priceLabel = servicePriceLabel(svc);
                         return (
                           <button
                             key={svc.id}
                             type="button"
-                            onClick={() => { setSelectedService(svc); setStep('datetime'); }}
+                            onClick={() => handleSelectService(svc)}
                             className="text-left p-5 rounded-xl border border-[#E5E2DB] hover:border-[#1B4332]/50 hover:bg-[#E8F2EC]/20 hover:shadow-sm transition-all group"
                           >
                             <p className="font-body text-sm font-semibold text-[#1A1A1A] leading-snug mb-3">
@@ -1235,15 +1008,15 @@ export default function BookingFlow({
                             </p>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                {effective.duration && (
+                                {durationLabel && (
                                   <span className="font-body text-[11px] bg-[#F5F3EF] text-[#4A4540] px-2.5 py-1 rounded-full font-medium">
-                                    {effective.duration} min
+                                    {durationLabel} min
                                   </span>
                                 )}
                               </div>
-                              {effective.price != null && (
+                              {priceLabel && (
                                 <span className="font-body text-sm font-semibold text-[#1B4332]">
-                                  {currencySymbol}{effective.price.toFixed(2)}
+                                  {priceLabel}
                                 </span>
                               )}
                             </div>
@@ -1255,7 +1028,7 @@ export default function BookingFlow({
                 )}
               </div>
 
-              {hasBarbers && (
+              {hasStaffChoice && (
                 <button
                   type="button"
                   onClick={() => { setSelectedService(null); setStep('staff'); }}
@@ -1274,47 +1047,58 @@ export default function BookingFlow({
             <div className="space-y-4">
               <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 shadow-sm">
                 <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-6">Pick a date</h2>
-                <CalendarPicker
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  timezone={salon.timezone}
-                  checkAvailability={(dateStr) =>
-                    isDateAvailable(dateStr, selectedBarber, effectiveBarbers, staffAvailability)
-                  }
-                />
+                {today && lastDate ? (
+                  <CalendarPicker
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
+                    today={today}
+                    lastDate={lastDate}
+                    isSelectable={isDateSelectable}
+                  />
+                ) : (
+                  <div className="h-64" />
+                )}
               </div>
 
               {selectedDate && (
                 <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 shadow-sm">
                   <h2 className="font-heading text-lg font-bold text-[#1A1A1A] mb-0.5">Available times</h2>
-                  <p className="font-body text-xs text-[#8A8680] mb-5">{formatDateLong(selectedDate)}</p>
+                  <p className="font-body text-xs text-[#8A8680]">{formatDateLong(selectedDate)}</p>
+                  <p className="font-body text-xs text-[#8A8680] mb-5">{timeZoneNote}</p>
 
                   {loadingSlots ? (
                     <div className="flex items-center gap-2 text-[#8A8680]">
                       <div className="w-4 h-4 border-2 border-[#E5E2DB] border-t-[#1B4332] rounded-full animate-spin" />
                       <p className="font-body text-sm">Loading available times...</p>
                     </div>
+                  ) : slotsError ? (
+                    <div className="space-y-2">
+                      <p className="font-body text-sm text-red-700">{slotsError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadBusy(selectedDate)}
+                        className="font-body text-sm text-[#1B4332] underline underline-offset-2"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   ) : timeSlots.length === 0 ? (
                     <p className="font-body text-sm text-[#8A8680]">No times available on this day. Please choose another date.</p>
                   ) : (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                       {timeSlots.map((slot) => {
-                        const blocked  = isSlotBlocked(slot);
                         const isActive = selectedTime === slot;
 
                         return (
                           <button
                             key={slot}
                             type="button"
-                            disabled={blocked}
                             onClick={() => setSelectedTime(slot)}
                             className={[
                               'flex items-center justify-center py-3.5 px-3 rounded-xl border transition-all',
-                              blocked
-                                ? 'text-[#8A8680]/40 border-[#E5E2DB]/40 cursor-not-allowed line-through'
-                                : isActive
-                                  ? 'bg-[#1B4332] text-white border-[#1B4332] shadow-sm'
-                                  : 'border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1B4332]/40 hover:bg-[#E8F2EC]/50 hover:shadow-sm',
+                              isActive
+                                ? 'bg-[#1B4332] text-white border-[#1B4332] shadow-sm'
+                                : 'border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1B4332]/40 hover:bg-[#E8F2EC]/50 hover:shadow-sm',
                             ].join(' ')}
                           >
                             <span className="font-body text-xs font-semibold">
@@ -1332,9 +1116,9 @@ export default function BookingFlow({
                 <button
                   type="button"
                   onClick={() => {
-                    if (selectedService || availableServices.length > 0) {
+                    if (globalServices.length > 0) {
                       setStep('service');
-                    } else if (hasBarbers) {
+                    } else if (hasStaffChoice) {
                       setStep('staff');
                     }
                   }}
@@ -1370,28 +1154,26 @@ export default function BookingFlow({
                     <div className="flex items-start justify-between gap-3">
                       <p className="font-body text-sm font-semibold text-[#1A1A1A]">
                         {selectedService.name}
-                        {selectedService.duration_minutes && (
-                          <span className="text-[#8A8680] font-normal"> &middot; {selectedService.duration_minutes} min</span>
+                        {selectedServiceDuration && (
+                          <span className="text-[#8A8680] font-normal"> &middot; {selectedServiceDuration} min</span>
                         )}
                       </p>
-                      {(() => {
-                        const eff = getEffectivePriceAndDuration(selectedService, selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null, barberServiceAssignments);
-                        return eff.price != null ? (
-                          <span className="font-body text-sm font-semibold text-[#1B4332] shrink-0">
-                            {currencySymbol}{eff.price.toFixed(2)}
-                          </span>
-                        ) : null;
-                      })()}
+                      {selectedServicePrice && (
+                        <span className="font-body text-sm font-semibold text-[#1B4332] shrink-0">
+                          {selectedServicePrice}
+                        </span>
+                      )}
                     </div>
                   )}
-                  {selectedBarber && selectedBarber !== 'none' && (
-                    <p className="font-body text-sm text-[#8A8680]">with {selectedBarber.name}</p>
+                  {staffLabel && (
+                    <p className="font-body text-sm text-[#8A8680]">{staffLabel}</p>
                   )}
                   {selectedDate && selectedTime && (
                     <p className="font-body text-sm text-[#1A1A1A] font-medium">
                       {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
                     </p>
                   )}
+                  <p className="font-body text-xs text-[#8A8680]">{timeZoneNote}</p>
                   <p className="font-body text-xs text-[#8A8680]">{customTitle ?? salon.name}</p>
                 </div>
               </div>
@@ -1400,7 +1182,7 @@ export default function BookingFlow({
               <form
                 onSubmit={(e) => void handleSubmit(e)}
                 noValidate
-                className="bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5 shadow-sm"
+                className="relative bg-white rounded-2xl border border-[#E5E2DB] p-6 space-y-5 shadow-sm"
               >
                 <div>
                   <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
@@ -1426,84 +1208,51 @@ export default function BookingFlow({
                   />
                 </div>
 
-                {/* Phone required */}
-                {requirePhone && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="client-phone" className="font-body text-sm font-medium text-[#1A1A1A]">
-                      Phone number <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="client-phone"
-                      type="tel"
-                      value={clientPhone}
-                      onChange={(e) => { setClientPhone(e.target.value); setDetailsError(''); }}
-                      placeholder="+357 99 123 456"
-                      maxLength={20}
-                      autoComplete="tel"
-                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
-                    />
-                    <p className="font-body text-xs text-[#8A8680]">
-                      Include your country code (e.g. +1, +357).
-                    </p>
-                  </div>
-                )}
+                {/* Phone */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="client-phone" className="font-body text-sm font-medium text-[#1A1A1A]">
+                    Phone number{' '}
+                    {requirePhone
+                      ? <span className="text-red-500">*</span>
+                      : <span className="font-body text-[#8A8680] font-normal">(optional)</span>}
+                  </Label>
+                  <Input
+                    id="client-phone"
+                    type="tel"
+                    value={clientPhone}
+                    onChange={(e) => { setClientPhone(e.target.value); setDetailsError(''); }}
+                    placeholder="+357 99 123 456"
+                    maxLength={MAX_PHONE_INPUT_LENGTH}
+                    autoComplete="tel"
+                    className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                  />
+                  <p className="font-body text-xs text-[#8A8680]">
+                    Include your country code (e.g. +1, +357).
+                  </p>
+                </div>
 
-                {/* Phone optional */}
-                {!requirePhone && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="client-phone" className="font-body text-sm font-medium text-[#1A1A1A]">
-                      Phone number <span className="font-body text-[#8A8680] font-normal">(optional)</span>
-                    </Label>
-                    <Input
-                      id="client-phone"
-                      type="tel"
-                      value={clientPhone}
-                      onChange={(e) => { setClientPhone(e.target.value); setDetailsError(''); }}
-                      placeholder="+357 99 123 456"
-                      maxLength={20}
-                      autoComplete="tel"
-                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
-                    />
-                    <p className="font-body text-xs text-[#8A8680]">Include your country code (e.g. +1, +357).</p>
-                  </div>
-                )}
-
-                {/* Email required */}
-                {requireEmail && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="client-email" className="font-body text-sm font-medium text-[#1A1A1A]">
-                      Email <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="client-email"
-                      type="email"
-                      value={clientEmail}
-                      onChange={(e) => { setClientEmail(e.target.value); setDetailsError(''); }}
-                      placeholder="jane@example.com"
-                      autoComplete="email"
-                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
-                    />
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="client-email" className="font-body text-sm font-medium text-[#1A1A1A]">
+                    Email{' '}
+                    {requireEmail
+                      ? <span className="text-red-500">*</span>
+                      : <span className="font-body text-[#8A8680] font-normal">(optional)</span>}
+                  </Label>
+                  <Input
+                    id="client-email"
+                    type="email"
+                    value={clientEmail}
+                    onChange={(e) => { setClientEmail(e.target.value); setDetailsError(''); }}
+                    placeholder="jane@example.com"
+                    maxLength={254}
+                    autoComplete="email"
+                    className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                  />
+                  {requireEmail && (
                     <p className="font-body text-xs text-[#8A8680]">Required for email reminders.</p>
-                  </div>
-                )}
-
-                {/* Email optional */}
-                {!requireEmail && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="client-email" className="font-body text-sm font-medium text-[#1A1A1A]">
-                      Email <span className="font-body text-[#8A8680] font-normal">(optional)</span>
-                    </Label>
-                    <Input
-                      id="client-email"
-                      type="email"
-                      value={clientEmail}
-                      onChange={(e) => { setClientEmail(e.target.value); setDetailsError(''); }}
-                      placeholder="jane@example.com"
-                      autoComplete="email"
-                      className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
-                    />
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Notes */}
                 <div className="space-y-1.5">
@@ -1518,6 +1267,23 @@ export default function BookingFlow({
                     rows={2}
                     maxLength={500}
                     className="font-body w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] resize-none transition-colors"
+                  />
+                </div>
+
+                {/* Honeypot — invisible to people and skipped by keyboard navigation. */}
+                <div
+                  aria-hidden="true"
+                  className="absolute left-[-10000px] top-auto w-px h-px overflow-hidden"
+                >
+                  <label htmlFor="hp_field">Leave this field empty</label>
+                  <input
+                    id="hp_field"
+                    name="hp_field"
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
                   />
                 </div>
 
@@ -1544,7 +1310,7 @@ export default function BookingFlow({
                   <div className="text-center">
                     <button
                       type="button"
-                      onClick={() => setStep('datetime')}
+                      onClick={() => { setSubmitError(''); setStep('datetime'); }}
                       className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
                     >
                       &#8592; Back
@@ -1602,32 +1368,27 @@ export default function BookingFlow({
                 {selectedService && (
                   <div className="flex items-center justify-between">
                     <p className="font-body text-sm font-semibold text-[#1A1A1A]">{selectedService.name}</p>
-                    {(() => {
-                      const eff = getEffectivePriceAndDuration(selectedService, selectedBarber && selectedBarber !== 'none' ? selectedBarber.id : null, barberServiceAssignments);
-                      return eff.price != null ? (
-                        <p className="font-body text-sm text-[#1A1A1A]">
-                          {currencySymbol}{eff.price.toFixed(2)}
-                        </p>
-                      ) : null;
-                    })()}
+                    {selectedServicePrice && (
+                      <p className="font-body text-sm text-[#1A1A1A]">
+                        {selectedServicePrice}
+                      </p>
+                    )}
                   </div>
                 )}
-                {selectedBarber && selectedBarber !== 'none' && (
-                  <p className="font-body text-sm text-[#8A8680]">with {selectedBarber.name}</p>
+                {staffLabel && (
+                  <p className="font-body text-sm text-[#8A8680]">{staffLabel}</p>
                 )}
                 {selectedDate && selectedTime && (
                   <p className="font-body text-sm font-medium text-[#1A1A1A]">
                     {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
                   </p>
                 )}
+                <p className="font-body text-xs text-[#8A8680]">{timeZoneNote}</p>
                 <p className="font-body text-sm text-[#8A8680]">{customTitle ?? salon.name}</p>
               </div>
 
               <p className="font-body text-xs text-[#8A8680]">
                 {"You'll receive a reminder before your appointment."}
-              </p>
-              <p className="font-body text-[11px] text-[#8A8680] italic mt-1">
-                (Demo mode: emails are delivered to the demo account only.)
               </p>
 
               {selectedDate && selectedTime && (
@@ -1640,9 +1401,9 @@ export default function BookingFlow({
                 </button>
               )}
 
-              {confirmedId && (
+              {confirmed && (
                 <p className="font-body text-xs text-[#8A8680]">
-                  Ref: {confirmedId.slice(0, 8).toUpperCase()}
+                  Ref: {confirmed.appointmentId.slice(0, 8).toUpperCase()}
                 </p>
               )}
             </div>

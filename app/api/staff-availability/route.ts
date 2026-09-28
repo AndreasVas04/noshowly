@@ -6,6 +6,11 @@
  *
  * POST /api/staff-availability — upserts availability for all 7 days for a
  *      single barber. Accepts the barber's full weekly schedule in one call.
+ *      PUT is accepted as an alias (the call replaces the stored schedule).
+ *
+ * time_slots are validated server-side (lib/schedule.ts): zero-padded HH:MM,
+ * each ending after it starts, sorted and non-overlapping. A working day needs
+ * at least one; days off store none.
  *
  * Security:
  *  - Authentication required on every request.
@@ -15,23 +20,19 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { validateTimeSlots } from '@/lib/schedule';
 import type { StaffAvailability, TimeSlot } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** One day's availability record for a staff member. */
+/** One validated day of a staff member's weekly schedule. */
 type DayInput = {
   day_of_week: number;
   is_available: boolean;
-  /** Primary: array of time slots (unlimited). */
+  /** Working intervals: sorted, non-overlapping, zero-padded HH:MM. [] when not available. */
   time_slots: TimeSlot[];
-  /** Legacy fields retained for backwards compatibility. */
-  start_time_1?: string | null;
-  end_time_1?: string | null;
-  start_time_2?: string | null;
-  end_time_2?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -114,7 +115,13 @@ export async function GET(_request: Request): Promise<Response> {
  * Request body:
  *  {
  *    barber_id: string    — UUID of the barber to update.
- *    days: DayInput[]     — Array of 7 day records (one per day_of_week 0–6).
+ *    days: {              — Up to 7 day records, one per day_of_week 0–6.
+ *      day_of_week:  number,                            — integer 0–6, no duplicates
+ *      is_available: boolean,
+ *      time_slots:   { start: string; end: string }[]   — HH:MM; normalised, sorted,
+ *                                                         must not overlap; at least
+ *                                                         one on a working day
+ *    }[]
  *  }
  *
  * Uses Supabase upsert on the (barber_id, day_of_week) unique constraint.
@@ -169,20 +176,54 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const barberId = raw.barber_id;
-  const days = raw.days as unknown[];
+  const rawDays = raw.days as unknown[];
 
-  // Validate each day entry.
-  for (const d of days) {
+  if (rawDays.length > 7) {
+    return Response.json({ error: 'days can contain at most 7 entries' }, { status: 400 });
+  }
+
+  // Validate each day entry and normalise its time slots.
+  const days: DayInput[] = [];
+  const seenDays = new Set<number>();
+  for (const d of rawDays) {
     if (typeof d !== 'object' || d === null) {
       return Response.json({ error: 'Each day entry must be an object' }, { status: 400 });
     }
     const dayObj = d as Record<string, unknown>;
-    if (typeof dayObj.day_of_week !== 'number' || dayObj.day_of_week < 0 || dayObj.day_of_week > 6) {
+    if (
+      typeof dayObj.day_of_week !== 'number' ||
+      !Number.isInteger(dayObj.day_of_week) ||
+      dayObj.day_of_week < 0 ||
+      dayObj.day_of_week > 6
+    ) {
       return Response.json({ error: 'day_of_week must be an integer 0–6' }, { status: 400 });
     }
+    if (seenDays.has(dayObj.day_of_week)) {
+      return Response.json({ error: 'Each day_of_week can only appear once' }, { status: 400 });
+    }
+    seenDays.add(dayObj.day_of_week);
     if (typeof dayObj.is_available !== 'boolean') {
       return Response.json({ error: 'is_available must be a boolean' }, { status: 400 });
     }
+
+    // Days off store no intervals; working days must have at least one valid one.
+    let timeSlots: TimeSlot[] = [];
+    if (dayObj.is_available) {
+      const validation = validateTimeSlots(dayObj.time_slots);
+      if (!validation.ok) {
+        return Response.json({ error: validation.error }, { status: 400 });
+      }
+      if (validation.slots.length === 0) {
+        return Response.json({ error: 'A working day needs at least one time slot' }, { status: 400 });
+      }
+      timeSlots = validation.slots;
+    }
+
+    days.push({
+      day_of_week:  dayObj.day_of_week,
+      is_available: dayObj.is_available,
+      time_slots:   timeSlots,
+    });
   }
 
   // Step 3: Resolve salon and verify barber ownership.
@@ -212,8 +253,8 @@ export async function POST(request: Request): Promise<Response> {
   // Step 4: Build upsert rows.
   // Populate time_slots (primary) and legacy start/end_time columns (backwards compat).
   // Legacy columns mirror the first two time_slots entries for clients that haven't updated.
-  const rows = (days as DayInput[]).map((d) => {
-    const slots = d.is_available ? (d.time_slots ?? []) : [];
+  const rows = days.map((d) => {
+    const slots = d.time_slots;
     const slot1 = slots[0] ?? null;
     const slot2 = slots[1] ?? null;
     return {
@@ -240,4 +281,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return Response.json({ availability: upserted as StaffAvailability[] }, { status: 200 });
+}
+
+// ---------------------------------------------------------------------------
+// PUT — same as POST
+// ---------------------------------------------------------------------------
+
+/**
+ * Alias of POST: replaces a barber's weekly schedule (idempotent).
+ *
+ * @param request - Incoming request (same body as POST).
+ */
+export async function PUT(request: Request): Promise<Response> {
+  return POST(request);
 }

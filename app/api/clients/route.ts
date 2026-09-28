@@ -2,13 +2,17 @@
  * app/api/clients/route.ts
  *
  * GET  /api/clients?search=term
- *   Searches the authenticated salon's clients by name (case-insensitive partial
- *   match). Returns up to 10 results, ordered alphabetically. Used by the
- *   AddAppointmentModal autocomplete to suggest existing clients as the owner types.
+ *   Searches the authenticated salon's clients by phone number (for phone-like
+ *   terms, whatever separators the number was saved with) or by name
+ *   (case-insensitive partial match). Returns up to 10 results, ordered
+ *   alphabetically. Used by the AddAppointmentModal autocomplete.
  *
  * POST /api/clients
- *   Creates a new client record for the authenticated salon. Called by the modal
- *   when the owner books a first-time client who does not yet exist in the system.
+ *   Returns the existing client with the same phone number and name, or creates
+ *   a new client record for the authenticated salon. Called by the modal when
+ *   the owner books a client who is not selected from the autocomplete.
+ *
+ * PATCH /api/clients/[id] (in [id]/route.ts) updates a client's details.
  *
  * Security:
  *  - Authentication is verified on every request before anything else.
@@ -19,16 +23,19 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { fillMissingClientEmail, findReusableClient, parseClientFields } from '@/lib/clients';
+import { looksLikePhone, normalisePhone, phoneMatchPattern } from '@/lib/contact';
 import type { Client } from '@/types';
 
 // ---------------------------------------------------------------------------
-// GET — search clients by name
+// GET — search clients by phone or name
 // ---------------------------------------------------------------------------
 
 /**
- * Returns up to 10 clients for the authenticated salon whose name contains
- * the given search term (case-insensitive). Used to power the client name
- * autocomplete in the appointment booking modal.
+ * Returns up to 10 clients for the authenticated salon whose phone number
+ * contains the search term (phone-like terms only, separators ignored) or,
+ * failing that, whose name contains it (case-insensitive). Used to power the
+ * client autocomplete in the appointment booking modal.
  *
  * @param request - Incoming request; expects ?search=term query param.
  * @returns 200 { clients: Client[] }
@@ -77,26 +84,28 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  // Step 4a: Search clients by phone first (partial match, case-insensitive).
-  // Phone is the primary client identifier — a phone match takes precedence over
-  // a name match so the salon owner finds the right record even with a different
-  // spelling of the client's name.
-  const { data: phoneMatches, error: phoneError } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('salon_id', salon.id)
-    .ilike('phone', `%${search}%`)
-    .order('name', { ascending: true })
-    .limit(10);
+  // Step 4a: Phone-like terms search by phone first. Phone is the primary
+  // client identifier, so a phone match takes precedence over a name match.
+  // The pattern ignores separators, so '+357 99' finds '+35799123456' and
+  // numbers saved as '+357 99 123 456'.
+  if (looksLikePhone(search)) {
+    const { data: phoneMatches, error: phoneError } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('salon_id', salon.id)
+      .regexMatch('phone', phoneMatchPattern(normalisePhone(search), { exact: false }))
+      .order('name', { ascending: true })
+      .limit(10);
 
-  if (phoneError) {
-    console.error('[GET /api/clients] DB error (phone search):', phoneError.message);
-    return Response.json({ error: 'Failed to search clients' }, { status: 500 });
-  }
+    if (phoneError) {
+      console.error('[GET /api/clients] DB error (phone search):', phoneError.message);
+      return Response.json({ error: 'Failed to search clients' }, { status: 500 });
+    }
 
-  // If any phone matches were found, return them without falling back to name search.
-  if (phoneMatches && phoneMatches.length > 0) {
-    return Response.json({ clients: phoneMatches as Client[] }, { status: 200 });
+    // If any phone matches were found, return them without falling back to name search.
+    if (phoneMatches && phoneMatches.length > 0) {
+      return Response.json({ clients: phoneMatches as Client[] }, { status: 200 });
+    }
   }
 
   // Step 4b: No phone matches — fall back to a name search.
@@ -117,32 +126,39 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// POST — create a new client
+// POST — find or create a client
 // ---------------------------------------------------------------------------
 
 /**
- * Creates a new client record for the authenticated salon.
+ * Returns the salon's existing client with the same phone number and name, or
+ * creates a new client record for the authenticated salon.
  *
- * Called by the appointment modal when the salon owner books a first-time
- * client. After creating the client, the caller uses the returned client.id
- * to attach the client to the new appointment.
+ * Called by the appointment modal when the salon owner books a client who was
+ * not picked from the autocomplete. The caller uses the returned client.id to
+ * attach the client to the new appointment.
  *
  * Request body:
  * {
  *   name:   string,          // required — client display name
- *   phone:  string | null,   // required — used for client contact
+ *   phone:  string,          // required — with country code, e.g. "+357 99 123 456"
  *   email?: string | null,   // optional — used for email reminders
  *   notes?: string | null,   // optional — free-text notes for the barber
  * }
  *
  * Validation rules:
  *  - name:  1–100 chars, trimmed, required.
- *  - phone: 5–20 chars, trimmed, required. Basic length check only —
- *           the exact format is left to the barber (international numbers vary).
- *  - email: basic @ check, 5–200 chars. Optional.
+ *  - phone: required, at most 30 chars as typed; stored normalised
+ *           ("+35799123456": country code and digits only).
+ *  - email: valid address, at most 254 chars. Optional.
  *  - notes: max 500 chars. Optional.
  *
- * @returns 201 { client: Client }
+ * De-duplication: a client with the same phone number (however it was saved)
+ * and the same name (case-insensitive) is reused, and a missing email is
+ * filled in. A matching number with a different name creates a new client,
+ * because family members often share a number.
+ *
+ * @returns 200 { client: Client }             — existing client reused
+ * @returns 201 { client: Client }             — new client created
  * @returns 400 { error: string }             — validation failure
  * @returns 401 { error: "Unauthorized" }     — no valid session
  * @returns 404 { error: "Salon not found" }  — user has no salon record
@@ -159,7 +175,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Step 2: Parse the request body.
+  // Step 2: Parse and validate the request body.
   let body: unknown;
   try {
     body = await request.json();
@@ -171,66 +187,14 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
   }
 
-  const raw = body as Record<string, unknown>;
-
-  // Validate required: name
-  if (typeof raw.name !== 'string' || !raw.name.trim()) {
-    return Response.json({ error: 'Client name is required' }, { status: 400 });
+  const parsed = parseClientFields(body as Record<string, unknown>, 'create');
+  if (!parsed.ok) {
+    return Response.json({ error: parsed.error }, { status: 400 });
   }
-  const name = raw.name.trim();
-  if (name.length > 100) {
-    return Response.json(
-      { error: 'Client name must be 100 characters or fewer' },
-      { status: 400 }
-    );
-  }
-
-  // Validate required: phone
-  if (typeof raw.phone !== 'string' || !raw.phone.trim()) {
-    return Response.json({ error: 'Client phone number is required' }, { status: 400 });
-  }
-  const phone = raw.phone.trim();
-  if (phone.length > 20) {
-    return Response.json(
-      { error: 'Phone number must be 20 characters or fewer' },
-      { status: 400 }
-    );
-  }
-  // Phone must start with + (country code required for international routing).
-  if (!phone.startsWith('+')) {
-    return Response.json(
-      { error: 'Phone must include country code (e.g. +357 99 123 456)' },
-      { status: 400 }
-    );
-  }
-
-  // Validate optional: email
-  let email: string | null = null;
-  if (raw.email !== undefined && raw.email !== null && raw.email !== '') {
-    if (typeof raw.email !== 'string') {
-      return Response.json({ error: 'email must be a string' }, { status: 400 });
-    }
-    const trimmedEmail = raw.email.trim();
-    // Basic email validation: must contain @ and be a reasonable length.
-    if (!trimmedEmail.includes('@') || trimmedEmail.length < 5 || trimmedEmail.length > 200) {
-      return Response.json({ error: 'Invalid email address' }, { status: 400 });
-    }
-    email = trimmedEmail;
-  }
-
-  // Validate optional: notes
-  let notes: string | null = null;
-  if (raw.notes !== undefined && raw.notes !== null && raw.notes !== '') {
-    if (typeof raw.notes !== 'string') {
-      return Response.json({ error: 'notes must be a string' }, { status: 400 });
-    }
-    if (raw.notes.length > 500) {
-      return Response.json(
-        { error: 'Notes must be 500 characters or fewer' },
-        { status: 400 }
-      );
-    }
-    notes = raw.notes.trim();
+  const { name, phone, email = null, notes = null } = parsed.fields;
+  if (!name || !phone) {
+    // parseClientFields guarantees both in 'create' mode; kept for the type checker.
+    return Response.json({ error: 'Client name and phone number are required' }, { status: 400 });
   }
 
   // Step 3: Resolve the salon for this user.
@@ -244,33 +208,18 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  // Step 4: Deduplication — if a client with the same phone already exists for
-  // this salon and the name matches, return the existing record to avoid duplicates.
-  // If phone matches but name differs, fall through and create a new client.
-  // This prevents the case where two different people share a phone number or a
-  // returning client whose number was reassigned would overwrite an existing record.
-  const { data: existing, error: lookupError } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('salon_id', salon.id)
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (lookupError) {
-    console.error('[POST /api/clients] Dedup lookup error:', lookupError.message);
+  // Step 4: De-duplication — reuse the client with the same phone number and
+  // the same name. Several clients may share a number, so this looks at an
+  // ordered list of candidates rather than expecting a single row.
+  const lookup = await findReusableClient(supabase, salon.id, { name, phone, email });
+  if (!lookup.ok) {
+    console.error('[POST /api/clients] Dedup lookup error:', lookup.error);
     return Response.json({ error: 'Failed to create client' }, { status: 500 });
   }
 
-  if (existing) {
-    // Only reuse the existing client when the name matches (case-insensitive, trimmed).
-    // If names differ, fall through to create a new client — the phone may belong to
-    // a different person, or the owner is booking under a different name.
-    const existingNameNorm = (existing as Client).name.toLowerCase().trim();
-    const requestedNameNorm = name.toLowerCase().trim();
-    if (existingNameNorm === requestedNameNorm) {
-      return Response.json({ client: existing as Client }, { status: 200 });
-    }
-    // Different name — do not reuse; create a new client below.
+  if (lookup.client) {
+    const client = await fillMissingClientEmail(supabase, lookup.client, email);
+    return Response.json({ client }, { status: 200 });
   }
 
   // Step 5: Insert the new client.
