@@ -473,6 +473,10 @@ export type RecentSendCounts = {
  *  - MAX_TEST_EMAILS_PER_DAY test sends per salon per 24 hours;
  *  - MAX_EMAILS_PER_RECIPIENT_PER_DAY emails per recipient address per salon per 24 hours.
  *
+ * The counts are read before an email is recorded, so emails sent at the same
+ * moment can all pass and go slightly over a limit. That is acceptable for
+ * fair-use and anti-abuse caps, and avoids a database function.
+ *
  * @param kind   - Email kind.
  * @param counts - Recent sends.
  * @returns      The limit that was reached, or null.

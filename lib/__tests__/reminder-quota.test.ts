@@ -3,8 +3,8 @@
  *
  * Unit tests for the monthly email counter and plan checks in
  * lib/reminders/quota.ts against an in-memory CounterStore: plan and cap
- * decisions, the lazy monthly reset and the optimistic increment under
- * concurrent updates.
+ * decisions, the lazy monthly reset and the optimistic increment (with its
+ * random backoff) under concurrent updates.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -12,6 +12,7 @@ import { PLAN_LIMITS, getPlanEmailLimit, planAllowsEmail, type PlanType } from '
 import {
   COUNTER_UPDATE_ATTEMPTS,
   checkEmailQuota,
+  counterRetryDelayMs,
   incrementEmailCounter,
   isResetDue,
   nextMonthlyResetAt,
@@ -131,10 +132,26 @@ describe('refreshMonthlyPeriod', () => {
   });
 });
 
+describe('counterRetryDelayMs', () => {
+  it('waits a random time under a ceiling that doubles and is capped', () => {
+    const almostOne = () => 0.999;
+    expect(counterRetryDelayMs(1, () => 0)).toBe(0);
+    expect(counterRetryDelayMs(1, almostOne)).toBe(19);
+    expect(counterRetryDelayMs(2, almostOne)).toBe(39);
+    expect(counterRetryDelayMs(3, almostOne)).toBe(79);
+    expect(counterRetryDelayMs(4, almostOne)).toBe(159);
+    expect(counterRetryDelayMs(5, almostOne)).toBe(199);
+    expect(counterRetryDelayMs(COUNTER_UPDATE_ATTEMPTS, almostOne)).toBe(199);
+  });
+});
+
 describe('incrementEmailCounter', () => {
+  /** Retries without real waiting, still letting concurrent work interleave. */
+  const fast = { sleep: () => tick() };
+
   it('adds one when nothing changed meanwhile', async () => {
     const store = new MemoryCounterStore(7, OCTOBER_RESET);
-    const result = await incrementEmailCounter(store, 'u1', { used: 7, resetAt: OCTOBER_RESET });
+    const result = await incrementEmailCounter(store, 'u1', { used: 7, resetAt: OCTOBER_RESET }, fast);
     expect(result).toEqual({ ok: true, counter: { used: 8, resetAt: OCTOBER_RESET } });
     expect(store.get().used).toBe(8);
     expect(store.writes).toBe(1);
@@ -143,7 +160,7 @@ describe('incrementEmailCounter', () => {
   it('re-reads and retries after a stale read instead of overwriting', async () => {
     const store = new MemoryCounterStore(9, OCTOBER_RESET);
     // Read as 7, but two other sends counted since.
-    const result = await incrementEmailCounter(store, 'u1', { used: 7, resetAt: OCTOBER_RESET });
+    const result = await incrementEmailCounter(store, 'u1', { used: 7, resetAt: OCTOBER_RESET }, fast);
     expect(result.ok).toBe(true);
     expect(store.get().used).toBe(10);
   });
@@ -157,25 +174,52 @@ describe('incrementEmailCounter', () => {
         store.get().used++; // another request's increment lands first
       }
     };
-    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET });
+    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET }, fast);
     expect(result.ok).toBe(true);
     expect(store.get().used).toBe(3);
   });
 
-  it('does not lose updates when increments run concurrently', async () => {
+  it('backs off with a growing random delay between attempts', async () => {
+    const store = new MemoryCounterStore(0, OCTOBER_RESET);
+    let interruptions = 3;
+    store.beforeWrite = () => {
+      if (interruptions-- > 0) store.get().used++;
+    };
+    const delays: number[] = [];
+    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET }, {
+      sleep: async (ms) => { delays.push(ms); },
+      random: () => 0.5,
+    });
+    expect(result.ok).toBe(true);
+    expect(delays).toEqual([10, 20, 40]);
+  });
+
+  it(`does not lose updates when ${COUNTER_UPDATE_ATTEMPTS - 1} sends finish at the same moment`, async () => {
+    const store = new MemoryCounterStore(0, OCTOBER_RESET);
+    // Every send read the counter before any of them incremented it.
+    const snapshot = { used: 0, resetAt: OCTOBER_RESET };
+    const sends = COUNTER_UPDATE_ATTEMPTS - 1;
+    const results = await Promise.all(
+      Array.from({ length: sends }, () => incrementEmailCounter(store, 'u1', snapshot, fast)),
+    );
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(store.get().used).toBe(sends);
+  });
+
+  it('keeps 8 parallel sends with the real backoff', async () => {
     const store = new MemoryCounterStore(0, OCTOBER_RESET);
     const snapshot = { used: 0, resetAt: OCTOBER_RESET };
     const results = await Promise.all(
-      [1, 2, 3].map(() => incrementEmailCounter(store, 'u1', snapshot)),
+      Array.from({ length: 8 }, () => incrementEmailCounter(store, 'u1', snapshot)),
     );
     expect(results.every((r) => r.ok)).toBe(true);
-    expect(store.get().used).toBe(3);
+    expect(store.get().used).toBe(8);
   });
 
   it('gives up after the maximum attempts under constant contention', async () => {
     const store = new MemoryCounterStore(0, OCTOBER_RESET);
     store.beforeWrite = () => { store.get().used++; };
-    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET });
+    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET }, fast);
     expect(result.ok).toBe(false);
     expect(store.writes).toBe(COUNTER_UPDATE_ATTEMPTS);
   });
@@ -183,7 +227,7 @@ describe('incrementEmailCounter', () => {
   it('stops when the user no longer exists', async () => {
     const store = new MemoryCounterStore(0, OCTOBER_RESET);
     store.users.clear();
-    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET });
+    const result = await incrementEmailCounter(store, 'u1', { used: 0, resetAt: OCTOBER_RESET }, fast);
     expect(result.ok).toBe(false);
     expect(store.writes).toBe(1);
   });

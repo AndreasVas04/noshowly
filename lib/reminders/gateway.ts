@@ -261,6 +261,9 @@ export function createEmailGateway(
 
       // Step 4: The owner's plan must include email and the monthly fair-use
       // cap must not be reached (internal limit — never shown publicly).
+      // Like the limits in Step 6, the cap is checked before the email is
+      // recorded and counted, so sends at the same moment can end slightly
+      // over it; acceptable for fair-use caps.
       const owner = await currentOwner(context.salon.user_id, now);
       if (!owner) return failed(log, 'database', 'salon owner not found');
       const quota = checkEmailQuota(owner.plan, owner.counter.used);
@@ -270,7 +273,9 @@ export function createEmailGateway(
       const toOwner   = isDemoAccount(owner.email);
       const recipient = toOwner ? owner.email : clientEmail;
 
-      // Step 6: Sending limits.
+      // Step 6: Sending limits. The counts are read before this email's row
+      // is inserted, so emails sent at the same moment can all pass and go
+      // slightly over a limit (acceptable: these are fair-use and anti-abuse caps).
       const limit = evaluateSendLimits(kind, {
         salonLastHour:    await salonLastHour(context.salon.id, now),
         recipientLastDay: await recipientLastDay(context.salon.id, recipient, toOwner, now),
