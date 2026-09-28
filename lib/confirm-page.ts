@@ -14,8 +14,9 @@
  *  - 'test'       — a test email's link: a preview that changes nothing;
  *  - 'expired'    — the appointment time has passed;
  *  - 'cancelled'  — the appointment is cancelled;
- *  - 'superseded' — the link was retired when the appointment changed (the
- *                   reminder row is 'cancelled' but the appointment is not);
+ *  - 'superseded' — the link was retired when the appointment moved to another
+ *                   time or client (the reminder row is 'cancelled' but the
+ *                   appointment is not), even if the client had answered it;
  *  - 'confirmed'  — the appointment is confirmed (no buttons);
  *  - 'actionable' — the appointment is 'scheduled': Confirm / Cancel buttons.
  *
@@ -96,7 +97,8 @@ export function resolveLinkState(
   const start = Date.parse(appointment.datetime);
   if (!Number.isFinite(start) || start <= now.getTime()) return 'expired';
   if (appointment.status === 'cancelled') return 'cancelled';
-  // Retired when the appointment was moved: the old time is no longer true.
+  // Retired when the appointment was moved: the old time is no longer true,
+  // and an earlier YES confirmed the old time, not the new one.
   if (reminder.status === 'cancelled') return 'superseded';
   if (appointment.status === 'confirmed') return 'confirmed';
   if (appointment.status === 'scheduled') return 'actionable';

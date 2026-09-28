@@ -21,12 +21,14 @@ import {
   classifyReminderClaims,
   decideReminderDue,
   evaluateSendLimits,
+  isRetiredOnChange,
   needsConfirmationLinks,
   reminderWindow,
   selectDueReminders,
   wonClaimRace,
   type ReminderRecord,
 } from '@/lib/reminders/rules';
+import { resolveLinkState } from '@/lib/confirm-page';
 
 const MINUTE_MS = 60_000;
 const NOW = new Date('2026-10-05T12:00:00Z');
@@ -199,6 +201,51 @@ describe('decideReminderDue — booking confirmations', () => {
 
   it('booked days ahead: the reminder as soon as the 24-hour window opens', () => {
     expect(firstDueHoursBefore(72)).toBe(24);
+  });
+});
+
+describe('moving or cancelling an appointment', () => {
+  /** Applies cancelReminderLinks() to in-memory rows. */
+  const retire = (rows: ReminderRecord[]) =>
+    rows.map((r) => (isRetiredOnChange(r) ? { ...r, status: 'cancelled' } : r));
+
+  it('retires pending, sent and answered links of reminders and confirmations only', () => {
+    for (const type of ['email', 'email_confirmation']) {
+      for (const status of ['pending', 'sent', 'confirmed']) {
+        expect(isRetiredOnChange({ type, status })).toBe(true);
+      }
+      for (const status of ['cancelled', 'skipped']) {
+        expect(isRetiredOnChange({ type, status })).toBe(false);
+      }
+    }
+    expect(isRetiredOnChange({ type: 'email_test', status: 'sent' })).toBe(false);
+    expect(isRetiredOnChange({ type: 'sms', status: 'sent' })).toBe(false);
+  });
+
+  it('after the client answered YES and the appointment moved, the old link dies and a new reminder is due', () => {
+    // The client confirmed through the 24-hour reminder; the owner then moved
+    // the appointment to tomorrow and set it back to 'scheduled'.
+    const answered = row({ type: 'email', status: 'confirmed', sent_at: at(-20 * HOUR_MS), created_at: at(-20 * HOUR_MS) });
+    const confirmation = row({ type: 'email_confirmation', status: 'confirmed', sent_at: at(-30 * HOUR_MS), created_at: at(-30 * HOUR_MS) });
+    const test = row({ type: 'email_test', status: 'sent' });
+    const moved = { datetime: at(20 * HOUR_MS), status: 'scheduled' };
+
+    // Without retiring the answered row, the old reminder counts as sent.
+    expect(decideReminderDue(moved, [answered, confirmation, test], NOW)).toEqual({ due: false, reason: 'already_sent' });
+
+    const rows = retire([answered, confirmation, test]);
+    expect(rows.map((r) => r.status)).toEqual(['cancelled', 'cancelled', 'sent']);
+    expect(decideReminderDue(moved, rows, NOW)).toEqual({ due: true, staleClaimIds: [] });
+    expect(resolveLinkState(rows[0], moved, NOW)).toBe('superseded');
+    expect(resolveLinkState(rows[1], moved, NOW)).toBe('superseded');
+    expect(resolveLinkState(rows[2], moved, NOW)).toBe('test');
+  });
+
+  it('does not show a moved appointment that stayed confirmed as confirmed through an old link', () => {
+    const answered = row({ type: 'email', status: 'confirmed' });
+    const moved = { datetime: at(30 * HOUR_MS), status: 'confirmed' };
+    expect(resolveLinkState(answered, moved, NOW)).toBe('confirmed');
+    expect(resolveLinkState(retire([answered])[0], moved, NOW)).toBe('superseded');
   });
 });
 

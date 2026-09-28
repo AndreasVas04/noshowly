@@ -16,8 +16,9 @@
  *
  * Email links: when an appointment is moved to another time or client, or
  * cancelled, the YES/NO links of its 24-hour reminder and booking
- * confirmation are retired (lib/reminders/store.ts cancelReminderLinks), so
- * old emails cannot act on it and a new 24-hour reminder can go out.
+ * confirmation are retired (lib/reminders/store.ts cancelReminderLinks),
+ * including links the client already answered, so old emails cannot act on
+ * it or show it as confirmed, and a new 24-hour reminder can go out.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -643,9 +644,9 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
     return Response.json({ error: 'Failed to cancel appointment' }, { status: 500 });
   }
 
-  // Step 4: Retire the appointment's email links (pending and sent 24-hour
-  // reminders and booking confirmations), so old YES/NO buttons stop working.
-  // The reminder job never emails cancelled appointments.
+  // Step 4: Retire the appointment's email links (pending, sent and already
+  // answered 24-hour reminders and booking confirmations), so old YES/NO
+  // buttons stop working. The reminder job never emails cancelled appointments.
   const reminderError = await cancelReminderLinks(supabase, id);
 
   if (reminderError) {

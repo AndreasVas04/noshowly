@@ -35,6 +35,14 @@
  * and the reminder is claimed again. 'pending' rows without a token were
  * written by an older booking route and are ignored.
  *
+ * Moved or cancelled appointments: when an appointment moves to another time
+ * or client, or is cancelled, its 24-hour reminder and booking confirmation
+ * rows in RETIRED_ON_CHANGE_STATUSES become 'cancelled' (cancelReminderLinks()
+ * in lib/reminders/store.ts). Their links stop working — including a link the
+ * client already answered, which confirmed the old time, not the new one —
+ * and 'cancelled' rows never count as a sent reminder, so the reminder for
+ * the new time can be claimed.
+ *
  * No imports from Next.js or Supabase, so this is safe to use anywhere.
  */
 
@@ -62,6 +70,19 @@ export const CONFIRMATION_QUIET_PERIOD_MS = 12 * HOUR_MS;
 
 /** A 'pending' claim older than this belongs to a run that crashed; it may be retried. */
 export const STALE_CLAIM_AFTER_MS = 30 * 60 * 1000;
+
+/** Email types whose YES/NO links act on the appointment. */
+export const LINK_EMAIL_TYPES = ['email', 'email_confirmation'] as const;
+
+/**
+ * Statuses of LINK_EMAIL_TYPES rows that are retired (set to 'cancelled') when
+ * an appointment moves to another time or client, or is cancelled:
+ *  - 'pending' and 'sent' — their links would act on the changed appointment;
+ *  - 'confirmed'          — the client confirmed the old time, not the new one.
+ *                           A confirmed 24-hour reminder also counts as sent,
+ *                           so it would block the reminder for the new time.
+ */
+export const RETIRED_ON_CHANGE_STATUSES = ['pending', 'sent', 'confirmed'] as const;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,13 +174,25 @@ export function isStaleClaim(row: Pick<ReminderRecord, 'created_at'>, now: Date)
 }
 
 /**
+ * Returns true for a row that is retired when its appointment moves to another
+ * time or client, or is cancelled (see RETIRED_ON_CHANGE_STATUSES).
+ *
+ * @param row - Reminder row (type and status).
+ */
+export function isRetiredOnChange(row: Pick<ReminderRecord, 'type' | 'status'>): boolean {
+  return (LINK_EMAIL_TYPES as readonly string[]).includes(row.type)
+    && (RETIRED_ON_CHANGE_STATUSES as readonly string[]).includes(row.status);
+}
+
+/**
  * Classifies an appointment's existing 24-hour reminder ('email') rows.
  *
  *  - 'sent' or 'confirmed' → already sent.
  *  - 'pending' with a token → in progress, or stale after STALE_CLAIM_AFTER_MS.
  *  - 'pending' without a token → ignored (never read, written by an older
  *    booking route).
- *  - 'failed', 'cancelled' (retired by a reschedule) and 'skipped' → ignored.
+ *  - 'failed', 'cancelled' (retired when the appointment moved or was
+ *    cancelled) and 'skipped' → ignored.
  *
  * @param rows - Reminder rows of one appointment (other types are ignored).
  * @param now  - Current instant.

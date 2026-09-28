@@ -15,10 +15,15 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database, ReminderType } from '@/types';
+import type { Database } from '@/types';
 import type { ClaimRow, ClaimStore, InsertClaimResult } from '@/lib/reminders/claim';
 import type { CounterSnapshot, CounterStore } from '@/lib/reminders/quota';
-import type { EmailKind, ReminderRecord } from '@/lib/reminders/rules';
+import {
+  LINK_EMAIL_TYPES,
+  RETIRED_ON_CHANGE_STATUSES,
+  type EmailKind,
+  type ReminderRecord,
+} from '@/lib/reminders/rules';
 
 type Db = SupabaseClient<Database>;
 
@@ -324,10 +329,14 @@ export async function markReminderUnsent(
 }
 
 /**
- * Retires an appointment's email links: its 'pending' and 'sent' 24-hour
- * reminder and booking confirmation rows become 'cancelled'. Their YES/NO
- * links stop working, and a new 24-hour reminder can be claimed for the
- * appointment's new time. Test sends never change anything and are left alone.
+ * Retires an appointment's email links after it moved to another time or
+ * client, or was cancelled: its 24-hour reminder and booking confirmation rows
+ * in RETIRED_ON_CHANGE_STATUSES ('pending', 'sent' and 'confirmed') become
+ * 'cancelled' (see lib/reminders/rules.ts). Their YES/NO links stop working —
+ * a link the client already answered confirmed the old time, not the new one —
+ * and a new 24-hour reminder can be claimed for the appointment's new time,
+ * because 'cancelled' rows never count as a sent reminder. Test sends never
+ * change anything and are left alone.
  *
  * Works with the service-role client and with the signed-in owner's client
  * (RLS lets owners update the reminders of their own appointments).
@@ -337,13 +346,12 @@ export async function markReminderUnsent(
  * @returns             Error message, or null on success. Never throws.
  */
 export async function cancelReminderLinks(db: Db, appointmentId: string): Promise<string | null> {
-  const types: ReminderType[] = ['email', 'email_confirmation'];
   const { error } = await db
     .from('reminders')
     .update({ status: 'cancelled' })
     .eq('appointment_id', appointmentId)
-    .in('type', types)
-    .in('status', ['pending', 'sent']);
+    .in('type', [...LINK_EMAIL_TYPES])
+    .in('status', [...RETIRED_ON_CHANGE_STATUSES]);
 
   return error ? error.message : null;
 }
