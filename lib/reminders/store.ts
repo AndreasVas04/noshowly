@@ -115,8 +115,8 @@ function sentOrSendingSince(since: string): string {
 /** Columns of an appointment with its client, staff member and salon. */
 const APPOINTMENT_CONTEXT_COLUMNS = `
   id, salon_id, datetime, status, service_type,
-  clients (name, email),
-  barbers (name),
+  clients (name, email, salon_id),
+  barbers (name, salon_id),
   salons (
     id, user_id, name, timezone,
     email_subject, email_greeting, email_body, email_closing, email_footer,
@@ -126,14 +126,22 @@ const APPOINTMENT_CONTEXT_COLUMNS = `
 
 /** Row shape of APPOINTMENT_CONTEXT_COLUMNS. */
 type AppointmentContextRow = AppointmentEmailContext['appointment'] & {
-  clients: { name: string | null; email: string | null } | null;
-  barbers: { name: string | null } | null;
+  clients: { name: string | null; email: string | null; salon_id: string } | null;
+  barbers: { name: string | null; salon_id: string } | null;
   salons: SalonEmailSettings | null;
 };
 
-/** Converts a joined row; null when the salon could not be read. */
+/**
+ * Converts a joined row; null when the salon could not be read.
+ *
+ * The service-role client bypasses RLS and appointments.client_id can come
+ * from a request body, so a client or staff member of another salon is
+ * dropped: emails only ever go to the appointment's own salon's clients.
+ */
 function toContext(row: AppointmentContextRow): AppointmentEmailContext | null {
-  if (!row.salons) return null;
+  if (!row.salons || row.salons.id !== row.salon_id) return null;
+  const client = row.clients && row.clients.salon_id === row.salon_id ? row.clients : null;
+  const staff  = row.barbers && row.barbers.salon_id === row.salon_id ? row.barbers : null;
   return {
     appointment: {
       id:           row.id,
@@ -142,8 +150,8 @@ function toContext(row: AppointmentContextRow): AppointmentEmailContext | null {
       status:       row.status,
       service_type: row.service_type,
     },
-    client:    row.clients,
-    staffName: row.barbers?.name ?? null,
+    client:    client ? { name: client.name, email: client.email } : null,
+    staffName: staff?.name ?? null,
     salon:     row.salons,
   };
 }
