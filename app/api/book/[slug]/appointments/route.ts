@@ -300,7 +300,7 @@ async function clientHasOverlap(
  *    client_phone?:  string   — with country code (+…), ≤ 30 chars; required when the page requires it
  *    client_email?:  string   — valid address, ≤ 254 chars; required when the page requires it
  *    notes?:         string   — optional client note to barber, ≤ 500 chars
- *    company?:       string   — hidden honeypot field; must be empty
+ *    hp_field?:      string   — hidden honeypot field; must be empty
  *  }
  *
  * @param request - Incoming request.
@@ -354,8 +354,9 @@ async function handleBookingPost(
 
   const raw = body as Record<string, unknown>;
 
-  // The honeypot field is hidden from people; anything in it means a bot filled the form.
-  if (raw.company !== undefined && raw.company !== null && raw.company !== '') {
+  // The honeypot field is hidden from people; anything in it means a bot filled
+  // the form. Its name is meaningless on purpose so browser autofill leaves it alone.
+  if (raw.hp_field !== undefined && raw.hp_field !== null && raw.hp_field !== '') {
     return Response.json({ error: 'Invalid submission' }, { status: 400 });
   }
 

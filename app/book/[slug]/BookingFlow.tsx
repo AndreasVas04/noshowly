@@ -426,8 +426,12 @@ export default function BookingFlow({
   const [clientPhone,  setClientPhone]  = useState('');
   const [clientEmail,  setClientEmail]  = useState('');
   const [clientNotes,  setClientNotes]  = useState('');
-  /** Honeypot: hidden from people, so it must stay empty. Bots tend to fill it in. */
-  const [company,      setCompany]      = useState('');
+  /**
+   * Honeypot: hidden from people, so it must stay empty. Bots tend to fill it in.
+   * Its name means nothing to browser autofill, which could fill a field such
+   * as "company" even though it is hidden.
+   */
+  const [honeypot,     setHoneypot]     = useState('');
   const [detailsError, setDetailsError] = useState('');
 
   // -------------------------------------------------------------------------
@@ -671,7 +675,7 @@ export default function BookingFlow({
           client_phone: phone || null,
           client_email: email || null,
           notes:        notes || null,
-          company,
+          hp_field:     honeypot,
         }),
       });
 
@@ -1271,15 +1275,15 @@ export default function BookingFlow({
                   aria-hidden="true"
                   className="absolute left-[-10000px] top-auto w-px h-px overflow-hidden"
                 >
-                  <label htmlFor="company">Company</label>
+                  <label htmlFor="hp_field">Leave this field empty</label>
                   <input
-                    id="company"
-                    name="company"
+                    id="hp_field"
+                    name="hp_field"
                     type="text"
                     tabIndex={-1}
                     autoComplete="off"
-                    value={company}
-                    onChange={(e) => setCompany(e.target.value)}
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
                   />
                 </div>
 
