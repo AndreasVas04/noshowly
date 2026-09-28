@@ -950,7 +950,8 @@ export default function WeekView() {
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
-            + Add for {formatDateOnly(selectedDay, { weekday: 'short', day: 'numeric' })}
+            {/* Weekday and day formatted separately: en-US puts the day first ("5 Mon"). */}
+            + Add for {formatDateOnly(selectedDay, { weekday: 'short' })} {formatDateOnly(selectedDay, { day: 'numeric' })}
           </button>
         </div>
       )}
