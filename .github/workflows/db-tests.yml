@@ -1,0 +1,35 @@
+name: Database tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  db-tests:
+    runs-on: ubuntu-latest
+    services:
+      # The official image includes the contrib extensions, btree_gist among them.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install psql
+        run: command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Run database tests
+        run: scripts/test-db.sh
