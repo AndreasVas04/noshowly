@@ -9,7 +9,8 @@
  *      PUT is accepted as an alias (the call replaces the stored schedule).
  *
  * time_slots are validated server-side (lib/schedule.ts): zero-padded HH:MM,
- * each ending after it starts, sorted and non-overlapping.
+ * each ending after it starts, sorted and non-overlapping. A working day needs
+ * at least one; days off store none.
  *
  * Security:
  *  - Authentication required on every request.
@@ -118,7 +119,8 @@ export async function GET(_request: Request): Promise<Response> {
  *      day_of_week:  number,                            — integer 0–6, no duplicates
  *      is_available: boolean,
  *      time_slots:   { start: string; end: string }[]   — HH:MM; normalised, sorted,
- *                                                         must not overlap
+ *                                                         must not overlap; at least
+ *                                                         one on a working day
  *    }[]
  *  }
  *
@@ -204,12 +206,15 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: 'is_available must be a boolean' }, { status: 400 });
     }
 
-    // Days off store no intervals; working days must have valid ones.
+    // Days off store no intervals; working days must have at least one valid one.
     let timeSlots: TimeSlot[] = [];
     if (dayObj.is_available) {
       const validation = validateTimeSlots(dayObj.time_slots);
       if (!validation.ok) {
         return Response.json({ error: validation.error }, { status: 400 });
+      }
+      if (validation.slots.length === 0) {
+        return Response.json({ error: 'A working day needs at least one time slot' }, { status: 400 });
       }
       timeSlots = validation.slots;
     }

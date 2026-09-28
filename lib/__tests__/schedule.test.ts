@@ -104,6 +104,19 @@ describe('workingDayToTimeSlots', () => {
   it('returns nothing for an invalid working window', () => {
     expect(workingDayToTimeSlots({ work_start: '17:00', work_end: '09:00', breaks: [] })).toEqual([]);
   });
+
+  it('returns nothing when breaks cover the whole working day', () => {
+    expect(
+      workingDayToTimeSlots({
+        work_start: '09:00',
+        work_end: '17:00',
+        breaks: [
+          { start: '08:00', end: '13:00' },
+          { start: '13:00', end: '18:00' },
+        ],
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe('normaliseBreaks (Apply to all days)', () => {

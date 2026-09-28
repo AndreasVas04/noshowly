@@ -208,6 +208,9 @@ function getWorkingHoursError(day: DayState): string | null {
   const end   = normaliseTime(day.work_end);
   if (!start || !end) return 'Enter a start and end time.';
   if (start >= end) return 'Working hours must end after they start.';
+  if (workingDayToTimeSlots(day).length === 0) {
+    return 'Breaks cover the whole working day. Mark the day as off instead.';
+  }
   return null;
 }
 
