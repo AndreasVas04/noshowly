@@ -16,7 +16,9 @@
  *  - Email content should never mention "Noshowly" — the salon's name is the
  *    only brand the end client sees (see lib/reminder-templates.ts).
  *  - With an idempotency key (the reminders row id), Resend sends a request
- *    at most once, so rate-limit, server and network errors are retried once.
+ *    at most once, so temporary errors (rate limits, server and network
+ *    errors) are retried once. Failures are classified (SendFailure) so the
+ *    caller can tell an email Resend rejected from an account problem.
  *
  * Security: RESEND_API_KEY is a server-only env var. This file must never be
  * imported in Client Components.
@@ -37,8 +39,22 @@ const MAX_DISPLAY_NAME_LENGTH = 70;
 /** Wait before the single retry. */
 const RETRY_DELAY_MS = 1000;
 
-/** Resend error names worth one retry (with the same idempotency key). */
-const RETRYABLE_ERRORS = new Set([
+/**
+ * Resend errors about the account or the sender rather than one email: no
+ * email can be sent until the configuration is fixed.
+ */
+const ACCOUNT_ERRORS = new Set([
+  'missing_api_key',
+  'invalid_api_key',
+  'restricted_api_key',
+  'invalid_access',
+  'invalid_region',
+  'daily_quota_exceeded',
+  'monthly_quota_exceeded',
+]);
+
+/** Resend errors that a later attempt (with the same idempotency key) can fix. */
+const TEMPORARY_ERRORS = new Set([
   'rate_limit_exceeded',
   'concurrent_idempotent_requests',
   'internal_server_error',
@@ -66,13 +82,27 @@ export type SendEmailInput = {
 };
 
 /**
+ * Why an email was not sent:
+ *  - 'rejected'  — Resend refused this email as invalid (a 4xx validation
+ *                  error, e.g. a recipient address it will not send to):
+ *                  sending the same email again fails again;
+ *  - 'account'   — the account or sender cannot send at all (missing or
+ *                  invalid API key, unverified sender domain, account quota;
+ *                  HTTP 401 or 403): every email fails until it is fixed;
+ *  - 'temporary' — rate limits, server errors and network errors: a later
+ *                  attempt may work.
+ */
+export type SendFailure = 'rejected' | 'account' | 'temporary';
+
+/**
  * Result type returned by sendEmail.
  * On success, `id` contains the Resend email ID for tracing.
- * On failure, `error` contains a human-readable message safe for server logs.
+ * On failure, `error` contains a human-readable message safe for server logs,
+ * and `failure` says whether trying again can help.
  */
 export type EmailResult =
   | { success: true;  id: string }
-  | { success: false; error: string };
+  | { success: false; error: string; failure: SendFailure };
 
 // ---------------------------------------------------------------------------
 // Sender header
@@ -125,11 +155,21 @@ export function buildFromHeader(displayName: string | null | undefined, fromSett
   return name ? `"${name}" <${address}>` : address;
 }
 
-/** Returns true for Resend errors that one retry can fix. */
-function isRetryable(error: { name?: string; statusCode?: number | null }): boolean {
-  if (error.name && RETRYABLE_ERRORS.has(error.name)) return true;
-  const status = error.statusCode;
-  return typeof status === 'number' && (status === 429 || status >= 500);
+/**
+ * Classifies a Resend error (see SendFailure).
+ *
+ * @param error - Error name and HTTP status from the Resend SDK; statusCode is
+ *                null when no response was received (network error).
+ */
+export function classifyResendError(error: { name?: string | null; statusCode?: number | null }): SendFailure {
+  const status = typeof error.statusCode === 'number' ? error.statusCode : null;
+  if ((error.name && ACCOUNT_ERRORS.has(error.name)) || status === 401 || status === 403) {
+    return 'account';
+  }
+  if ((error.name && TEMPORARY_ERRORS.has(error.name)) || status === null || status === 429 || status >= 500) {
+    return 'temporary';
+  }
+  return status >= 400 ? 'rejected' : 'temporary';
 }
 
 /** Resolves after `ms` milliseconds. */
@@ -150,7 +190,7 @@ let warnedAboutTestSender = false;
  * Failures are caught and returned — this function never throws.
  *
  * @param input - Recipient, content, sender name, reply-to and idempotency key.
- * @returns     EmailResult — { success: true, id } or { success: false, error }.
+ * @returns     EmailResult — { success: true, id } or { success: false, error, failure }.
  *
  * @example
  * const result = await sendEmail({
@@ -171,7 +211,7 @@ export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
     const msg =
       'Resend API key not configured. Set RESEND_API_KEY in environment variables.';
     console.error('[resend/sendEmail]', msg);
-    return { success: false, error: msg };
+    return { success: false, error: msg, failure: 'account' };
   }
 
   const fromSetting = process.env.RESEND_FROM_ADDRESS;
@@ -201,6 +241,7 @@ export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
   // A retry is only safe when Resend can recognise it as the same request.
   const attempts = input.idempotencyKey ? 2 : 1;
   let lastError = 'Unknown Resend error';
+  let failure: SendFailure = 'temporary';
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -214,14 +255,16 @@ export async function sendEmail(input: SendEmailInput): Promise<EmailResult> {
 
       // Resend returned a structured API error (e.g. invalid address, rate limit).
       lastError = error.message || 'Resend API error';
-      console.error(`[resend/sendEmail] API error (${error.name}):`, lastError);
-      if (!isRetryable(error)) break;
+      failure = classifyResendError(error);
+      console.error(`[resend/sendEmail] API error (${error.name}, ${error.statusCode ?? 'no status'}, ${failure}):`, lastError);
+      if (failure !== 'temporary') break;
     } catch (err) {
       lastError = err instanceof Error ? err.message : 'Unknown Resend error';
+      failure = 'temporary';
       console.error('[resend/sendEmail] unexpected error:', lastError);
     }
     if (attempt < attempts) await sleep(RETRY_DELAY_MS);
   }
 
-  return { success: false, error: lastError };
+  return { success: false, error: lastError, failure };
 }

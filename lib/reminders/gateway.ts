@@ -25,7 +25,10 @@
  *  7. sends through Resend with the row id as idempotency key, a plain-text
  *     alternative, the salon's name as sender name and the owner's address as
  *     reply-to;
- *  8. marks the row 'sent' (or 'failed') and adds one to the monthly counter.
+ *  8. marks the row 'sent' and adds one to the monthly counter — or, when the
+ *     send failed, records why (see recordFailure()), so the reminder job
+ *     retries temporary failures a few times, never retries an email the
+ *     provider rejected, and keeps a reminder due through account problems.
  *
  * The public demo account (lib/demo.ts) never emails clients: anyone can sign
  * in to it, so its emails go to the demo account's own address instead.
@@ -37,7 +40,7 @@
 import 'server-only';
 import { createAdminSupabaseClient, type AdminSupabaseClient } from '@/lib/supabase/admin';
 import { isDemoAccount } from '@/lib/demo';
-import { isEmailConfigured, sendEmail } from '@/lib/resend';
+import { isEmailConfigured, sendEmail, type SendFailure } from '@/lib/resend';
 import {
   renderConfirmationEmail,
   renderReminderEmail,
@@ -71,6 +74,7 @@ import {
   insertReminderRow,
   loadAppointmentEmailContext,
   loadOwners,
+  markReminderRejected,
   markReminderSent,
   markReminderUnsent,
   type AppointmentEmailContext,
@@ -325,8 +329,7 @@ export function createEmailGateway(
       });
 
       if (!result.success) {
-        await settleUnsent(reminderId, 'failed', log);
-        return failed(log, 'provider', result.error);
+        return await recordFailure(reminderId, result.failure, result.error, log);
       }
       delivered = { status: 'sent', reminderId, recipient, toOwner };
 
@@ -373,6 +376,41 @@ export function createEmailGateway(
     } catch (err) {
       console.error(`${log} WARN — failed to increment the monthly email counter:`, errorMessage(err));
     }
+  }
+
+  /**
+   * Records a send the email provider did not accept and returns its result:
+   *  - 'rejected'  — the email is invalid for the provider (e.g. the recipient
+   *                  address): the row becomes 'failed' with its token
+   *                  cleared, and the reminder job never retries it;
+   *  - 'account'   — the account or sender cannot send (API key, sender
+   *                  domain, quota): the row becomes 'skipped', because this
+   *                  was not really an attempt at this email; the reminder
+   *                  stays due and goes out once the account works. The
+   *                  reminder job stops its run on this result;
+   *  - 'temporary' — the row becomes 'failed'; the reminder job tries again,
+   *                  up to MAX_FAILED_REMINDER_ATTEMPTS times in 24 hours.
+   */
+  async function recordFailure(
+    reminderId: string,
+    failure: SendFailure,
+    message: string,
+    log: string,
+  ): Promise<SendResult> {
+    if (failure === 'rejected') {
+      try {
+        await markReminderRejected(db, reminderId);
+      } catch (err) {
+        console.error(`${log} ERROR — failed to mark reminder=${reminderId} as rejected:`, errorMessage(err));
+      }
+      return failed(log, 'rejected', message);
+    }
+    if (failure === 'account') {
+      await settleUnsent(reminderId, 'skipped', log);
+      return failed(log, 'config', `the email provider refused the account: ${message}`);
+    }
+    await settleUnsent(reminderId, 'failed', log);
+    return failed(log, 'provider', message);
   }
 
   /** Marks an unsent row as failed or skipped; errors are logged only. */

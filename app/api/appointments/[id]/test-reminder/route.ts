@@ -47,6 +47,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * @returns 401 { error: "Unauthorized" }
  * @returns 403 { error: string }       — the plan does not include email
  * @returns 404 { error: "Not found" }   — appointment not found or not owned
+ * @returns 422 { error: string }       — the email provider rejected the email (e.g. the address)
  * @returns 429 { error: string }       — a sending limit was reached
  * @returns 500 { error: string }
  */
@@ -177,5 +178,17 @@ function testSendResponse(result: SendResult): Response {
   }
 
   console.error('[POST /api/appointments/:id/test-reminder] Test email failed:', result.reason);
+  if (result.reason === 'rejected') {
+    return Response.json(
+      { error: 'The email was rejected. Check the client\'s email address and try again.' },
+      { status: 422 }
+    );
+  }
+  if (result.reason === 'config') {
+    return Response.json(
+      { error: 'Email sending is not set up correctly. Please contact support.' },
+      { status: 500 }
+    );
+  }
   return Response.json({ error: 'Failed to send test reminder email' }, { status: 500 });
 }

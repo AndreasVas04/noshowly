@@ -16,8 +16,11 @@ import {
 import {
   CONFIRMATION_QUIET_PERIOD_MS,
   HOUR_MS,
+  MAX_FAILED_REMINDER_ATTEMPTS,
+  RETRY_WINDOW_MS,
   STALE_CLAIM_AFTER_MS,
   checkAppointmentForEmail,
+  checkReminderRetries,
   classifyReminderClaims,
   decideReminderDue,
   evaluateSendLimits,
@@ -209,9 +212,9 @@ describe('moving or cancelling an appointment', () => {
   const retire = (rows: ReminderRecord[]) =>
     rows.map((r) => (isRetiredOnChange(r) ? { ...r, status: 'cancelled' } : r));
 
-  it('retires pending, sent and answered links of reminders and confirmations only', () => {
+  it('retires pending, sent, answered and failed rows of reminders and confirmations only', () => {
     for (const type of ['email', 'email_confirmation']) {
-      for (const status of ['pending', 'sent', 'confirmed']) {
+      for (const status of ['pending', 'sent', 'confirmed', 'failed']) {
         expect(isRetiredOnChange({ type, status })).toBe(true);
       }
       for (const status of ['cancelled', 'skipped']) {
@@ -241,11 +244,80 @@ describe('moving or cancelling an appointment', () => {
     expect(resolveLinkState(rows[2], moved, NOW)).toBe('test');
   });
 
+  it('gives the new time its own attempts after failures for the old one', () => {
+    const failures = [1, 2, 3].map((n) =>
+      row({ status: 'failed', sent_at: null, created_at: at(-n * HOUR_MS) }));
+    const moved = { datetime: at(10 * HOUR_MS), status: 'scheduled' };
+    expect(decideReminderDue(moved, failures, NOW)).toEqual({ due: false, reason: 'retry_limit' });
+    expect(decideReminderDue(moved, retire(failures), NOW)).toEqual({ due: true, staleClaimIds: [] });
+  });
+
   it('does not show a moved appointment that stayed confirmed as confirmed through an old link', () => {
     const answered = row({ type: 'email', status: 'confirmed' });
     const moved = { datetime: at(30 * HOUR_MS), status: 'confirmed' };
     expect(resolveLinkState(answered, moved, NOW)).toBe('confirmed');
     expect(resolveLinkState(retire([answered])[0], moved, NOW)).toBe('superseded');
+  });
+});
+
+describe('decideReminderDue — failed attempts', () => {
+  const failed = (hoursAgo: number, token: string | null = 'kept') =>
+    row({ status: 'failed', sent_at: null, token, created_at: at(-hoursAgo * HOUR_MS) });
+
+  it(`retries a failed reminder until ${MAX_FAILED_REMINDER_ATTEMPTS} attempts failed within 24 hours`, () => {
+    expect(decideReminderDue(appointment('a1', 10), [failed(1), failed(2)], NOW).due).toBe(true);
+    expect(decideReminderDue(appointment('a1', 10), [failed(1), failed(2), failed(3)], NOW))
+      .toEqual({ due: false, reason: 'retry_limit' });
+  });
+
+  it('only counts attempts within the retry window', () => {
+    const old = row({ status: 'failed', sent_at: null, created_at: at(-RETRY_WINDOW_MS - HOUR_MS) });
+    expect(decideReminderDue(appointment('a1', 10), [failed(1), failed(2), old], NOW).due).toBe(true);
+  });
+
+  it('never retries an email the provider rejected', () => {
+    expect(decideReminderDue(appointment('a1', 10), [failed(1, null)], NOW))
+      .toEqual({ due: false, reason: 'rejected' });
+  });
+
+  it('counts claims left by crashed runs as attempts', () => {
+    const crashed = row({ status: 'pending', sent_at: null, created_at: at(-STALE_CLAIM_AFTER_MS) });
+    expect(checkReminderRetries([failed(2), crashed], NOW)).toBe('ok');
+    expect(checkReminderRetries([failed(2), failed(3), crashed], NOW)).toBe('retry_limit');
+    // A fresh claim is not an attempt yet.
+    const fresh = row({ status: 'pending', sent_at: null, created_at: at(-MINUTE_MS) });
+    expect(checkReminderRetries([failed(2), failed(3), fresh], NOW)).toBe('ok');
+  });
+
+  it('ignores failed emails of other types', () => {
+    const others = [
+      row({ type: 'email_confirmation', status: 'failed', sent_at: null, token: null }),
+      row({ type: 'email_test', status: 'failed', sent_at: null }),
+      row({ type: 'email_test', status: 'failed', sent_at: null }),
+      row({ type: 'email_test', status: 'failed', sent_at: null }),
+    ];
+    expect(checkReminderRetries(others, NOW)).toBe('ok');
+  });
+
+  /**
+   * Runs the reminder job every 15 minutes for the 24 hours before an
+   * appointment; every send fails the given way. Returns the number of sends.
+   */
+  function attemptsWhenEverySendFails(rejected: boolean): number {
+    const start = NOW.getTime() + 24 * HOUR_MS;
+    const appt = { datetime: new Date(start).toISOString(), status: 'scheduled' };
+    const rows: ReminderRecord[] = [];
+    for (let t = NOW.getTime(); t < start; t += 15 * MINUTE_MS) {
+      if (decideReminderDue(appt, rows, new Date(t)).due) {
+        rows.push(row({ status: 'failed', sent_at: null, token: rejected ? null : 'kept', created_at: new Date(t).toISOString() }));
+      }
+    }
+    return rows.length;
+  }
+
+  it('stops after 3 attempts instead of trying every run', () => {
+    expect(attemptsWhenEverySendFails(false)).toBe(MAX_FAILED_REMINDER_ATTEMPTS);
+    expect(attemptsWhenEverySendFails(true)).toBe(1);
   });
 });
 
@@ -270,6 +342,8 @@ describe('selectDueReminders', () => {
       outside_window: 1,
       already_sent: 1,
       in_progress: 0,
+      rejected: 0,
+      retry_limit: 0,
       recent_confirmation: 0,
     });
   });

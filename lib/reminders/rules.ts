@@ -43,6 +43,16 @@
  * and 'cancelled' rows never count as a sent reminder, so the reminder for
  * the new time can be claimed.
  *
+ * Failed sends: a 24-hour reminder whose send failed is tried again by later
+ * runs, at most MAX_FAILED_REMINDER_ATTEMPTS (3) times within
+ * RETRY_WINDOW_MS (24 h), counting claims left behind by crashed runs. An
+ * attempt the email provider rejected as invalid (a 'failed' row whose token
+ * was cleared) is final. Failed attempts are retired with the other rows when
+ * the appointment moves, so a new time or client gets its own attempts.
+ * Account problems (API key, sender domain, quota) do not count as attempts:
+ * those rows are 'skipped' and the reminder stays due (see
+ * lib/reminders/gateway.ts).
+ *
  * No imports from Next.js or Supabase, so this is safe to use anywhere.
  */
 
@@ -71,6 +81,12 @@ export const CONFIRMATION_QUIET_PERIOD_MS = 12 * HOUR_MS;
 /** A 'pending' claim older than this belongs to a run that crashed; it may be retried. */
 export const STALE_CLAIM_AFTER_MS = 30 * 60 * 1000;
 
+/** Most failed attempts at an appointment's 24-hour reminder within RETRY_WINDOW_MS. */
+export const MAX_FAILED_REMINDER_ATTEMPTS = 3;
+
+/** Window in which failed 24-hour reminder attempts are counted. */
+export const RETRY_WINDOW_MS = DAY_MS;
+
 /** Email types whose YES/NO links act on the appointment. */
 export const LINK_EMAIL_TYPES = ['email', 'email_confirmation'] as const;
 
@@ -80,9 +96,11 @@ export const LINK_EMAIL_TYPES = ['email', 'email_confirmation'] as const;
  *  - 'pending' and 'sent' — their links would act on the changed appointment;
  *  - 'confirmed'          — the client confirmed the old time, not the new one.
  *                           A confirmed 24-hour reminder also counts as sent,
- *                           so it would block the reminder for the new time.
+ *                           so it would block the reminder for the new time;
+ *  - 'failed'             — attempts for the old time or client must not use up
+ *                           the retries of the new one.
  */
-export const RETIRED_ON_CHANGE_STATUSES = ['pending', 'sent', 'confirmed'] as const;
+export const RETIRED_ON_CHANGE_STATUSES = ['pending', 'sent', 'confirmed', 'failed'] as const;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,8 +129,16 @@ export type SkipReason =
   /** Another run already sent, or is sending, this 24-hour reminder. */
   | 'already_claimed';
 
-/** Why an email could not be sent. */
-export type FailReason = 'config' | 'database' | 'provider' | 'unexpected';
+/**
+ * Why an email could not be sent:
+ *  - 'config'     — configuration, including the email provider refusing the
+ *                   account (API key, sender domain, quota);
+ *  - 'rejected'   — the email provider rejected this email as invalid; sending
+ *                   it again fails again;
+ *  - 'provider'   — a temporary provider or network error;
+ *  - 'database' and 'unexpected' — errors on our side.
+ */
+export type FailReason = 'config' | 'database' | 'provider' | 'rejected' | 'unexpected';
 
 /** Reminder row fields the rules read. */
 export type ReminderRecord = {
@@ -140,7 +166,12 @@ export type NotDueReason =
   | 'outside_window'
   | 'already_sent'
   | 'in_progress'
+  | 'rejected'
+  | 'retry_limit'
   | 'recent_confirmation';
+
+/** Result of checkReminderRetries(). */
+export type RetryCheck = 'ok' | 'rejected' | 'retry_limit';
 
 /** Result of decideReminderDue(). */
 export type DueDecision =
@@ -213,6 +244,35 @@ export function classifyReminderClaims(rows: readonly ReminderRecord[], now: Dat
 }
 
 /**
+ * Checks whether an appointment's 24-hour reminder may be tried (again),
+ * from its attempts in the last RETRY_WINDOW_MS (24 h):
+ *  - 'rejected'    — the email provider rejected an attempt as invalid (a
+ *                    'failed' row whose token was cleared); sending it again
+ *                    fails again;
+ *  - 'retry_limit' — MAX_FAILED_REMINDER_ATTEMPTS attempts failed, counting
+ *                    stale claims (runs that crashed after claiming);
+ *  - 'ok'          — it may be tried.
+ *
+ * @param rows - Reminder rows of one appointment (other types are ignored).
+ * @param now  - Current instant.
+ */
+export function checkReminderRetries(rows: readonly ReminderRecord[], now: Date): RetryCheck {
+  const since = now.getTime() - RETRY_WINDOW_MS;
+  let failedAttempts = 0;
+
+  for (const row of rows) {
+    if (row.type !== 'email' || !(Date.parse(row.created_at) > since)) continue;
+    if (row.status === 'failed') {
+      if (row.token === null) return 'rejected';
+      failedAttempts++;
+    } else if (row.status === 'pending' && row.token && isStaleClaim(row, now)) {
+      failedAttempts++;
+    }
+  }
+  return failedAttempts >= MAX_FAILED_REMINDER_ATTEMPTS ? 'retry_limit' : 'ok';
+}
+
+/**
  * Returns true when a booking confirmation was sent, or is being sent, within
  * the last CONFIRMATION_QUIET_PERIOD_MS. Confirmations whose links were
  * retired by a reschedule ('cancelled') do not count.
@@ -236,8 +296,8 @@ export function hasRecentConfirmation(rows: readonly ReminderRecord[], now: Date
  * Decides whether an appointment's 24-hour reminder is due now.
  *
  * Due when the appointment is 'scheduled', starts within (now, now + 24 h],
- * has no 24-hour reminder sent or in progress, and had no booking
- * confirmation in the last 12 h.
+ * has no 24-hour reminder sent or in progress, has attempts left (see
+ * checkReminderRetries()), and had no booking confirmation in the last 12 h.
  *
  * @param appointment - The appointment.
  * @param rows        - Its reminder rows ('email' and 'email_confirmation').
@@ -259,6 +319,8 @@ export function decideReminderDue(
   const claims = classifyReminderClaims(rows, now);
   if (claims.kind === 'sent') return { due: false, reason: 'already_sent' };
   if (claims.kind === 'in_progress') return { due: false, reason: 'in_progress' };
+  const retries = checkReminderRetries(rows, now);
+  if (retries !== 'ok') return { due: false, reason: retries };
   if (hasRecentConfirmation(rows, now)) return { due: false, reason: 'recent_confirmation' };
 
   return { due: true, staleClaimIds: claims.staleClaimIds };
@@ -294,6 +356,8 @@ export function selectDueReminders<T extends AppointmentTiming & { id: string }>
     outside_window: 0,
     already_sent: 0,
     in_progress: 0,
+    rejected: 0,
+    retry_limit: 0,
     recent_confirmation: 0,
   };
 

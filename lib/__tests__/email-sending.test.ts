@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { buildConfirmationLinks, resolveAppUrl } from '@/lib/reminders/links';
-import { buildFromHeader, extractEmailAddress, sanitiseDisplayName } from '@/lib/resend';
+import {
+  buildFromHeader,
+  classifyResendError,
+  extractEmailAddress,
+  sanitiseDisplayName,
+} from '@/lib/resend';
 
 describe('resolveAppUrl', () => {
   it('fails loudly when NEXT_PUBLIC_APP_URL is missing or not absolute', () => {
@@ -69,5 +74,34 @@ describe('From header', () => {
     expect(sanitiseDisplayName('x'.repeat(100))).toHaveLength(70);
     expect(buildFromHeader('Salon\n"Elena" <admin@bank.test>', 'reminders@noshowly.com'))
       .toBe('"Salon Elena adminbank.test" <reminders@noshowly.com>');
+  });
+});
+
+describe('classifyResendError', () => {
+  it('treats 4xx validation errors as a rejected email that is not retried', () => {
+    expect(classifyResendError({ name: 'validation_error', statusCode: 422 })).toBe('rejected');
+    expect(classifyResendError({ name: 'invalid_parameter', statusCode: 422 })).toBe('rejected');
+    expect(classifyResendError({ name: 'missing_required_field', statusCode: 422 })).toBe('rejected');
+    expect(classifyResendError({ name: 'invalid_from_address', statusCode: 422 })).toBe('rejected');
+    expect(classifyResendError({ name: 'invalid_idempotency_key', statusCode: 400 })).toBe('rejected');
+  });
+
+  it('treats key, sender domain and quota errors as an account problem', () => {
+    expect(classifyResendError({ name: 'missing_api_key', statusCode: 401 })).toBe('account');
+    expect(classifyResendError({ name: 'invalid_api_key', statusCode: 403 })).toBe('account');
+    expect(classifyResendError({ name: 'restricted_api_key', statusCode: 401 })).toBe('account');
+    // Unverified sender domain, or the shared test sender used for other recipients.
+    expect(classifyResendError({ name: 'validation_error', statusCode: 403 })).toBe('account');
+    expect(classifyResendError({ name: 'daily_quota_exceeded', statusCode: 429 })).toBe('account');
+    expect(classifyResendError({ name: 'monthly_quota_exceeded', statusCode: 429 })).toBe('account');
+  });
+
+  it('treats rate limits, server and network errors as temporary', () => {
+    expect(classifyResendError({ name: 'rate_limit_exceeded', statusCode: 429 })).toBe('temporary');
+    expect(classifyResendError({ name: 'concurrent_idempotent_requests', statusCode: 409 })).toBe('temporary');
+    expect(classifyResendError({ name: 'internal_server_error', statusCode: 500 })).toBe('temporary');
+    expect(classifyResendError({ name: 'application_error', statusCode: null })).toBe('temporary');
+    expect(classifyResendError({ name: 'something_new', statusCode: 503 })).toBe('temporary');
+    expect(classifyResendError({})).toBe('temporary');
   });
 });

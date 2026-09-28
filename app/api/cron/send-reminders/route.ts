@@ -31,13 +31,18 @@
  *     overlapping runs never send the same reminder twice. Whatever is left
  *     is still due in the next run.
  *
+ * Failed sends are retried by later runs, at most 3 times in 24 hours per
+ * appointment; an email the provider rejected as invalid is not retried. When
+ * the provider refuses the account itself (API key, sender domain, quota), the
+ * run stops with a 500 and the reminders stay due for the next run.
+ *
  * Responses:
  *  200 { due, sent, skipped, failed } — `due` counts the reminders found due;
  *      the rest of `due` (not sent, skipped or failed) ran out of time and is
  *      picked up by the next run. Per-appointment problems are counted, not fatal.
  *  401 { error: "Unauthorized" }
- *  500 { error } — only when the run cannot work at all (configuration or
- *      database unavailable).
+ *  500 { error } — only when the run cannot work at all (configuration,
+ *      database unavailable, or the email provider refusing the account).
  *
  * Security:
  *  - Uses the service-role key so it can query across all salons.
@@ -49,7 +54,12 @@ import { isEmailConfigured } from '@/lib/resend';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createEmailGateway } from '@/lib/reminders/gateway';
 import { resolveAppUrl } from '@/lib/reminders/links';
-import { reminderWindow, selectDueReminders, type SkipReason } from '@/lib/reminders/rules';
+import {
+  reminderWindow,
+  selectDueReminders,
+  type FailReason,
+  type SkipReason,
+} from '@/lib/reminders/rules';
 import {
   loadReminderRecords,
   loadScheduledAppointmentsBetween,
@@ -182,6 +192,9 @@ async function runReminderJob(request: Request): Promise<Response> {
     const counts: RunCounts = { due: due.length, sent: 0, skipped: 0, failed: 0 };
     const skippedBy: Partial<Record<SkipReason, number>> = {};
 
+    const failedBy: Partial<Record<FailReason, number>> = {};
+    let accountProblem: string | null = null;
+
     for (const { appointment, staleClaimIds } of due) {
       if (Date.now() - startedAt >= SEND_BUDGET_MS) break;
 
@@ -193,15 +206,30 @@ async function runReminderJob(request: Request): Promise<Response> {
         skippedBy[result.reason] = (skippedBy[result.reason] ?? 0) + 1;
       } else {
         counts.failed++;
+        failedBy[result.reason] = (failedBy[result.reason] ?? 0) + 1;
+        // The email provider refused the account itself (API key, sender
+        // domain, quota): every other reminder would fail the same way. Stop;
+        // the reminders stay due and go out once the account works.
+        if (result.reason === 'config') {
+          accountProblem = result.message;
+          break;
+        }
       }
     }
 
     const remaining = counts.due - counts.sent - counts.skipped - counts.failed;
-    console.log(
-      `[cron/send-reminders] Job complete — due: ${counts.due}, sent: ${counts.sent}, ` +
-      `skipped: ${counts.skipped} ${JSON.stringify(skippedBy)}, failed: ${counts.failed}, ` +
-      `left for the next run: ${remaining}, not due: ${JSON.stringify(notDue)}`,
-    );
+    const summary =
+      `due: ${counts.due}, sent: ${counts.sent}, ` +
+      `skipped: ${counts.skipped} ${JSON.stringify(skippedBy)}, ` +
+      `failed: ${counts.failed} ${JSON.stringify(failedBy)}, ` +
+      `left for the next run: ${remaining}, not due: ${JSON.stringify(notDue)}`;
+
+    if (accountProblem) {
+      console.error(`[cron/send-reminders] Run stopped — ${accountProblem}. ${summary}`);
+      return Response.json({ error: 'The email provider refused to send' }, { status: 500 });
+    }
+
+    console.log(`[cron/send-reminders] Job complete — ${summary}`);
     return Response.json(counts, { status: 200 });
 
   } catch (err) {

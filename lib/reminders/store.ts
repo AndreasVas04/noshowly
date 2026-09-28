@@ -232,7 +232,9 @@ export async function loadScheduledAppointmentsBetween(
 
 /**
  * Loads the 24-hour reminder and booking confirmation rows that matter for
- * the due rules ('pending', 'sent' or 'confirmed') of many appointments.
+ * the due rules ('pending', 'sent', 'confirmed', and 'failed' attempts, which
+ * count towards the retry limit) of many appointments. Failed attempts are
+ * few: at most MAX_FAILED_REMINDER_ATTEMPTS per appointment and window.
  *
  * @param db             - Service-role client.
  * @param appointmentIds - Appointment ids.
@@ -248,7 +250,7 @@ export async function loadReminderRecords(
       .select('id, appointment_id, type, status, token, created_at, sent_at')
       .in('appointment_id', ids)
       .in('type', ['email', 'email_confirmation'])
-      .in('status', ['pending', 'sent', 'confirmed']);
+      .in('status', ['pending', 'sent', 'confirmed', 'failed']);
 
     if (error) throw new Error(`Reminder lookup failed: ${error.message}`);
     records.push(...((data ?? []) as ReminderRecord[]));
@@ -329,14 +331,34 @@ export async function markReminderUnsent(
 }
 
 /**
+ * Marks a 'pending' row whose email the provider rejected as invalid: 'failed'
+ * with its token cleared. The cleared token is what tells the retry rules
+ * (checkReminderRetries() in lib/reminders/rules.ts) that sending it again
+ * would fail again; the email was never delivered, so no link used the token.
+ *
+ * @param db - Service-role client.
+ * @param id - Reminder row id.
+ */
+export async function markReminderRejected(db: Db, id: string): Promise<void> {
+  const { error } = await db
+    .from('reminders')
+    .update({ status: 'failed', token: null })
+    .eq('id', id)
+    .eq('status', 'pending');
+
+  if (error) throw new Error(`Failed to mark reminder ${id} as rejected: ${error.message}`);
+}
+
+/**
  * Retires an appointment's email links after it moved to another time or
  * client, or was cancelled: its 24-hour reminder and booking confirmation rows
- * in RETIRED_ON_CHANGE_STATUSES ('pending', 'sent' and 'confirmed') become
- * 'cancelled' (see lib/reminders/rules.ts). Their YES/NO links stop working —
- * a link the client already answered confirmed the old time, not the new one —
- * and a new 24-hour reminder can be claimed for the appointment's new time,
- * because 'cancelled' rows never count as a sent reminder. Test sends never
- * change anything and are left alone.
+ * in RETIRED_ON_CHANGE_STATUSES ('pending', 'sent', 'confirmed' and 'failed')
+ * become 'cancelled' (see lib/reminders/rules.ts). Their YES/NO links stop
+ * working — a link the client already answered confirmed the old time, not
+ * the new one — and a new 24-hour reminder can be claimed for the
+ * appointment's new time, because 'cancelled' rows never count as a sent
+ * reminder or as a failed attempt. Test sends never change anything and are
+ * left alone.
  *
  * Works with the service-role client and with the signed-in owner's client
  * (RLS lets owners update the reminders of their own appointments).

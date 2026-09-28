@@ -134,7 +134,7 @@ CRON_SECRET=
 - **24-hour reminder** with YES/NO buttons, for appointments still awaiting confirmation. It is held back until 12 hours after a booking confirmation, so a client never gets both minutes apart.
 - **Test email** from the appointment's "Send reminder" button, marked as a test; its buttons never change anything.
 
-Every email goes through `lib/reminders/gateway.ts`, which applies the plan and usage checks and the anti-abuse limits, and records each email in the `reminders` table before sending it.
+Every email goes through `lib/reminders/gateway.ts`, which applies the plan and usage checks and the anti-abuse limits, and records each email in the `reminders` table before sending it. A reminder that fails to send is retried by later runs, at most 3 times in 24 hours; an email the provider rejects as invalid (for example the address) is not retried. If the provider refuses the account itself (API key, sender domain, quota), the run stops and the reminders stay due.
 
 ---
 
