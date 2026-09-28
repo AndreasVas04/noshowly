@@ -41,7 +41,7 @@ The account includes sample staff, services, and bookings.
 - **Client management** — phone-deduped client records with notes and appointment history
 - **Staff and services** — manage team members, service catalogue (name, duration, price), and per-staff availability
 - **Stripe billing** — monthly subscription (Basic plan) with Apple Pay and Google Pay support
-- **Double-booking prevention** — server-side conflict checks within a 30-minute window for both clients and staff
+- **Double-booking prevention** — server-side, duration-aware conflict checks for both clients and staff; the booking page only offers times that fit each staff member's hours, in the business's timezone
 
 ---
 
@@ -86,6 +86,14 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### 5. Run the tests
+
+```bash
+npm test
+```
+
+Unit tests (Vitest) cover the timezone, scheduling and client de-duplication helpers in `lib/`.
 
 ---
 
