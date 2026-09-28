@@ -25,6 +25,22 @@ BEGIN
               WHERE connamespace = 'public'::regnamespace AND conname = v_name AND NOT convalidated));
   END LOOP;
 
+  -- The single-column foreign keys are dropped even though the same-salon
+  -- keys replacing them could not be validated, so PostgREST sees one
+  -- relationship per pair of tables.
+  PERFORM tests.expect_rows('one foreign key from appointments to clients', 1, $q$
+    SELECT 1 FROM pg_constraint WHERE contype = 'f'
+      AND conrelid = 'public.appointments'::regclass AND confrelid = 'public.clients'::regclass$q$);
+  PERFORM tests.expect_rows('one foreign key from appointments to barbers', 1, $q$
+    SELECT 1 FROM pg_constraint WHERE contype = 'f'
+      AND conrelid = 'public.appointments'::regclass AND confrelid = 'public.barbers'::regclass$q$);
+  PERFORM tests.expect_rows('one foreign key from barber_services to barbers', 1, $q$
+    SELECT 1 FROM pg_constraint WHERE contype = 'f'
+      AND conrelid = 'public.barber_services'::regclass AND confrelid = 'public.barbers'::regclass$q$);
+  PERFORM tests.expect_rows('one foreign key from barber_services to services', 1, $q$
+    SELECT 1 FROM pg_constraint WHERE contype = 'f'
+      AND conrelid = 'public.barber_services'::regclass AND confrelid = 'public.services'::regclass$q$);
+
   -- Constraints no row breaks: validated.
   FOREACH v_name IN ARRAY ARRAY[
     'users_plan_check', 'reminders_type_check', 'services_duration_minutes_check',

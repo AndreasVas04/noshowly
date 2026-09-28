@@ -9,6 +9,7 @@ DECLARE
                            'services', 'booking_pages', 'staff_availability', 'barber_services'];
   v_name   text;
   v_extra  text;
+  r        record;
 BEGIN
   -- Unused objects dropped; the counter the cron route still writes is kept.
   PERFORM tests.expect('staff_services is dropped', to_regclass('public.staff_services') IS NULL);
@@ -50,6 +51,41 @@ BEGIN
   END LOOP;
   PERFORM tests.expect_rows('no constraint left unvalidated', 0, $q$
     SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace AND NOT convalidated$q$);
+
+  -- Exactly one foreign key between each pair of tables: with two, PostgREST
+  -- cannot resolve embeds such as appointments?select=clients(name)
+  -- (PGRST201). The same-salon keys keep the old delete behaviour.
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('appointments',    'clients',  'appointments_client_id_salon_id_fkey',     'n', 'client_id'),
+      ('appointments',    'barbers',  'appointments_barber_id_salon_id_fkey',     'n', 'barber_id'),
+      ('barber_services', 'barbers',  'barber_services_barber_id_salon_id_fkey',  'c', NULL),
+      ('barber_services', 'services', 'barber_services_service_id_salon_id_fkey', 'c', NULL)
+    ) AS t(tbl, ref, fkey, on_delete, set_null_column)
+  LOOP
+    PERFORM tests.expect_rows(format('%s has exactly one foreign key to %s', r.tbl, r.ref), 1, format(
+      $q$SELECT conname FROM pg_constraint WHERE contype = 'f' AND conrelid = %L::regclass AND confrelid = %L::regclass$q$,
+      'public.' || r.tbl, 'public.' || r.ref));
+    PERFORM tests.expect(format('%s is the foreign key from %s to %s', r.fkey, r.tbl, r.ref),
+      EXISTS (SELECT 1 FROM pg_constraint
+              WHERE conname = r.fkey AND contype = 'f'
+                AND conrelid = format('public.%I', r.tbl)::regclass
+                AND confrelid = format('public.%I', r.ref)::regclass));
+    PERFORM tests.expect(
+      format('%s: ON DELETE %s', r.fkey,
+             CASE r.on_delete WHEN 'n' THEN format('SET NULL (%s)', r.set_null_column) ELSE 'CASCADE' END),
+      EXISTS (SELECT 1 FROM pg_constraint con
+              WHERE con.conname = r.fkey
+                AND con.confdeltype::text = r.on_delete
+                AND (r.set_null_column IS NULL
+                     OR con.confdelsetcols = ARRAY[(SELECT attnum FROM pg_attribute
+                                                    WHERE attrelid = con.conrelid
+                                                      AND attname = r.set_null_column)])));
+  END LOOP;
+  PERFORM tests.expect_rows('no two foreign keys between the same two tables', 0, $q$
+    SELECT conrelid, confrelid FROM pg_constraint
+    WHERE contype = 'f' AND connamespace = 'public'::regnamespace
+    GROUP BY conrelid, confrelid HAVING count(*) > 1$q$);
 
   -- Indexes.
   FOREACH v_name IN ARRAY ARRAY[

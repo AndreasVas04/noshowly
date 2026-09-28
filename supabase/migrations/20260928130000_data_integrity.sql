@@ -18,7 +18,9 @@
 --   3. CHECK constraints on appointment and reminder status, reminder type,
 --      durations, prices, business hours and booking page slugs.
 --   4. Tenant integrity: appointments and barber_services can only point at a
---      barber, service or client of their own salon.
+--      barber, service or client of their own salon. These foreign keys
+--      replace the single-column ones, so PostgREST still finds exactly one
+--      relationship between each pair of tables.
 --   5. No double booking: a barber cannot have two overlapping appointments
 --      unless one of them is cancelled.
 --   6. One salon per owner; booking page slugs are unique ignoring case; one
@@ -250,6 +252,75 @@ BEGIN
           'enforced for new and changed rows, but existing rows break it, so it is not validated yet',
           c.rows_to_fix);
     END;
+  END LOOP;
+END $$;
+
+-- The same-salon foreign keys replace the single-column ones from the
+-- baseline (found in pg_constraint by column and referenced table). Two
+-- foreign keys between the same two tables make PostgREST embeds such as
+-- appointments?select=clients(name) ambiguous (PGRST201). Deletes work as
+-- before: an appointment is kept and only its barber_id or client_id is
+-- cleared; a staff assignment is deleted with its barber or service.
+-- The single-column key is dropped even while the same-salon key is not
+-- validated: that key is enforced for new and changed rows, and the report
+-- lists the existing rows it does not cover yet.
+DO $$
+DECLARE
+  c         record;
+  v_valid   boolean;
+  v_old     text;
+  v_dropped text;
+  v_find    text;
+BEGIN
+  FOR c IN
+    SELECT * FROM (VALUES
+      ('appointments',    'client_id',  'clients',  'appointments_client_id_salon_id_fkey'),
+      ('appointments',    'barber_id',  'barbers',  'appointments_barber_id_salon_id_fkey'),
+      ('barber_services', 'barber_id',  'barbers',  'barber_services_barber_id_salon_id_fkey'),
+      ('barber_services', 'service_id', 'services', 'barber_services_service_id_salon_id_fkey')
+    ) AS t(tbl, col, ref, same_salon_fkey)
+  LOOP
+    SELECT convalidated INTO v_valid
+    FROM pg_constraint
+    WHERE conrelid = format('public.%I', c.tbl)::regclass AND conname = c.same_salon_fkey;
+    IF NOT FOUND THEN
+      PERFORM pg_temp.data_integrity_note(format('%s -> %s', c.tbl, c.ref),
+        format('single-column foreign key kept: %s is missing', c.same_salon_fkey));
+      CONTINUE;
+    END IF;
+
+    v_dropped := NULL;
+    FOR v_old IN
+      SELECT con.conname
+      FROM pg_constraint con
+      JOIN pg_attribute att
+        ON att.attrelid = con.conrelid AND att.attname = c.col
+      WHERE con.conrelid = format('public.%I', c.tbl)::regclass
+        AND con.confrelid = format('public.%I', c.ref)::regclass
+        AND con.contype = 'f'
+        AND con.conkey = ARRAY[att.attnum]
+    LOOP
+      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', c.tbl, v_old);
+      v_dropped := concat_ws(', ', v_dropped, v_old);
+    END LOOP;
+
+    IF v_valid THEN
+      PERFORM pg_temp.data_integrity_note(format('%s -> %s', c.tbl, c.ref),
+        CASE WHEN v_dropped IS NULL THEN 'in place'
+             ELSE format('dropped %s, replaced by %s', v_dropped, c.same_salon_fkey) END);
+    ELSE
+      SELECT rows_to_fix INTO v_find
+      FROM pg_temp.data_integrity_report
+      WHERE step = c.same_salon_fkey AND rows_to_fix IS NOT NULL
+      ORDER BY seq DESC
+      LIMIT 1;
+      PERFORM pg_temp.data_integrity_note(format('%s -> %s', c.tbl, c.ref),
+        format('%s, replaced by %s, which is not validated yet: the rows it lists are not '
+               'covered, and deleting the %s they point at leaves them unchanged',
+               coalesce('dropped ' || v_dropped, 'single-column foreign key already dropped'),
+               c.same_salon_fkey, rtrim(c.ref, 's')),
+        v_find);
+    END IF;
   END LOOP;
 END $$;
 
