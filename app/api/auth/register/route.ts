@@ -13,7 +13,10 @@
  *    either succeeds (records exist) or fails (client signs out and shows error).
  *
  * Request body:
- *  { salonName: string }
+ *  { salonName: string, timezone?: string }
+ *
+ *  timezone is the browser's IANA timezone; it becomes the salon's timezone
+ *  when valid, otherwise the salon starts on 'UTC'.
  *
  * Responses:
  *  201 { success: true }          — records created (or already existed, idempotent)
@@ -31,6 +34,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { requireUser } from '@/lib/auth';
+import { isValidTimeZone } from '@/lib/time';
 import type { Database } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +77,7 @@ export async function POST(request: Request): Promise<Response> {
   // Security: never trust client input; validate before touching the database.
   // -------------------------------------------------------------------------
   let salonName: string;
+  let timezone = 'UTC';
   try {
     const body: unknown = await request.json();
 
@@ -87,6 +92,12 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     salonName = ((body as Record<string, string>).salonName).trim();
+
+    // Optional browser timezone — an unknown or missing value falls back to UTC.
+    const requestedTimezone = (body as Record<string, unknown>).timezone;
+    if (isValidTimeZone(requestedTimezone)) {
+      timezone = requestedTimezone;
+    }
   } catch {
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
@@ -179,7 +190,8 @@ export async function POST(request: Request): Promise<Response> {
     const { error: insertSalonError } = await adminSupabase.from('salons').insert({
       user_id: user.id,
       name: salonName,
-      // timezone defaults to 'UTC' — user can change it in /dashboard/settings
+      // The owner's browser timezone (validated above) or 'UTC'; changeable in /dashboard/settings.
+      timezone,
     });
 
     if (insertSalonError) {

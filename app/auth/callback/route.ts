@@ -11,9 +11,10 @@
  *     (because there is no session until the user clicks the link).
  *  3. Redirects to /dashboard on success, or /login on failure.
  *
- * The salon name is read from user_metadata (set during signUp via options.data).
- * If metadata is missing for any reason, we fall back to "My Salon" — the owner
- * can rename it in /dashboard/settings.
+ * The salon name and timezone are read from user_metadata (set during signUp
+ * via options.data). If the name is missing we fall back to "My Salon", and an
+ * unknown or missing timezone falls back to "UTC" — the owner can change both
+ * in /dashboard/settings.
  *
  * Security: The code is single-use and expires after a short window.
  * We never log it. On failure we redirect rather than exposing error details.
@@ -23,6 +24,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { isValidTimeZone } from '@/lib/time';
 import type { Database } from '@/types';
 
 export async function GET(request: Request) {
@@ -101,6 +103,11 @@ export async function GET(request: Request) {
     (session.user.user_metadata?.salon_name as string | undefined)?.trim() ||
     'My Salon';
 
+  // The owner's browser timezone, stored during signUp. Validated because
+  // user metadata is supplied by the client.
+  const metadataTimezone: unknown = session.user.user_metadata?.timezone;
+  const timezone = isValidTimeZone(metadataTimezone) ? metadataTimezone : 'UTC';
+
   // Create `users` record (idempotent — skip if it already exists).
   const { data: existingUser, error: userCheckError } = await adminSupabase
     .from('users')
@@ -134,6 +141,7 @@ export async function GET(request: Request) {
     const { error: insertSalonError } = await adminSupabase.from('salons').insert({
       user_id: session.user.id,
       name: salonName,
+      timezone,
     });
     if (insertSalonError) {
       console.error('[auth/callback] Failed to insert salons row:', insertSalonError.message);

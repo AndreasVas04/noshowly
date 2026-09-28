@@ -16,14 +16,30 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isValidTimeZone, normaliseTime } from '@/lib/time';
 import type { Salon } from '@/types';
+
+/**
+ * Returns the salon with opening/closing times as 'HH:MM' (Postgres TIME
+ * columns come back as 'HH:MM:SS'), so time inputs and comparisons work.
+ *
+ * @param salon - Salon row from the database.
+ */
+function withNormalisedHours(salon: Salon): Salon {
+  return {
+    ...salon,
+    opening_time: normaliseTime(salon.opening_time),
+    closing_time: normaliseTime(salon.closing_time),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // GET — read salon
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the salon record for the authenticated user.
+ * Returns the salon record for the authenticated user. Opening and closing
+ * times are returned as 'HH:MM'.
  *
  * @returns 200 { salon: Salon }               — salon data
  * @returns 401 { error: "Unauthorized" }      — no valid session
@@ -52,7 +68,7 @@ export async function GET(): Promise<Response> {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  return Response.json({ salon: salon as Salon }, { status: 200 });
+  return Response.json({ salon: withNormalisedHours(salon as Salon) }, { status: 200 });
 }
 
 // ---------------------------------------------------------------------------
@@ -66,9 +82,9 @@ export async function GET(): Promise<Response> {
  *  {
  *    name?:             string  — salon display name, 1–100 chars
  *    phone?:            string  — salon contact number, max 20 chars, or null to clear
- *    timezone?:         string  — IANA timezone string, max 60 chars
- *    opening_time?:     string  — HH:MM 24-hour format, e.g. "09:00", or null to clear
- *    closing_time?:     string  — HH:MM 24-hour format, e.g. "20:00", or null to clear
+ *    timezone?:         string  — IANA timezone name, e.g. "Europe/Nicosia" (validated)
+ *    opening_time?:     string  — HH:MM 24-hour format, e.g. "09:00" (HH:MM:SS accepted), or null to clear
+ *    closing_time?:     string  — HH:MM 24-hour format, e.g. "20:00" (HH:MM:SS accepted), or null to clear
  *    email_footer?:     string  — custom email footer text, max 300 chars, or null to reset to default
  *    email_subject?:    string  — custom email subject line, max 200 chars, or null to reset to default
  *    email_greeting?:   string  — custom email greeting line, max 200 chars, or null to reset to default
@@ -76,7 +92,8 @@ export async function GET(): Promise<Response> {
  *    email_closing?:    string  — custom email closing message, max 200 chars, or null to reset to default
  *  }
  *
- * At least one field must be provided.
+ * At least one field must be provided. When both opening and closing times
+ * are set (after this update), opening must be before closing.
  *
  * @returns 200 { salon: Salon }               — updated salon
  * @returns 400 { error: string }              — validation failure
@@ -178,11 +195,10 @@ export async function PUT(request: Request): Promise<Response> {
     if (!timezone) {
       return Response.json({ error: 'Timezone cannot be empty' }, { status: 400 });
     }
-    if (timezone.length > 60) {
-      return Response.json(
-        { error: 'Timezone string must be 60 characters or fewer' },
-        { status: 400 }
-      );
+    // Must be a timezone the Intl API knows, e.g. "Europe/Nicosia" or "UTC":
+    // every appointment time is converted with it.
+    if (!isValidTimeZone(timezone)) {
+      return Response.json({ error: 'Unknown timezone' }, { status: 400 });
     }
     updates.timezone = timezone;
   }
@@ -192,11 +208,12 @@ export async function PUT(request: Request): Promise<Response> {
     if (raw.opening_time !== null && typeof raw.opening_time !== 'string') {
       return Response.json({ error: 'opening_time must be a string or null' }, { status: 400 });
     }
-    if (typeof raw.opening_time === 'string') {
-      if (!/^\d{2}:\d{2}$/.test(raw.opening_time)) {
+    if (typeof raw.opening_time === 'string' && raw.opening_time.trim() !== '') {
+      const openingTime = normaliseTime(raw.opening_time);
+      if (!openingTime) {
         return Response.json({ error: 'opening_time must be in HH:MM format' }, { status: 400 });
       }
-      updates.opening_time = raw.opening_time;
+      updates.opening_time = openingTime;
     } else {
       updates.opening_time = null;
     }
@@ -207,11 +224,12 @@ export async function PUT(request: Request): Promise<Response> {
     if (raw.closing_time !== null && typeof raw.closing_time !== 'string') {
       return Response.json({ error: 'closing_time must be a string or null' }, { status: 400 });
     }
-    if (typeof raw.closing_time === 'string') {
-      if (!/^\d{2}:\d{2}$/.test(raw.closing_time)) {
+    if (typeof raw.closing_time === 'string' && raw.closing_time.trim() !== '') {
+      const closingTime = normaliseTime(raw.closing_time);
+      if (!closingTime) {
         return Response.json({ error: 'closing_time must be in HH:MM format' }, { status: 400 });
       }
-      updates.closing_time = raw.closing_time;
+      updates.closing_time = closingTime;
     } else {
       updates.closing_time = null;
     }
@@ -340,7 +358,29 @@ export async function PUT(request: Request): Promise<Response> {
     );
   }
 
-  // Step 3: Update the salon for this user.
+  // Step 3: Business hours must form a valid range. When only one of the two
+  // times is being changed, compare it with the stored value of the other.
+  if ('opening_time' in updates || 'closing_time' in updates) {
+    let opening = updates.opening_time;
+    let closing = updates.closing_time;
+    if (opening === undefined || closing === undefined) {
+      const { data: stored } = await supabase
+        .from('salons')
+        .select('opening_time, closing_time')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+      if (opening === undefined) opening = normaliseTime(stored?.opening_time);
+      if (closing === undefined) closing = normaliseTime(stored?.closing_time);
+    }
+    if (opening && closing && opening >= closing) {
+      return Response.json(
+        { error: 'Closing time must be after opening time' },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Step 4: Update the salon for this user.
   // The .eq('user_id', session.user.id) clause is the ownership guard —
   // users can only update their own salon even if they knew another salon's id.
   const { data: salon, error: updateError } = await supabase
@@ -365,5 +405,5 @@ export async function PUT(request: Request): Promise<Response> {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  return Response.json({ salon: salon as Salon }, { status: 200 });
+  return Response.json({ salon: withNormalisedHours(salon as Salon) }, { status: 200 });
 }

@@ -35,6 +35,20 @@ interface RegisterFormState {
 type FormStatus = 'idle' | 'loading' | 'error' | 'success';
 
 /**
+ * Returns the browser's IANA timezone (e.g. "Europe/Nicosia"), used as the
+ * new salon's timezone. The server validates it and falls back to UTC.
+ *
+ * @returns The timezone, or null when the browser does not report one.
+ */
+function getBrowserTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * RegisterPage renders the sign-up form for new salon owners.
  *
  * @returns The registration page JSX.
@@ -106,12 +120,16 @@ export default function RegisterPage() {
     setStatus('loading');
     setErrorMessage('');
 
+    // The salon starts in the owner's own timezone (changeable in Settings).
+    const timezone = getBrowserTimeZone();
+
     try {
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: form.email.trim().toLowerCase(),
         password: form.password,
         options: {
-          data: { salon_name: form.salonName.trim() },
+          // Read by /auth/callback when email confirmation is required.
+          data: { salon_name: form.salonName.trim(), timezone },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
@@ -140,7 +158,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonName: form.salonName.trim() }),
+        body: JSON.stringify({ salonName: form.salonName.trim(), timezone }),
       });
 
       if (!res.ok) {
