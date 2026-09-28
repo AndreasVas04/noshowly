@@ -6,9 +6,8 @@
  *  - app/api/book/[slug]/route.ts          (busy times for a date)
  *  - app/api/book/[slug]/appointments      (validating a booking)
  *
- * Visitors are anonymous. The anon key cannot read appointments or
- * barber_services, and after supabase/security_hardening.sql it can only read
- * a few salon columns, so reading with it made every time look free and
+ * Visitors are anonymous, and the anon key cannot read booking data (see
+ * supabase/migrations/). Reading with it made every time look free and
  * ignored staff/service assignments. These reads use the service-role client
  * instead, always scoped to one booking page's salon and always with explicit
  * column lists. Client ids, names, contact details and notes are never read.

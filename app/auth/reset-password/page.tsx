@@ -87,7 +87,7 @@ export default function ResetPasswordPage() {
       }
 
       // The demo account is shared, so its password cannot be changed.
-      // The database blocks the change too (supabase/security_hardening.sql).
+      // The database blocks the change too (see the security_hardening migration).
       if (isDemoAccount(session.user.email)) {
         setExchangeError('The demo account password cannot be changed.');
         setExchangeStatus('error');

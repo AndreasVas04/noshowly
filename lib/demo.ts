@@ -3,8 +3,8 @@
  *
  * The public demo account. Its credentials are in the README and on the login
  * page, so anyone can sign in to it. Account deletion is blocked for it in
- * /api/account, and supabase/security_hardening.sql blocks password and email
- * changes at the database level.
+ * /api/account, and the security_hardening migration in supabase/migrations/
+ * blocks password and email changes at the database level.
  */
 
 export const DEMO_ACCOUNT_EMAIL = 'demo@noshowly.com';
