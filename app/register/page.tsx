@@ -162,11 +162,13 @@ export default function RegisterPage() {
       });
 
       if (!res.ok) {
+        // The account exists; signing in finishes the setup (the dashboard
+        // creates whatever is missing).
         await supabase.auth.signOut();
         setStatus('error');
         setErrorMessage(
           'Your account was created but setup could not be completed. ' +
-            'Please try again or contact support.'
+            'Please sign in to finish setting it up.'
         );
         return;
       }

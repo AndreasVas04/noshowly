@@ -17,12 +17,23 @@
  *
  * This is a Server Component — fetches the salon name and the plan
  * server-side (lib/entitlements.ts).
+ *
+ * Self-repair: a signed-in owner without a users or salons row (a sign-up
+ * that stopped halfway) gets the missing rows here, through the same
+ * idempotent ensureAccount() the sign-up routes use (lib/account.ts), with
+ * the salon name recorded at sign-up or "My Salon". If that fails, the banner
+ * says so instead of every page failing with "Salon not found".
  */
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { unstable_rethrow } from 'next/navigation';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { accountSetupFromMetadata, ensureAccount } from '@/lib/account';
 import { getEntitlements, type Entitlements } from '@/lib/entitlements';
+import type { Database } from '@/types';
 import LogoutButton from '@/components/layout/LogoutButton';
 import DashboardNavLinks, { MobileBottomNav } from '@/components/dashboard/DashboardNavLinks';
 import PlanBanner, { type PlanBannerState } from '@/components/dashboard/PlanBanner';
@@ -55,32 +66,84 @@ function bannerFor(entitlements: Entitlements): PlanBannerState {
   return entitlements.isTrial ? { kind: 'trial_ended' } : { kind: 'inactive' };
 }
 
+/** The owner's rows as read by the layout. */
+type AccountRows =
+  | {
+      ok: true;
+      /** Salon name, or null when the owner has no salon. */
+      salonName: string | null;
+      /** users.plan and trial_ends_at, or null when the owner has no users row. */
+      account: { plan: string; trial_ends_at: string } | null;
+    }
+  | { ok: false };
+
 /**
- * Loads the salon name and the plan of the signed-in owner.
- * Errors are non-fatal: the layout renders with fallbacks.
+ * Reads the owner's salon name and plan through RLS.
+ *
+ * @param supabase - The signed-in user's client.
+ * @param userId   - The verified user's id.
+ */
+async function readAccountRows(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+): Promise<AccountRows> {
+  const [salonResult, userResult] = await Promise.all([
+    supabase.from('salons').select('name').eq('user_id', userId).limit(1),
+    supabase.from('users').select('plan, trial_ends_at').eq('id', userId).maybeSingle(),
+  ]);
+  if (salonResult.error || userResult.error) return { ok: false };
+  return {
+    ok: true,
+    salonName: salonResult.data?.[0]?.name ?? null,
+    account: userResult.data ?? null,
+  };
+}
+
+/**
+ * Loads the salon name and the plan of the signed-in owner, first creating
+ * the users or salons row when either is missing. Errors are non-fatal: the
+ * layout renders with fallbacks.
  */
 async function loadDashboardAccount(): Promise<DashboardAccount> {
   try {
+    // Step 1: The verified user. getUser() (not getSession()) because the
+    // repair below uses the user id with the service-role key.
     const supabase = await createServerSupabaseClient();
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+    } = await supabase.auth.getUser();
 
     // Middleware redirects signed-out visitors before this renders.
-    if (!session) return FALLBACK_ACCOUNT;
+    if (!user) return FALLBACK_ACCOUNT;
 
-    const [salonResult, userResult] = await Promise.all([
-      supabase.from('salons').select('name').eq('user_id', session.user.id).limit(1),
-      supabase.from('users').select('plan, trial_ends_at').eq('id', session.user.id).maybeSingle(),
-    ]);
+    let rows = await readAccountRows(supabase, user.id);
 
-    const salonName = salonResult.data?.[0]?.name || FALLBACK_ACCOUNT.salonName;
-    if (userResult.error || !userResult.data) return { ...FALLBACK_ACCOUNT, salonName };
+    // Step 2: A sign-up that stopped halfway — create the missing rows.
+    if (rows.ok && (!rows.salonName || !rows.account)) {
+      const result = await ensureAccount(createAdminSupabaseClient(), user, accountSetupFromMetadata(user));
+      if (!result.ok) {
+        console.error(`[dashboard] Could not complete the account of user=${user.id} (${result.step}): ${result.message}`);
+        return { ...FALLBACK_ACCOUNT, banner: { kind: 'setup_failed' } };
+      }
+      console.log(
+        `[dashboard] Completed the account of user=${user.id} ` +
+        `(users row created: ${result.createdUser}, salon created: ${result.createdSalon})`
+      );
+      rows = await readAccountRows(supabase, user.id);
+    }
 
-    const entitlements = getEntitlements(userResult.data, new Date());
+    // Step 3: Salon name and plan banner.
+    if (!rows.ok) return FALLBACK_ACCOUNT;
+    const salonName = rows.salonName || FALLBACK_ACCOUNT.salonName;
+    if (!rows.account) return { ...FALLBACK_ACCOUNT, salonName };
+
+    const entitlements = getEntitlements(rows.account, new Date());
     return { salonName, banner: bannerFor(entitlements), isPaid: entitlements.isPaid };
-  } catch {
+  } catch (err) {
+    // Next.js signals (dynamic rendering, redirects) must reach Next.js.
+    unstable_rethrow(err);
     // Non-fatal — layout renders with fallback values
+    console.error('[dashboard] Failed to load the account:', err instanceof Error ? err.message : err);
     return FALLBACK_ACCOUNT;
   }
 }

@@ -9,6 +9,9 @@
  *  - "Forgot password?" inline flow: shows an email input and calls
  *    supabase.auth.resetPasswordForEmail(). Displays a success message
  *    after sending and handles errors gracefully.
+ *  - Explains the ?error= codes app/auth/callback redirects with
+ *    (LOGIN_ERROR_MESSAGES): an invalid confirmation link, or an account
+ *    whose setup could not be completed (signing in retries it).
  *
  * Security:
  *  - Raw Supabase error messages are never surfaced (prevents user enumeration).
@@ -19,7 +22,7 @@
 
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -42,6 +45,14 @@ type FormStatus = 'idle' | 'loading' | 'error';
 /** Possible UI states for the forgot-password flow. */
 type ResetStatus = 'idle' | 'loading' | 'success' | 'error';
 
+/** Messages for the ?error= codes set by app/auth/callback/route.ts. */
+const LOGIN_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['link_invalid',
+    'This confirmation link is invalid or has expired. Try signing in, or sign up again to get a new link.'],
+  ['setup_failed',
+    'Your email is confirmed, but we could not finish setting up your account. Please sign in to try again.'],
+]);
+
 /**
  * LoginPage renders a centered, premium email + password sign-in form.
  * Includes show/hide password and a forgot-password reset flow.
@@ -63,6 +74,17 @@ export default function LoginPage() {
   const [resetEmail, setResetEmail] = useState('');
   const [resetStatus, setResetStatus] = useState<ResetStatus>('idle');
   const [resetError, setResetError] = useState<string>('');
+
+  // Show the error the email confirmation callback redirected with, if any.
+  // Read from window.location so the page needs no Suspense boundary.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('error');
+    const message = code ? LOGIN_ERROR_MESSAGES.get(code) : undefined;
+    if (message) {
+      setStatus('error');
+      setErrorMessage(message);
+    }
+  }, []);
 
   /**
    * Updates a single sign-in form field and clears any displayed error.

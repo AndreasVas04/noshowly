@@ -3,7 +3,7 @@
  *
  * POST handler — called immediately after a successful Supabase signUp on the
  * client.  Its sole job is to create the `users` and `salons` database records
- * that the rest of the application depends on.
+ * that the rest of the application depends on (lib/account.ts ensureAccount).
  *
  * Why this route exists instead of doing it client-side:
  *  - All database calls go through API routes.
@@ -11,6 +11,10 @@
  *    service-role key, which must never be exposed to the browser.
  *  - Keeps the sign-up flow atomic from the client's perspective: one fetch()
  *    either succeeds (records exist) or fails (client signs out and shows error).
+ *
+ * If this route fails halfway (e.g. the users row was created but not the
+ * salon), nothing is left broken for good: ensureAccount() is idempotent, and
+ * the dashboard layout calls it again on the owner's next visit.
  *
  * Request body:
  *  { salonName: string, timezone?: string }
@@ -29,13 +33,12 @@
  *    user ID is used with the service-role key.
  *  - Uses the service-role key ONLY for inserting into `users` and `salons`.
  *  - All inputs are validated before any DB operation.
- *  - The service-role client is scoped to this file and never exported.
  */
 
-import { createServerClient } from '@supabase/ssr';
 import { requireUser } from '@/lib/auth';
+import { ensureAccount, type EnsureAccountResult } from '@/lib/account';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { isValidTimeZone } from '@/lib/time';
-import type { Database } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Route handler
@@ -113,96 +116,30 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // -------------------------------------------------------------------------
-  // Step 3: Build the service-role admin client
+  // Step 3: Create whichever of the `users` and `salons` records is missing.
   // Security: SUPABASE_SERVICE_ROLE_KEY is server-only (no NEXT_PUBLIC_ prefix).
-  // This client bypasses RLS intentionally — it is only used below for the
-  // initial record creation that the anon key cannot perform.
+  // The new users row starts on the 14-day free trial.
   // -------------------------------------------------------------------------
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) {
+  let result: EnsureAccountResult;
+  try {
+    result = await ensureAccount(createAdminSupabaseClient(), user, { salonName, timezone });
+  } catch (err) {
     // Configuration error — never happens in production if env vars are set.
-    console.error('[register] Missing SUPABASE_SERVICE_ROLE_KEY');
+    console.error(`[register:${requestId}] Cannot create account records:`, err instanceof Error ? err.message : err);
     return Response.json({ error: 'Server configuration error' }, { status: 500 });
   }
 
-  // Service-role client: no cookies needed since it authenticates via the key itself.
-  const adminSupabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey,
-    {
-      cookies: {
-        // No cookie management needed for the admin client — it uses the key.
-        getAll: () => [],
-        setAll: () => {},
-      },
-    }
+  if (!result.ok) {
+    console.error(`[register:${requestId}] Failed at ${result.step}:`, result.message);
+    return Response.json(
+      { error: result.step === 'users' ? 'Failed to create account' : 'Failed to create salon' },
+      { status: 500 }
+    );
+  }
+
+  console.log(
+    `[register:${requestId}] Registration complete for user ${user.id} ` +
+    `(users row created: ${result.createdUser}, salon created: ${result.createdSalon})`
   );
-
-  // -------------------------------------------------------------------------
-  // Step 4: Create the `users` record (idempotent)
-  // The users table extends auth.users; we only create it if it doesn't exist.
-  // -------------------------------------------------------------------------
-  const { data: existingUser, error: userCheckError } = await adminSupabase
-    .from('users')
-    .select('id')
-    .eq('id', user.id)
-    .maybeSingle(); // maybeSingle() returns null (not error) when no row is found
-
-  if (userCheckError) {
-    console.error(`[register:${requestId}] Failed to check users table:`, userCheckError.message, userCheckError.code, userCheckError.details);
-    return Response.json({ error: 'Failed to verify account' }, { status: 500 });
-  }
-
-  if (!existingUser) {
-    console.log(`[register:${requestId}] Inserting users row for ${user.id}`);
-    const { error: insertUserError } = await adminSupabase.from('users').insert({
-      id: user.id,
-      email: user.email!, // auth.users guarantees email is present
-      plan: 'trial',              // All new accounts start on the 14-day trial
-    });
-
-    if (insertUserError) {
-      console.error(`[register:${requestId}] Failed to insert users row:`, insertUserError.message, insertUserError.code, insertUserError.details);
-      return Response.json({ error: 'Failed to create account' }, { status: 500 });
-    }
-    console.log(`[register:${requestId}] users row created`);
-  } else {
-    console.log(`[register:${requestId}] users row already exists — skipping`);
-  }
-
-  // -------------------------------------------------------------------------
-  // Step 5: Create the `salons` record (idempotent)
-  // One salon per user — skip if one already exists.
-  // -------------------------------------------------------------------------
-  const { data: existingSalon, error: salonCheckError } = await adminSupabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (salonCheckError) {
-    console.error(`[register:${requestId}] Failed to check salons table:`, salonCheckError.message, salonCheckError.code, salonCheckError.details);
-    return Response.json({ error: 'Failed to verify salon' }, { status: 500 });
-  }
-
-  if (!existingSalon) {
-    console.log(`[register:${requestId}] Inserting salons row for user ${user.id}`);
-    const { error: insertSalonError } = await adminSupabase.from('salons').insert({
-      user_id: user.id,
-      name: salonName,
-      // The owner's browser timezone (validated above) or 'UTC'; changeable in /dashboard/settings.
-      timezone,
-    });
-
-    if (insertSalonError) {
-      console.error(`[register:${requestId}] Failed to insert salons row:`, insertSalonError.message, insertSalonError.code, insertSalonError.details);
-      return Response.json({ error: 'Failed to create salon' }, { status: 500 });
-    }
-    console.log(`[register:${requestId}] salons row created`);
-  } else {
-    console.log(`[register:${requestId}] salons row already exists — skipping`);
-  }
-
-  console.log(`[register:${requestId}] Registration complete for user ${user.id}`);
   return Response.json({ success: true }, { status: 201 });
 }
