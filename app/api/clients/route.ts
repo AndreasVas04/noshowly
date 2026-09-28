@@ -20,9 +20,12 @@
  *    from the caller, preventing cross-salon data injection.
  *  - RLS on the clients table provides a second enforcement layer.
  *  - All inputs are validated and trimmed before touching the database.
+ *  - POST needs write access: an ended trial or an inactive subscription is
+ *    read-only (lib/access.ts). Searching always works.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireWriteAccess } from '@/lib/access';
 import { fillMissingClientEmail, findReusableClient, parseClientFields } from '@/lib/clients';
 import { looksLikePhone, normalisePhone, phoneMatchPattern } from '@/lib/contact';
 import type { Client } from '@/types';
@@ -161,6 +164,7 @@ export async function GET(request: Request): Promise<Response> {
  * @returns 201 { client: Client }             — new client created
  * @returns 400 { error: string }             — validation failure
  * @returns 401 { error: "Unauthorized" }     — no valid session
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Salon not found" }  — user has no salon record
  * @returns 500 { error: string }             — unexpected DB error
  */
@@ -174,6 +178,10 @@ export async function POST(request: Request): Promise<Response> {
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   // Step 2: Parse and validate the request body.
   let body: unknown;

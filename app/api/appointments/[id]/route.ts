@@ -19,9 +19,13 @@
  * confirmation are retired (lib/reminders/store.ts cancelReminderLinks),
  * including links the client already answered, so old emails cannot act on
  * it or show it as confirmed, and a new 24-hour reminder can go out.
+ *
+ * PUT and DELETE need write access: an ended trial or an inactive
+ * subscription is read-only (lib/access.ts). GET always works.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireWriteAccess } from '@/lib/access';
 import {
   appointmentsOverlap,
   findAppointmentService,
@@ -184,6 +188,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
  * @returns 200 { appointment: Appointment }
  * @returns 400 { error: string }       — validation failure
  * @returns 401 { error: "Unauthorized" }
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Not found" }
  * @returns 409 { error: string }       — double booking / no staff available
  * @returns 500 { error: string }
@@ -200,6 +205,10 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   // Step 2: Parse and validate request body.
   let body: unknown;
@@ -599,6 +608,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
  *
  * @returns 200 { appointment: Appointment }   — the updated (cancelled) record
  * @returns 401 { error: "Unauthorized" }
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Not found" }
  * @returns 500 { error: string }
  */
@@ -614,6 +624,10 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   // Step 2: Resolve salon for this user.
   const { data: salon, error: salonError } = await supabase

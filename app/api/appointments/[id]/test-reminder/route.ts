@@ -13,10 +13,13 @@
  *    only open a preview page and never change the appointment.
  *  - Only for upcoming appointments that are not cancelled, and only when the
  *    client has an email address.
- *  - Goes through the email gateway (lib/reminders/gateway.ts): requires a
- *    plan that includes email, counts towards the monthly fair-use cap, and is
- *    limited to MAX_TEST_EMAILS_PER_DAY test sends per salon per 24 hours
- *    (and MAX_EMAILS_PER_RECIPIENT_PER_DAY emails per client address).
+ *  - Needs write access: an ended trial or an inactive subscription gets the
+ *    same 403 as every other write route (lib/access.ts).
+ *  - Goes through the email gateway (lib/reminders/gateway.ts): requires an
+ *    account that can send email, counts towards the monthly cap (the
+ *    trial's or the paid plan's), and is limited to MAX_TEST_EMAILS_PER_DAY
+ *    test sends per salon per 24 hours (and MAX_EMAILS_PER_RECIPIENT_PER_DAY
+ *    emails per client address).
  *  - Recorded as a reminders row of type 'email_test', so the real 24-hour
  *    reminder is still sent by the reminder job.
  *
@@ -27,6 +30,7 @@
  */
 
 import { requireUser } from '@/lib/auth';
+import { requireWriteAccess } from '@/lib/access';
 import { MAX_TEST_EMAILS_PER_DAY } from '@/lib/plans';
 import { sendAppointmentEmail, type SendResult } from '@/lib/reminders/gateway';
 
@@ -45,7 +49,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * @returns 200 { success: true, message: string }
  * @returns 400 { error: string }       — past or cancelled appointment, or no client email
  * @returns 401 { error: "Unauthorized" }
- * @returns 403 { error: string }       — the plan does not include email
+ * @returns 403 { error: string }       — read-only account, or the account cannot send email
  * @returns 404 { error: "Not found" }   — appointment not found or not owned
  * @returns 422 { error: string }       — the email provider rejected the email (e.g. the address)
  * @returns 429 { error: string }       — a sending limit was reached
@@ -58,6 +62,10 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
   const { user, supabase } = auth;
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, user.id);
+  if (!access.ok) return access.response;
 
   if (!UUID_PATTERN.test(id)) {
     return Response.json({ error: 'Not found' }, { status: 404 });
@@ -141,8 +149,13 @@ function testSendResponse(result: SendResult): Response {
     switch (result.reason) {
       case 'plan':
         return Response.json(
-          { error: 'Sending emails requires a paid plan. Please upgrade to send test emails.' },
+          { error: 'Your plan does not include emails right now. Upgrade to keep sending reminders.' },
           { status: 403 }
+        );
+      case 'trial_cap':
+        return Response.json(
+          { error: 'You have used the emails included in your free trial this month. Upgrade to keep sending reminders.' },
+          { status: 429 }
         );
       case 'test_daily_limit':
         return Response.json(

@@ -9,6 +9,8 @@
  *
  * Validations:
  *  - Auth required — only authenticated salon owners can upload.
+ *  - Write access required — an ended trial or an inactive subscription is
+ *    read-only (lib/access.ts).
  *  - File must be an image (image/jpeg, image/png, image/webp).
  *  - Maximum file size: 5 MB.
  *
@@ -21,6 +23,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { requireUser } from '@/lib/auth';
+import { requireWriteAccess } from '@/lib/access';
 
 /** Allowed MIME types for staff photo uploads. */
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -45,6 +48,7 @@ const adminSupabase = createClient(
  * @returns 200 { url: string } — public URL of the uploaded photo.
  * @returns 400 { error: string } — validation failure.
  * @returns 401 { error: "Unauthorized" } — not authenticated.
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive).
  * @returns 500 { error: string } — upload failure.
  */
 export async function POST(request: Request): Promise<Response> {
@@ -52,6 +56,10 @@ export async function POST(request: Request): Promise<Response> {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(auth.supabase, userId);
+  if (!access.ok) return access.response;
 
   // Step 2: Parse the multipart form data.
   let formData: FormData;
