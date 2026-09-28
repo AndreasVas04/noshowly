@@ -642,11 +642,23 @@ export default function AddAppointmentModal({
   function validate(): boolean {
     const errors: Partial<Record<keyof FormState, string>> = {};
 
+    // Stored contact details (the edited appointment's client, or an existing
+    // client picked in create mode) are only re-checked when changed, so an
+    // older entry never blocks booking or editing.
+    const storedPhone = isEditMode ? initialForm.clientPhone : form.selectedClient?.phone ?? null;
+    const storedEmail = isEditMode ? initialForm.clientEmail : form.selectedClient?.email ?? null;
+    const phoneChanged = storedPhone === null || form.clientPhone.trim() !== storedPhone.trim();
+    const emailChanged = storedEmail === null || form.clientEmail.trim() !== storedEmail.trim();
+
     if (!form.clientQuery.trim()) errors.clientQuery = 'Client name is required';
     if (!form.clientPhone.trim()) {
-      // Clients booked online may have no phone; editing them does not require one.
-      if (!isEditMode || initialForm.clientPhone.trim()) errors.clientPhone = 'Phone number is required';
-    } else {
+      // A new client needs a phone number. Existing clients booked online may
+      // have none; booking or editing them does not require one, but a stored
+      // number cannot be removed here.
+      const createsClient = isEditMode ? !appointment?.client_id : !form.selectedClient;
+      const phoneRequired = createsClient || (isEditMode && Boolean(initialForm.clientPhone.trim()));
+      if (phoneRequired) errors.clientPhone = 'Phone number is required';
+    } else if (phoneChanged) {
       const phone = validatePhone(form.clientPhone);
       if (!phone.ok) errors.clientPhone = phone.error;
     }
@@ -656,7 +668,7 @@ export default function AddAppointmentModal({
     } else if (form.date && !formStart) {
       errors.time = 'This time does not exist on that date (the clocks change). Choose another time.';
     }
-    if (form.clientEmail.trim()) {
+    if (form.clientEmail.trim() && emailChanged) {
       const email = validateEmail(form.clientEmail);
       if (!email.ok) errors.clientEmail = email.error;
     }
