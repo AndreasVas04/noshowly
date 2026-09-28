@@ -13,14 +13,17 @@
  * to delete from auth.users, which is not accessible via RLS-constrained clients.
  *
  * Security:
- *  - Session must be valid — no anonymous deletions.
- *  - The user ID is taken from the session, never from the request body,
+ *  - The user is verified with Supabase Auth (requireUser → getUser), because
+ *    the user ID is then used with the service-role key, which bypasses RLS.
+ *  - The user ID comes from the verified user, never from the request body,
  *    so a user can only delete their own account.
+ *  - The public demo account cannot be deleted.
  *  - Service role key is server-side only — never exposed to the browser.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireUser } from '@/lib/auth';
+import { isDemoAccount } from '@/lib/demo';
 import type { Database } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -44,7 +47,7 @@ const adminSupabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY);
  * Permanently deletes the authenticated user's account and all associated data.
  *
  * Deletion order:
- *  1. Verify session — return 401 if not authenticated.
+ *  1. Verify the user — return 401 if not authenticated, 403 for the demo account.
  *  2. Delete the salon row — CASCADE deletes appointments, clients, barbers,
  *     services, and reminders automatically (FK ON DELETE CASCADE in schema).
  *  3. Delete the public.users row — CASCADE from auth.users handles this
@@ -53,20 +56,22 @@ const adminSupabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY);
  *
  * @returns 200 { success: true }               — account deleted
  * @returns 401 { error: "Unauthorized" }        — no valid session
+ * @returns 403 { error: string }                — demo account
  * @returns 500 { error: string }                — unexpected failure
  */
 export async function DELETE(): Promise<Response> {
-  // Step 1: Verify the session — the user must be authenticated.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: Verify the user with Supabase Auth.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  if (isDemoAccount(auth.user.email)) {
+    return Response.json(
+      { error: 'The demo account cannot be deleted.' },
+      { status: 403 }
+    );
   }
 
-  const userId = session.user.id;
+  const userId = auth.user.id;
   console.log(`[DELETE /api/account] Deleting account for user=${userId}`);
 
   try {

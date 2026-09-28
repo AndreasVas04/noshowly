@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { isDemoAccount } from '@/lib/demo';
 import { planAllowsEmail } from '@/lib/plans';
 import type { UserPlan } from '@/lib/plans';
 import type { Salon } from '@/types';
@@ -267,6 +268,8 @@ export default function SettingsPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState('');
+  /** The public demo account cannot be deleted (the API also refuses it). */
+  const [isDemo, setIsDemo] = useState(false);
 
   // -------------------------------------------------------------------------
   // Initial data load
@@ -307,6 +310,7 @@ export default function SettingsPage() {
           const supabase = createBrowserSupabaseClient();
           const { data: { user: authUser } } = await supabase.auth.getUser();
           if (authUser) {
+            setIsDemo(isDemoAccount(authUser.email));
             const { data: userData } = await supabase
               .from('users')
               .select('plan')
@@ -1204,7 +1208,11 @@ export default function SettingsPage() {
 
           <div className="bg-white rounded-2xl border border-red-100 p-6">
 
-            {!showDeleteDialog ? (
+            {isDemo ? (
+              <p className="text-sm text-[#8A8680] font-body">
+                The demo account can&apos;t be deleted. Sign up for your own account to try this.
+              </p>
+            ) : !showDeleteDialog ? (
               <Button
                 type="button"
                 variant="outline"

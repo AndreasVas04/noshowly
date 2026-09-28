@@ -25,6 +25,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/auth';
 import { createClient } from '@supabase/supabase-js';
 import { parseISO, startOfDay, endOfDay, isValid } from 'date-fns';
 import type {
@@ -233,18 +234,14 @@ export async function GET(request: Request): Promise<Response> {
  * @returns 500 { error: string }               — unexpected DB error
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: Verify the user with Supabase Auth. The email step below uses the
+  // service-role key, so the user ID must come from a verified token.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { user: authUser, supabase } = auth;
 
   // Step 2: Plan check — trial and cancelled users cannot create appointments.
-  const { data: userData } = await supabase.from('users').select('plan, email_reminders_used_this_month').eq('id', session.user.id).single();
+  const { data: userData } = await supabase.from('users').select('plan, email_reminders_used_this_month').eq('id', authUser.id).single();
   if (!userData || userData.plan === 'trial' || userData.plan === 'cancelled') {
     return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
   }
@@ -346,7 +343,7 @@ export async function POST(request: Request): Promise<Response> {
   const { data: salon, error: salonError } = await supabase
     .from('salons')
     .select('id, timezone')
-    .eq('user_id', session.user.id)
+    .eq('user_id', authUser.id)
     .single();
 
   if (salonError || !salon) {
@@ -532,10 +529,13 @@ export async function POST(request: Request): Promise<Response> {
         const adminSupabase = createClient<Database>(supabaseUrl, serviceRoleKey);
 
         // Fetch client email — only proceed if the client has one.
+        // Scoped to this salon: the service-role client bypasses RLS, and the
+        // client_id comes from the request body.
         const { data: clientData } = await adminSupabase
           .from('clients')
           .select('name, email')
           .eq('id', clientId)
+          .eq('salon_id', salon.id)
           .single();
 
         if (clientData?.email) {
@@ -601,7 +601,7 @@ export async function POST(request: Request): Promise<Response> {
                 .update({
                   email_reminders_used_this_month: (userData.email_reminders_used_this_month ?? 0) + 1,
                 })
-                .eq('id', session.user.id);
+                .eq('id', authUser.id);
 
               console.log(`[POST /api/appointments] Immediate reminder sent for appt=${(appointment as Appointment).id}`);
             } else {

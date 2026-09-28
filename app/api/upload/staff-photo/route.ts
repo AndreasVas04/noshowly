@@ -15,11 +15,12 @@
  * Security:
  *  - Service role key is used server-side only to bypass RLS for storage uploads.
  *  - File content-type is validated before upload.
- *  - Auth is verified via Supabase session before any processing.
+ *  - The user is verified with Supabase Auth (requireUser → getUser) before any
+ *    processing, because the user ID becomes part of the storage path.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireUser } from '@/lib/auth';
 
 /** Allowed MIME types for staff photo uploads. */
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -47,13 +48,10 @@ const adminSupabase = createClient(
  * @returns 500 { error: string } — upload failure.
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: Verify the user with Supabase Auth.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.user.id;
 
   // Step 2: Parse the multipart form data.
   let formData: FormData;
@@ -88,7 +86,7 @@ export async function POST(request: Request): Promise<Response> {
   const extension = file.type === 'image/jpeg' ? 'jpg'
     : file.type === 'image/webp' ? 'webp'
     : 'png';
-  const fileName = `${session.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+  const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
 
   // Step 6: Upload to Supabase Storage using the service role key.
   const arrayBuffer = await file.arrayBuffer();
