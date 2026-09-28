@@ -3,23 +3,33 @@
  *
  * Public booking page — no authentication required.
  *
- * This server component fetches all static data for the booking page (salon info,
- * active barbers with their staff services, staff availability) and passes it to
- * the `BookingFlow` client component which handles the multi-step appointment UI.
+ * This server component loads the booking page data server-side (salon info,
+ * active staff, active services, staff/service links and staff availability)
+ * and passes it to the `BookingFlow` client component, which handles the
+ * multi-step appointment UI.
  *
  * States:
  *  - Slug not found          → Next.js 404 page
  *  - Slug found + is_active  → Renders BookingFlow with data
- *  - Slug found + inactive   → "Booking is currently unavailable" message
+ *  - Slug found + inactive   → "Not accepting online bookings" message
+ *
+ * Reads use the service-role client via lib/booking-data.ts: anonymous
+ * visitors cannot read staff/service links through RLS, and the page must not
+ * depend on anonymous reads at all.
  *
  * Noshowly branding is completely invisible — the client sees only the salon's name.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import BookingFlow from './BookingFlow';
-import type { Barber, BarberService, Service, StaffAvailability } from '@/types';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import {
+  getBookingPageBySlug,
+  getPublicSalon,
+  loadPublicBookingData,
+} from '@/lib/booking-data';
 
 // Force dynamic rendering on every request so clients always see the latest
 // barber photos, service list, and availability — never a cached snapshot.
@@ -29,21 +39,10 @@ type PageProps = {
   params: Promise<{ slug: string }>;
 };
 
-/** Shape for a barber as passed to BookingFlow. */
-type PublicBarber = Pick<Barber, 'id' | 'name' | 'bio' | 'photo_url'>;
-
-/** Global service available on the booking page. */
-type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
-
-/**
- * Links a barber to a service they can perform.
- * Includes optional price/duration overrides so the booking flow can display
- * the effective price/duration when a specific barber is selected.
- */
-type BarberServiceLink = Pick<
-  BarberService,
-  'barber_id' | 'service_id' | 'price_override' | 'duration_minutes_override'
->;
+/** Booking page lookup, shared by generateMetadata and the page within one request. */
+const loadBookingPage = cache(async (slug: string) =>
+  getBookingPageBySlug(createAdminSupabaseClient(), slug)
+);
 
 // ---------------------------------------------------------------------------
 // Metadata (SEO + browser tab title)
@@ -55,31 +54,19 @@ type BarberServiceLink = Pick<
  */
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const supabase = await createServerSupabaseClient();
+  const bp = await loadBookingPage(slug);
 
-  const { data: bp } = await supabase
-    .from('booking_pages')
-    .select('description, custom_title, salon_id')
-    .eq('slug', slug)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (!bp) {
+  if (!bp || !bp.is_active) {
     return { title: 'Book an Appointment' };
   }
 
-  const { data: salon } = await supabase
-    .from('salons')
-    .select('name')
-    .eq('id', bp.salon_id)
-    .single();
-
+  const salon = await getPublicSalon(createAdminSupabaseClient(), bp.salon_id);
   const salonName = salon?.name ?? 'Book an Appointment';
-  const pageTitle = (bp.custom_title as string | null) ?? salonName;
+  const pageTitle = bp.custom_title ?? salonName;
 
   return {
     title: `Book an appointment: ${pageTitle}`,
-    description: (bp.description as string | null) ?? `Book your appointment with ${salonName} online.`,
+    description: bp.description ?? `Book your appointment with ${salonName} online.`,
   };
 }
 
@@ -95,132 +82,64 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
  */
 export default async function BookPage({ params }: PageProps) {
   const { slug } = await params;
-  const supabase = await createServerSupabaseClient();
 
   // Step 1: Check if the booking page exists (regardless of is_active).
-  const { data: bp } = await supabase
-    .from('booking_pages')
-    .select(
-      'id, slug, is_active, description, salon_id, custom_title, custom_intro, require_phone, require_email'
-    )
-    .eq('slug', slug)
-    .maybeSingle();
+  const bp = await loadBookingPage(slug);
 
   if (!bp) {
     // Slug does not exist at all — show Next.js 404.
     notFound();
   }
 
+  const supabase = createAdminSupabaseClient();
+
   if (!bp.is_active) {
-    // Booking page exists but owner has disabled it.
-    const customTitle = bp.custom_title as string | null;
+    // Booking page exists but the owner has turned it off.
+    const salon = await getPublicSalon(supabase, bp.salon_id);
     return (
       <div className="min-h-screen bg-[#F4F4F5] flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-white rounded-2xl p-8 text-center shadow-sm">
           <p className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
-            {customTitle ?? 'Online booking is currently unavailable'}
+            {bp.custom_title ?? salon?.name ?? 'Online booking'}
           </p>
-          <p className="text-sm text-[#C8C8C8]">
+          <p className="font-body text-base text-[#1A1A1A] mb-2">
+            We are not accepting online bookings right now.
+          </p>
+          <p className="font-body text-sm text-[#8A8680]">
             Please contact the business directly to schedule an appointment.
           </p>
+          {salon?.phone && (
+            <p className="font-body text-sm font-medium text-[#1A1A1A] mt-3">
+              <a href={`tel:${salon.phone}`} className="underline underline-offset-2">
+                {salon.phone}
+              </a>
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
-  // Step 2: Fetch salon info and active barbers in parallel.
-  const [salonResult, barbersResult] = await Promise.all([
-    supabase
-      .from('salons')
-      .select('name, timezone, phone, opening_time, closing_time, currency')
-      .eq('id', bp.salon_id)
-      .single(),
-    supabase
-      .from('barbers')
-      .select('id, name, bio, photo_url')
-      .eq('salon_id', bp.salon_id)
-      .eq('active', true)
-      .order('name', { ascending: true }),
-  ]);
+  // Step 2: Salon, active staff, active services, staff/service links, availability.
+  const data = await loadPublicBookingData(supabase, bp.salon_id);
 
-  if (!salonResult.data) {
+  if (!data) {
     // Salon record missing — should not happen in normal operation.
     notFound();
   }
 
-  const barbers = barbersResult.data ?? [];
-
-  // Step 3: Fetch staff availability, global services, and barber_services assignments in parallel.
-  let staffAvailability: Array<Pick<StaffAvailability, 'barber_id' | 'day_of_week' | 'is_available' | 'time_slots' | 'start_time_1' | 'end_time_1' | 'start_time_2' | 'end_time_2'>> = [];
-  let globalServices: PublicService[] = [];
-  let barberServiceAssignments: BarberServiceLink[] = [];
-
-  if (barbers.length > 0) {
-    const barberIds = barbers.map((b) => b.id);
-
-    const [availResult, servicesResult, assignmentsResult] = await Promise.all([
-      supabase
-        .from('staff_availability')
-        .select('barber_id, day_of_week, is_available, time_slots, start_time_1, end_time_1, start_time_2, end_time_2')
-        .in('barber_id', barberIds),
-      supabase
-        .from('services')
-        .select('id, name, duration_minutes, price')
-        .eq('salon_id', bp.salon_id)
-        .eq('active', true)
-        .order('name', { ascending: true }),
-      supabase
-        .from('barber_services')
-        .select('barber_id, service_id, price_override, duration_minutes_override')
-        .in('barber_id', barberIds),
-    ]);
-
-    if (availResult.data) {
-      staffAvailability = availResult.data as typeof staffAvailability;
-    }
-    if (servicesResult.data) {
-      globalServices = servicesResult.data as PublicService[];
-    }
-    if (assignmentsResult.data) {
-      barberServiceAssignments = assignmentsResult.data as BarberServiceLink[];
-    }
-  } else {
-    // No barbers — still fetch global services.
-    const { data: svcData } = await supabase
-      .from('services')
-      .select('id, name, duration_minutes, price')
-      .eq('salon_id', bp.salon_id)
-      .eq('active', true)
-      .order('name', { ascending: true });
-    if (svcData) globalServices = svcData as PublicService[];
-  }
-
-  const publicBarbers: PublicBarber[] = barbers.map((b) => ({
-    id: b.id,
-    name: b.name,
-    bio: b.bio,
-    photo_url: b.photo_url,
-  }));
-
   return (
     <BookingFlow
-      slug={slug}
-      customTitle={(bp.custom_title as string | null) ?? null}
-      customIntro={(bp.custom_intro as string | null) ?? null}
-      requirePhone={(bp.require_phone as boolean | null) ?? true}
-      requireEmail={(bp.require_email as boolean | null) ?? true}
-      salon={{
-        name:          salonResult.data.name,
-        timezone:      salonResult.data.timezone,
-        phone:         salonResult.data.phone,
-        opening_time:  salonResult.data.opening_time,
-        closing_time:  salonResult.data.closing_time,
-        currency:      (salonResult.data.currency as string | null) ?? 'USD',
-      }}
-      barbers={publicBarbers}
-      globalServices={globalServices}
-      barberServiceAssignments={barberServiceAssignments}
-      staffAvailability={staffAvailability}
+      slug={bp.slug}
+      customTitle={bp.custom_title}
+      customIntro={bp.custom_intro}
+      requirePhone={bp.require_phone}
+      requireEmail={bp.require_email}
+      salon={data.salon}
+      barbers={data.barbers}
+      globalServices={data.services}
+      barberServiceAssignments={data.assignments}
+      staffAvailability={data.availability}
     />
   );
 }

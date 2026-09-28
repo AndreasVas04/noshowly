@@ -310,10 +310,6 @@ export type BookingPage = {
   is_active: boolean;
   /** Optional description shown at the top of the public booking page. */
   description: string | null;
-  /** Whether clients can select "No preference" for staff on the booking page. */
-  allow_no_preference_staff: boolean;
-  /** Whether clients can select "No preference" for service on the booking page. */
-  allow_no_preference_service: boolean;
   /** Custom h1 heading shown on the public booking page. Falls back to salon name when null. */
   custom_title: string | null;
   /** Optional welcome message shown below the title on the public booking page. */
@@ -346,6 +342,58 @@ export type AppointmentWithDetails = Appointment & {
   client_email: string | null;
   barber_name: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// Public booking page shapes
+// Read server-side (lib/booking-data.ts) and passed to the public booking UI.
+// Only the fields a visitor needs — never client data.
+// ---------------------------------------------------------------------------
+
+/** Booking page settings shown to visitors. */
+export type PublicBookingPage = Pick<
+  BookingPage,
+  'slug' | 'description' | 'custom_title' | 'custom_intro' | 'require_phone' | 'require_email'
+>;
+
+/**
+ * Salon fields shown to visitors. `timezone` is always a valid IANA name and
+ * opening/closing times are 'HH:MM' (or null when not set).
+ */
+export type PublicSalon = Pick<
+  Salon,
+  'name' | 'timezone' | 'phone' | 'currency' | 'opening_time' | 'closing_time'
+>;
+
+/** An active staff member as shown on the booking page. */
+export type PublicBarber = Pick<Barber, 'id' | 'name' | 'photo_url' | 'bio'>;
+
+/** An active service as shown on the booking page. */
+export type PublicService = Pick<Service, 'id' | 'name' | 'duration_minutes' | 'price'>;
+
+/** A staff/service link with optional per-staff price and duration. */
+export type PublicServiceAssignment = Pick<
+  BarberService,
+  'barber_id' | 'service_id' | 'price_override' | 'duration_minutes_override'
+>;
+
+/** Weekly availability of an active staff member. */
+export type PublicAvailability = Pick<
+  StaffAvailability,
+  | 'barber_id'
+  | 'day_of_week'
+  | 'is_available'
+  | 'time_slots'
+  | 'start_time_1'
+  | 'end_time_1'
+  | 'start_time_2'
+  | 'end_time_2'
+>;
+
+/**
+ * Time taken by a non-cancelled appointment, used to hide booked times.
+ * Deliberately carries no client, service or note information.
+ */
+export type PublicBusyInterval = Pick<Appointment, 'barber_id' | 'datetime' | 'duration_minutes'>;
 
 // ---------------------------------------------------------------------------
 // Supabase Database generic type
@@ -496,8 +544,6 @@ export type Database = {
           /** Defaults to false if omitted — owner must explicitly activate. */
           is_active?: boolean;
           description?: string | null;
-          allow_no_preference_staff?: boolean;
-          allow_no_preference_service?: boolean;
           custom_title?: string | null;
           custom_intro?: string | null;
           require_phone?: boolean;
