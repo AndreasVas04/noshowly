@@ -2,19 +2,21 @@
  * app/api/appointments/route.ts
  *
  * GET  /api/appointments?date=YYYY-MM-DD
- *   Returns all appointments for the authenticated salon on the given date,
- *   ordered chronologically. Client and barber names are joined and flattened
- *   so the frontend never needs extra round-trips.
+ *   Returns all appointments for the authenticated salon on the given date
+ *   (a calendar day in the salon's timezone), ordered chronologically. Client
+ *   and barber names are joined and flattened so the frontend never needs
+ *   extra round-trips.
  *
  * GET  /api/appointments?start=YYYY-MM-DD&end=YYYY-MM-DD
- *   Returns all appointments for the authenticated salon within the date range
- *   [start, end] inclusive, ordered chronologically. Used by WeekView to fetch
- *   a full week (or wider range to cover mobile edge days) in one call.
+ *   Returns all appointments for the authenticated salon within the salon
+ *   date range [start, end] inclusive, ordered chronologically. Used by
+ *   WeekView to fetch a full week in one call.
  *
  * POST /api/appointments
  *   Creates a new appointment for the authenticated salon.
- *   Client creation is handled separately via POST /api/clients (Day 4).
+ *   Client creation is handled separately via POST /api/clients.
  *   This route expects an existing client_id, or null for a walk-in.
+ *   The duration is resolved server-side from the service and staff member.
  *
  * Security:
  *  - Authentication is verified on every request before anything else.
@@ -27,14 +29,20 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import { createClient } from '@supabase/supabase-js';
-import { parseISO, startOfDay, endOfDay, isValid } from 'date-fns';
 import type {
   Appointment,
   AppointmentWithDetails,
   AppointmentStatus,
   Database,
 } from '@/types';
-import { findEligibleBarbers, appointmentsOverlap } from '@/lib/appointment-helpers';
+import {
+  appointmentsOverlap,
+  findAppointmentService,
+  findEligibleBarbers,
+  resolveAppointmentDuration,
+} from '@/lib/appointment-helpers';
+import { isBarberEligibleForService, isValidDuration } from '@/lib/availability';
+import { dayRangeUtc, isValidDateString, resolveTimeZone } from '@/lib/time';
 import { planAllowsEmail } from '@/lib/plans';
 import type { UserPlan } from '@/lib/plans';
 import { sendEmail } from '@/lib/resend';
@@ -79,6 +87,9 @@ function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetail
   };
 }
 
+/** Matches a UUID, so malformed ids are rejected before reaching the database. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // GET — list appointments for a day or date range
 // ---------------------------------------------------------------------------
@@ -89,8 +100,8 @@ function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetail
  * are included in each row.
  *
  * Accepts one of two mutually exclusive query-param forms:
- *  - ?date=YYYY-MM-DD          — single calendar day (existing behaviour)
- *  - ?start=YYYY-MM-DD&end=YYYY-MM-DD — inclusive date range (week view)
+ *  - ?date=YYYY-MM-DD          — single calendar day in the salon's timezone
+ *  - ?start=YYYY-MM-DD&end=YYYY-MM-DD — inclusive salon date range (week view)
  *
  * @returns 200 { appointments: AppointmentWithDetails[] }
  * @returns 400 { error: string }               — missing or invalid params
@@ -109,53 +120,43 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Step 2: Parse query params and determine the time window to query.
+  // Step 2: Parse query params.
   const { searchParams } = new URL(request.url);
   const dateParam  = searchParams.get('date');
   const startParam = searchParams.get('start');
   const endParam   = searchParams.get('end');
 
-  let rangeStart: string;
-  let rangeEnd: string;
+  let firstDate: string;
+  let lastDate: string;
 
   if (dateParam) {
     // ---- Single-day mode: ?date=YYYY-MM-DD --------------------------------
-    // Validate format: must be a parseable ISO date string.
-    const parsed = parseISO(dateParam);
-    if (!isValid(parsed)) {
+    if (!isValidDateString(dateParam)) {
       return Response.json(
         { error: 'Invalid date format. Expected YYYY-MM-DD.' },
         { status: 400 }
       );
     }
-
-    // Build UTC range for the entire calendar day.
-    rangeStart = startOfDay(parsed).toISOString();
-    rangeEnd   = endOfDay(parsed).toISOString();
+    firstDate = dateParam;
+    lastDate  = dateParam;
 
   } else if (startParam && endParam) {
     // ---- Date-range mode: ?start=YYYY-MM-DD&end=YYYY-MM-DD ---------------
-    const parsedStart = parseISO(startParam);
-    const parsedEnd   = parseISO(endParam);
-
-    if (!isValid(parsedStart) || !isValid(parsedEnd)) {
+    if (!isValidDateString(startParam) || !isValidDateString(endParam)) {
       return Response.json(
         { error: 'Invalid date format. Expected YYYY-MM-DD for both start and end.' },
         { status: 400 }
       );
     }
 
-    if (parsedEnd < parsedStart) {
+    if (endParam < startParam) {
       return Response.json(
         { error: 'end date must be on or after start date.' },
         { status: 400 }
       );
     }
-
-    // Build UTC range spanning from the start of the first day to the end
-    // of the last day, covering all appointments within the inclusive range.
-    rangeStart = startOfDay(parsedStart).toISOString();
-    rangeEnd   = endOfDay(parsedEnd).toISOString();
+    firstDate = startParam;
+    lastDate  = endParam;
 
   } else {
     // Neither form was supplied — return a helpful 400.
@@ -165,17 +166,23 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
-  // Step 3: Resolve the salon for this user.
+  // Step 3: Resolve the salon for this user, with its timezone.
   // salon_id is derived from the session — never trusted from the client.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
-    .select('id')
+    .select('id, timezone')
     .eq('user_id', session.user.id)
     .single();
 
   if (salonError || !salon) {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
+
+  // Dates are calendar days in the salon's timezone, not in UTC (the server's
+  // timezone) or the browser's. The window is [first day 00:00, day after last 00:00).
+  const timeZone   = resolveTimeZone(salon.timezone);
+  const rangeStart = dayRangeUtc(firstDate, timeZone).start.toISOString();
+  const rangeEnd   = dayRangeUtc(lastDate, timeZone).end.toISOString();
 
   // Step 4: Fetch appointments for the time window with joined client and
   // barber names. The nested select syntax performs LEFT JOINs via the
@@ -189,7 +196,7 @@ export async function GET(request: Request): Promise<Response> {
     `)
     .eq('salon_id', salon.id)
     .gte('datetime', rangeStart)
-    .lte('datetime', rangeEnd)
+    .lt('datetime', rangeEnd)
     .order('datetime', { ascending: true });
 
   if (dbError) {
@@ -216,13 +223,19 @@ export async function GET(request: Request): Promise<Response> {
  *
  * Request body:
  * {
- *   datetime:         string,          // ISO timestamp, required
- *   client_id?:       string | null,   // existing client UUID, optional
- *   barber_id?:       string | null,   // existing barber UUID, optional
- *   service_type?:    ServiceType,     // "Haircut" | "Shave" | "Colour" | "Other"
- *   duration_minutes?: number,         // defaults to 30
- *   notes?:           string | null,
+ *   datetime:          string,          // ISO timestamp, required
+ *   client_id?:        string | null,   // existing client UUID, optional
+ *   barber_id?:        string | null,   // existing barber UUID, optional
+ *   service_id?:       string | null,   // a service of this salon, optional
+ *   service_type?:     string | null,   // service name (free text when no service_id)
+ *   duration_minutes?: number,          // 1–480; resolved server-side when omitted
+ *   notes?:            string | null,
+ *   status?:           AppointmentStatus // omitted = decided from the lead time
  * }
+ *
+ * Duration, when not given explicitly: the service's duration with the staff
+ * member's barber_services override, else the duration of a salon service
+ * with the same name as service_type, else 30 minutes.
  *
  * Note: client creation (new clients) is handled by POST /api/clients.
  * This route only attaches an already-existing client record.
@@ -279,6 +292,17 @@ export async function POST(request: Request): Promise<Response> {
   if (raw.barber_id !== undefined && raw.barber_id !== null && typeof raw.barber_id !== 'string') {
     return Response.json({ error: 'barber_id must be a string or null' }, { status: 400 });
   }
+  if (typeof raw.barber_id === 'string' && raw.barber_id !== '' && !UUID_PATTERN.test(raw.barber_id)) {
+    return Response.json({ error: 'barber_id is not a valid id' }, { status: 400 });
+  }
+
+  // Validate optional: service_id (a service of this salon — checked below)
+  if (raw.service_id !== undefined && raw.service_id !== null && typeof raw.service_id !== 'string') {
+    return Response.json({ error: 'service_id must be a string or null' }, { status: 400 });
+  }
+  if (typeof raw.service_id === 'string' && raw.service_id !== '' && !UUID_PATTERN.test(raw.service_id)) {
+    return Response.json({ error: 'Service not found' }, { status: 400 });
+  }
 
   // Validate optional: service_type — any non-empty string is accepted (services are custom per salon)
   if (
@@ -292,19 +316,14 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Validate optional: duration_minutes (positive integer)
-  if (
-    raw.duration_minutes !== undefined &&
-    (typeof raw.duration_minutes !== 'number' ||
-      !Number.isInteger(raw.duration_minutes) ||
-      raw.duration_minutes < 1 ||
-      raw.duration_minutes > 480)
-  ) {
+  // Validate optional: duration_minutes (integer 1–480)
+  if (raw.duration_minutes !== undefined && !isValidDuration(raw.duration_minutes)) {
     return Response.json(
       { error: 'duration_minutes must be an integer between 1 and 480' },
       { status: 400 }
     );
   }
+  const explicitDuration = raw.duration_minutes as number | undefined;
 
   // Validate optional: notes
   if (
@@ -350,17 +369,100 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  // Step 4: Double-booking checks — duration-aware overlap detection.
+  const clientId = (raw.client_id as string | null | undefined) || null;
+  const barberId = (raw.barber_id as string | null | undefined) || null;
+
+  // Step 4: Resolve the service — by id (must belong to this salon), or by
+  // name for free-text service types. The name is stored as service_type.
+  const serviceLookup = await findAppointmentService({
+    supabase,
+    salonId: salon.id,
+    serviceId: (raw.service_id as string | null | undefined) || null,
+    serviceName: (raw.service_type as string | null | undefined) ?? null,
+  });
+  if (!serviceLookup.ok) {
+    return Response.json({ error: serviceLookup.error }, { status: 400 });
+  }
+  const { service, assignments } = serviceLookup;
+  const serviceTypeName: string | null =
+    service?.name ?? ((raw.service_type as string | null | undefined)?.trim() || null);
+
+  // Step 5: Staff/service assignment check — the selected staff member must
+  // belong to this salon and, when the service has barber_services rows, be
+  // one of them (the same rule the booking page uses).
+  if (barberId) {
+    const { data: barberRow } = await supabase
+      .from('barbers')
+      .select('id')
+      .eq('id', barberId)
+      .eq('salon_id', salon.id)
+      .maybeSingle();
+
+    if (!barberRow) {
+      return Response.json({ error: 'Staff member not found' }, { status: 400 });
+    }
+
+    if (service && !isBarberEligibleForService(service.id, barberId, assignments)) {
+      return Response.json(
+        { error: 'This staff member does not offer the selected service.' },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Step 5b: Auto-assign or block when no staff selected and the salon has
+  // active barbers. findEligibleBarbers applies service + availability +
+  // conflict filters in one call, each staff member with their own duration.
+  // If the salon has no barbers, skip entirely — unassigned appointments allowed.
+  let resolvedBarberId: string | null = barberId;
+  let newDuration = resolveAppointmentDuration(explicitDuration, service, barberId, assignments);
+  if (!barberId) {
+    const { count: activeBarberCount } = await supabase
+      .from('barbers')
+      .select('id', { count: 'exact', head: true })
+      .eq('salon_id', salon.id)
+      .eq('active', true);
+
+    if (activeBarberCount && activeBarberCount > 0) {
+      const eligible = await findEligibleBarbers({
+        supabase,
+        salonId: salon.id,
+        datetimeUTC: datetimeParsed.toISOString(),
+        timezone: resolveTimeZone(salon.timezone),
+        service,
+        assignments,
+        explicitDurationMinutes: explicitDuration,
+      });
+
+      if (eligible.length === 0) {
+        return Response.json(
+          { error: 'No available staff member can perform this service at this time.' },
+          { status: 409 }
+        );
+      }
+
+      if (eligible.length === 1) {
+        // Exactly one eligible — auto-assign, with their own duration.
+        resolvedBarberId = eligible[0].id;
+        newDuration = eligible[0].durationMinutes;
+      } else {
+        // Multiple eligible — owner must choose to avoid silent bias.
+        return Response.json(
+          { error: 'Multiple staff members are available. Please choose one.' },
+          { status: 409 }
+        );
+      }
+    }
+  }
+
+  // Step 5c: Double-booking checks — duration-aware overlap detection.
   // Two appointments overlap when: existingStart < newEnd AND newStart < existingEnd.
-  const clientId = (raw.client_id as string | null | undefined) ?? null;
-  const barberId = (raw.barber_id as string | null | undefined) ?? null;
-  const newDuration = (raw.duration_minutes as number | undefined) ?? 30;
   const newStartMs  = datetimeParsed.getTime();
   const MAX_DURATION_MS = 480 * 60_000; // 8 h — matches validation max
   const queryStart  = new Date(newStartMs - MAX_DURATION_MS).toISOString();
   const queryEnd    = new Date(newStartMs + newDuration * 60_000).toISOString();
 
-  // 4a: Check if the client already has an overlapping appointment.
+  // Check if the client already has an overlapping appointment.
   // Protects against accidentally booking the same person twice at the same time.
   if (clientId) {
     const { data: clientAppts } = await supabase
@@ -370,7 +472,7 @@ export async function POST(request: Request): Promise<Response> {
       .eq('client_id', clientId)
       .neq('status', 'cancelled')
       .gte('datetime', queryStart)
-      .lte('datetime', queryEnd);
+      .lt('datetime', queryEnd);
 
     const hasClientConflict = (clientAppts ?? []).some((a) => {
       const existStartMs  = new Date(a.datetime).getTime();
@@ -386,8 +488,9 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // 4b: Check if the selected staff member already has an overlapping appointment.
-  // Skipped when no staff is assigned (walk-in appointments).
+  // Check if the selected staff member already has an overlapping appointment.
+  // Skipped when no staff is assigned (walk-in appointments); an auto-assigned
+  // staff member was already checked by findEligibleBarbers.
   if (barberId) {
     const { data: staffAppts } = await supabase
       .from('appointments')
@@ -396,7 +499,7 @@ export async function POST(request: Request): Promise<Response> {
       .eq('barber_id', barberId)
       .neq('status', 'cancelled')
       .gte('datetime', queryStart)
-      .lte('datetime', queryEnd);
+      .lt('datetime', queryEnd);
 
     const hasStaffConflict = (staffAppts ?? []).some((a) => {
       const existStartMs  = new Date(a.datetime).getTime();
@@ -412,87 +515,6 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 5: Staff/service assignment check — runs before insert to prevent
-  // booking a barber with a service they are not assigned to.
-  // Only enforced when barber_services rows exist for the service; if nobody
-  // is assigned yet the validation is skipped (backwards compatible).
-  const serviceTypeName = (raw.service_type as string | undefined) ?? null;
-  if (barberId && serviceTypeName) {
-    const { data: serviceRecord } = await supabase
-      .from('services')
-      .select('id')
-      .eq('salon_id', salon.id)
-      .ilike('name', serviceTypeName)
-      .maybeSingle();
-
-    if (serviceRecord) {
-      // Service is a known salon service — check barber assignment.
-      const { count: totalAssignments } = await supabase
-        .from('barber_services')
-        .select('id', { count: 'exact', head: true })
-        .eq('service_id', serviceRecord.id);
-
-      if (totalAssignments && totalAssignments > 0) {
-        // At least one barber is assigned to this service — enforce the restriction.
-        const { data: barberAssignment } = await supabase
-          .from('barber_services')
-          .select('id')
-          .eq('barber_id', barberId)
-          .eq('service_id', serviceRecord.id)
-          .maybeSingle();
-
-        if (!barberAssignment) {
-          return Response.json(
-            { error: 'This staff member does not offer the selected service.' },
-            { status: 400 }
-          );
-        }
-      }
-    }
-  }
-
-  // Step 5b: Auto-assign or block when no staff selected and the salon has
-  // active barbers. findEligibleBarbers applies service + availability +
-  // conflict filters in one call.
-  // If the salon has no barbers, skip entirely — unassigned appointments allowed.
-  let resolvedBarberId: string | null = barberId;
-  if (!barberId) {
-    const { count: activeBarberCount } = await supabase
-      .from('barbers')
-      .select('id', { count: 'exact', head: true })
-      .eq('salon_id', salon.id)
-      .eq('active', true);
-
-    if (activeBarberCount && activeBarberCount > 0) {
-      const eligible = await findEligibleBarbers({
-        supabase,
-        salonId: salon.id,
-        datetimeUTC: datetimeParsed.toISOString(),
-        timezone: salon.timezone,
-        serviceTypeName,
-        newDurationMinutes: newDuration,
-      });
-
-      if (eligible.length === 0) {
-        return Response.json(
-          { error: 'No available staff member can perform this service at this time.' },
-          { status: 409 }
-        );
-      }
-
-      if (eligible.length === 1) {
-        // Exactly one eligible — auto-assign.
-        resolvedBarberId = eligible[0].id;
-      } else {
-        // Multiple eligible — owner must choose to avoid silent bias.
-        return Response.json(
-          { error: 'Multiple staff members are available. Please choose one.' },
-          { status: 409 }
-        );
-      }
-    }
-  }
-
   // Step 6: Insert the appointment.
   // salon_id is derived from session — never accepted from client request body.
   const { data: appointment, error: insertError } = await supabase
@@ -503,7 +525,7 @@ export async function POST(request: Request): Promise<Response> {
       barber_id: resolvedBarberId,
       datetime: datetimeParsed.toISOString(),
       service_type: serviceTypeName,
-      duration_minutes: (raw.duration_minutes as number | undefined) ?? 30,
+      duration_minutes: newDuration,
       notes: (raw.notes as string | null | undefined) ?? null,
       status: requestedStatus,
     })
@@ -511,6 +533,13 @@ export async function POST(request: Request): Promise<Response> {
     .single();
 
   if (insertError || !appointment) {
+    if (insertError?.code === '23P01') {
+      // An exclusion constraint caught an overlapping booking made at the same moment.
+      return Response.json(
+        { error: 'This staff member already has an appointment at that time.' },
+        { status: 409 }
+      );
+    }
     console.error('[POST /api/appointments] DB error:', insertError?.message);
     return Response.json({ error: 'Failed to create appointment' }, { status: 500 });
   }

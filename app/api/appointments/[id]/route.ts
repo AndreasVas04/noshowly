@@ -16,7 +16,18 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { findEligibleBarbers, appointmentsOverlap } from '@/lib/appointment-helpers';
+import {
+  appointmentsOverlap,
+  findAppointmentService,
+  findEligibleBarbers,
+  type ServiceLookupResult,
+} from '@/lib/appointment-helpers';
+import {
+  getEffectiveDuration,
+  isBarberEligibleForService,
+  isValidDuration,
+} from '@/lib/availability';
+import { resolveTimeZone } from '@/lib/time';
 import type {
   Appointment,
   AppointmentWithDetails,
@@ -66,6 +77,9 @@ function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetail
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
+
+/** Matches a UUID, so malformed ids are rejected before reaching the database. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // GET — fetch single appointment
@@ -144,19 +158,27 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
  *
  * Updatable fields:
  * {
- *   datetime?:         string,       // ISO timestamp
+ *   datetime?:         string,              // ISO timestamp
  *   client_id?:        string | null,
  *   barber_id?:        string | null,
- *   service_type?:     ServiceType,
- *   duration_minutes?: number,
+ *   service_id?:       string | null,       // a service of this salon; its name is stored
+ *   service_type?:     string | null,       // service name (free text when no service_id)
+ *   duration_minutes?: number,              // 1–480
  *   notes?:            string | null,
  *   status?:           AppointmentStatus,
  * }
+ *
+ * Duration: an explicit duration_minutes wins. Otherwise, when the service or
+ * the staff member changes, it is recomputed (service duration with the staff
+ * member's override, else a service with the same name, else 30 minutes). A
+ * staff change on a free-text service keeps the stored duration. Conflict
+ * checks and auto-assignment use the stored duration when it does not change.
  *
  * @returns 200 { appointment: Appointment }
  * @returns 400 { error: string }       — validation failure
  * @returns 401 { error: "Unauthorized" }
  * @returns 404 { error: "Not found" }
+ * @returns 409 { error: string }       — double booking / no staff available
  * @returns 500 { error: string }
  */
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
@@ -204,14 +226,29 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     if (raw.client_id !== null && typeof raw.client_id !== 'string') {
       return Response.json({ error: 'client_id must be a string or null' }, { status: 400 });
     }
-    updates.client_id = raw.client_id as string | null;
+    updates.client_id = (raw.client_id as string | null) || null;
   }
 
   if ('barber_id' in raw) {
     if (raw.barber_id !== null && typeof raw.barber_id !== 'string') {
       return Response.json({ error: 'barber_id must be a string or null' }, { status: 400 });
     }
-    updates.barber_id = raw.barber_id as string | null;
+    if (typeof raw.barber_id === 'string' && raw.barber_id !== '' && !UUID_PATTERN.test(raw.barber_id)) {
+      return Response.json({ error: 'barber_id is not a valid id' }, { status: 400 });
+    }
+    updates.barber_id = (raw.barber_id as string | null) || null;
+  }
+
+  // service_id — a service of this salon (checked below); its name is stored as service_type.
+  let requestedServiceId: string | null = null;
+  if ('service_id' in raw) {
+    if (raw.service_id !== null && typeof raw.service_id !== 'string') {
+      return Response.json({ error: 'service_id must be a string or null' }, { status: 400 });
+    }
+    if (typeof raw.service_id === 'string' && raw.service_id !== '' && !UUID_PATTERN.test(raw.service_id)) {
+      return Response.json({ error: 'Service not found' }, { status: 400 });
+    }
+    requestedServiceId = (raw.service_id as string | null) || null;
   }
 
   // service_type — any non-empty string accepted (services are custom per salon)
@@ -225,16 +262,14 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
         { status: 400 }
       );
     }
-    updates.service_type = raw.service_type as string | null;
+    updates.service_type = (raw.service_type as string | null)?.trim() ?? null;
+  } else if ('service_id' in raw && !requestedServiceId) {
+    // service_id: null without a name clears the service.
+    updates.service_type = null;
   }
 
   if ('duration_minutes' in raw) {
-    if (
-      typeof raw.duration_minutes !== 'number' ||
-      !Number.isInteger(raw.duration_minutes) ||
-      raw.duration_minutes < 1 ||
-      raw.duration_minutes > 480
-    ) {
+    if (!isValidDuration(raw.duration_minutes)) {
       return Response.json(
         { error: 'duration_minutes must be an integer between 1 and 480' },
         { status: 400 }
@@ -264,12 +299,11 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     updates.status = raw.status as AppointmentStatus;
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.keys(updates).length === 0 && !('service_id' in raw)) {
     return Response.json({ error: 'No valid fields provided to update' }, { status: 400 });
   }
 
   // Step 3: Resolve salon for this user. Include timezone for auto-assign availability checks.
-  // Also fetch the current appointment to check if it is cancelled.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
     .select('id, timezone')
@@ -280,213 +314,229 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
-  // Step 3b: Block edits to cancelled appointments — cancelled is a terminal state.
-  const { data: currentApptForStatus } = await supabase
+  // Step 4: Load the current appointment. Cancelled is a terminal state.
+  const { data: current } = await supabase
     .from('appointments')
-    .select('status')
+    .select('datetime, client_id, barber_id, service_type, duration_minutes, status')
     .eq('id', id)
     .eq('salon_id', salon.id)
-    .single();
+    .maybeSingle();
 
-  if (!currentApptForStatus) {
+  if (!current) {
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
 
-  if (currentApptForStatus.status === 'cancelled') {
+  if (current.status === 'cancelled') {
     return Response.json({ error: 'Cannot edit a cancelled appointment' }, { status: 400 });
   }
 
-  // Step 4: Double-booking checks — duration-aware overlap detection.
-  // Only run when datetime, duration, or participants change.
-  // The current appointment (id) is excluded from each conflict query so an
-  // idempotent re-save of the same data does not flag itself as a conflict.
-  if (updates.datetime || 'client_id' in updates || 'barber_id' in updates || 'duration_minutes' in updates) {
-    // Fetch the current record to fill in any values not being updated.
-    const { data: existing } = await supabase
-      .from('appointments')
-      .select('datetime, client_id, barber_id, duration_minutes')
-      .eq('id', id)
-      .eq('salon_id', salon.id)
-      .single();
+  // Step 5: Service, staff and duration.
+  const serviceSent      = 'service_id' in raw || 'service_type' in raw;
+  const barberChanged    = 'barber_id' in updates && updates.barber_id !== current.barber_id;
+  const newBarberId      = 'barber_id' in updates ? (updates.barber_id ?? null) : current.barber_id;
+  const explicitDuration = 'duration_minutes' in raw ? updates.duration_minutes : undefined;
 
-    const checkDatetime = updates.datetime ?? existing?.datetime;
-    const checkClientId = 'client_id' in updates ? updates.client_id : existing?.client_id;
-    const checkBarberId = 'barber_id' in updates ? updates.barber_id : existing?.barber_id;
-    const checkDuration = updates.duration_minutes ?? existing?.duration_minutes ?? 30;
-
-    if (checkDatetime) {
-      const checkStartMs = new Date(checkDatetime).getTime();
-      const MAX_DURATION_MS = 480 * 60_000;
-      const queryStart = new Date(checkStartMs - MAX_DURATION_MS).toISOString();
-      const queryEnd   = new Date(checkStartMs + checkDuration * 60_000).toISOString();
-
-      // 4a: Check client double-booking, excluding this appointment.
-      if (checkClientId) {
-        const { data: clientAppts } = await supabase
-          .from('appointments')
-          .select('id, datetime, duration_minutes')
-          .eq('salon_id', salon.id)
-          .eq('client_id', checkClientId)
-          .neq('status', 'cancelled')
-          .neq('id', id)
-          .gte('datetime', queryStart)
-          .lte('datetime', queryEnd);
-
-        const hasClientConflict = (clientAppts ?? []).some((a) => {
-          const existStartMs  = new Date(a.datetime).getTime();
-          const existDuration = a.duration_minutes ?? 30;
-          return appointmentsOverlap(checkStartMs, checkDuration, existStartMs, existDuration);
-        });
-
-        if (hasClientConflict) {
-          return Response.json(
-            { error: 'This client already has an appointment at that time.' },
-            { status: 409 }
-          );
-        }
-      }
-
-      // 4b: Check staff double-booking, excluding this appointment.
-      // Skipped when no staff is assigned.
-      if (checkBarberId) {
-        const { data: staffAppts } = await supabase
-          .from('appointments')
-          .select('id, datetime, duration_minutes')
-          .eq('salon_id', salon.id)
-          .eq('barber_id', checkBarberId)
-          .neq('status', 'cancelled')
-          .neq('id', id)
-          .gte('datetime', queryStart)
-          .lte('datetime', queryEnd);
-
-        const hasStaffConflict = (staffAppts ?? []).some((a) => {
-          const existStartMs  = new Date(a.datetime).getTime();
-          const existDuration = a.duration_minutes ?? 30;
-          return appointmentsOverlap(checkStartMs, checkDuration, existStartMs, existDuration);
-        });
-
-        if (hasStaffConflict) {
-          return Response.json(
-            { error: 'This staff member already has an appointment at that time.' },
-            { status: 409 }
-          );
-        }
-      }
+  // The appointment's service after this update: by id when one was sent,
+  // otherwise the salon service matching the (new or stored) name, if any.
+  let serviceLookup: ServiceLookupResult | null = null;
+  async function lookUpService(): Promise<ServiceLookupResult> {
+    if (!serviceLookup) {
+      serviceLookup = await findAppointmentService({
+        supabase,
+        salonId: salon!.id,
+        serviceId: requestedServiceId,
+        serviceName: 'service_type' in updates ? updates.service_type : current!.service_type,
+      });
     }
+    return serviceLookup;
   }
 
-  // Step 5: Staff/service assignment check — mirrors the POST validation.
-  // Only runs when either barber_id or service_type is being updated.
-  if ('barber_id' in updates || 'service_type' in updates) {
-    // Fetch the current record to fill in whichever field was not updated.
-    const { data: currentAppt } = await supabase
-      .from('appointments')
-      .select('barber_id, service_type')
-      .eq('id', id)
-      .eq('salon_id', salon.id)
-      .single();
+  if (serviceSent || barberChanged) {
+    const lookup = await lookUpService();
+    if (!lookup.ok) {
+      return Response.json({ error: lookup.error }, { status: 400 });
+    }
+    const { service, assignments } = lookup;
 
-    const checkBarberId = 'barber_id' in updates ? updates.barber_id : currentAppt?.barber_id;
-    const checkServiceType = ('service_type' in updates
-      ? updates.service_type
-      : currentAppt?.service_type) as string | null | undefined;
+    // Store the canonical name of a service picked by id.
+    if (service && requestedServiceId) updates.service_type = service.name;
 
-    if (checkBarberId && checkServiceType) {
-      const { data: serviceRecord } = await supabase
-        .from('services')
+    // Re-sending the stored service is not a change.
+    const serviceChanged =
+      serviceSent &&
+      (updates.service_type ?? '').trim().toLowerCase() !== (current.service_type ?? '').trim().toLowerCase();
+
+    if (barberChanged && newBarberId) {
+      const { data: barberRow } = await supabase
+        .from('barbers')
         .select('id')
+        .eq('id', newBarberId)
         .eq('salon_id', salon.id)
-        .ilike('name', checkServiceType)
         .maybeSingle();
 
-      if (serviceRecord) {
-        const { count: totalAssignments } = await supabase
-          .from('barber_services')
-          .select('id', { count: 'exact', head: true })
-          .eq('service_id', serviceRecord.id);
-
-        if (totalAssignments && totalAssignments > 0) {
-          const { data: barberAssignment } = await supabase
-            .from('barber_services')
-            .select('id')
-            .eq('barber_id', checkBarberId)
-            .eq('service_id', serviceRecord.id)
-            .maybeSingle();
-
-          if (!barberAssignment) {
-            return Response.json(
-              { error: 'This staff member does not offer the selected service.' },
-              { status: 400 }
-            );
-          }
-        }
+      if (!barberRow) {
+        return Response.json({ error: 'Staff member not found' }, { status: 400 });
       }
+    }
+
+    // Staff/service assignment check — the same rule as the booking page.
+    if (newBarberId && service && !isBarberEligibleForService(service.id, newBarberId, assignments)) {
+      return Response.json(
+        { error: 'This staff member does not offer the selected service.' },
+        { status: 400 }
+      );
+    }
+
+    // Recompute the duration unless one was given explicitly: when the
+    // service changes, or when the staff member changes on a known service
+    // (their override may differ). A staff change on a free-text service has
+    // nothing to recompute from, so it keeps the stored duration.
+    if (explicitDuration === undefined && (serviceChanged || (barberChanged && service))) {
+      updates.duration_minutes = getEffectiveDuration(service, newBarberId, assignments);
     }
   }
 
-  // Step 5b: Auto-assign when rescheduling an appointment that has no barber.
+  // Step 6: Auto-assign when rescheduling an appointment that has no barber.
   // Only runs when:
   //  - datetime is being updated (it's a reschedule — not a pure notes/status edit)
   //  - barber_id is NOT in the update body (owner left the staff field unchanged)
   //  - The existing appointment has barber_id = null
   //  - The salon has at least one active barber
   // findEligibleBarbers handles service restrictions, availability, and conflicts.
-  if (updates.datetime && !('barber_id' in updates)) {
-    const { data: existingForAssign } = await supabase
-      .from('appointments')
-      .select('barber_id, service_type')
-      .eq('id', id)
+  let autoAssigned = false;
+  if (updates.datetime && !('barber_id' in updates) && current.barber_id === null) {
+    const { count: activeBarberCount } = await supabase
+      .from('barbers')
+      .select('id', { count: 'exact', head: true })
       .eq('salon_id', salon.id)
-      .single();
+      .eq('active', true);
 
-    if (existingForAssign?.barber_id === null) {
-      const { count: activeBarberCount } = await supabase
-        .from('barbers')
-        .select('id', { count: 'exact', head: true })
-        .eq('salon_id', salon.id)
-        .eq('active', true);
+    if (activeBarberCount && activeBarberCount > 0) {
+      const lookup = await lookUpService();
+      if (!lookup.ok) {
+        return Response.json({ error: lookup.error }, { status: 400 });
+      }
 
-      if (activeBarberCount && activeBarberCount > 0) {
-        // Use the updated service_type if being changed, otherwise the current one.
-        const serviceForCheck = ('service_type' in updates
-          ? updates.service_type
-          : existingForAssign.service_type) as string | null | undefined;
+      // An explicit duration applies to everyone. Otherwise each staff member
+      // gets their own length for a known service, and a free-text service
+      // keeps its (stored or just recomputed) duration.
+      const assignDuration =
+        explicitDuration ??
+        (lookup.service ? undefined : updates.duration_minutes ?? current.duration_minutes ?? 30);
 
-        // Resolve duration for the eligibility check (same logic as conflict block above).
-        const assignDuration = updates.duration_minutes ?? 30;
+      const eligible = await findEligibleBarbers({
+        supabase,
+        salonId: salon.id,
+        datetimeUTC: updates.datetime,
+        timezone: resolveTimeZone(salon.timezone),
+        service: lookup.service,
+        assignments: lookup.assignments,
+        excludeAppointmentId: id,
+        explicitDurationMinutes: assignDuration,
+      });
 
-        const eligible = await findEligibleBarbers({
-          supabase,
-          salonId: salon.id,
-          datetimeUTC: updates.datetime,
-          timezone: salon.timezone,
-          serviceTypeName: serviceForCheck ?? null,
-          excludeAppointmentId: id,
-          newDurationMinutes: assignDuration,
-        });
+      if (eligible.length === 0) {
+        return Response.json(
+          { error: 'No available staff member can perform this service at this time.' },
+          { status: 409 }
+        );
+      }
 
-        if (eligible.length === 0) {
-          return Response.json(
-            { error: 'No available staff member can perform this service at this time.' },
-            { status: 409 }
-          );
+      if (eligible.length === 1) {
+        // Exactly one eligible — auto-assign.
+        updates.barber_id = eligible[0].id;
+        if (explicitDuration === undefined && lookup.service) {
+          updates.duration_minutes = eligible[0].durationMinutes;
         }
-
-        if (eligible.length === 1) {
-          // Exactly one eligible — auto-assign.
-          updates.barber_id = eligible[0].id;
-        } else {
-          // Multiple eligible — require the owner to choose explicitly.
-          return Response.json(
-            { error: 'Multiple staff members are available. Please choose one.' },
-            { status: 409 }
-          );
-        }
+        autoAssigned = true;
+      } else {
+        // Multiple eligible — require the owner to choose explicitly.
+        return Response.json(
+          { error: 'Multiple staff members are available. Please choose one.' },
+          { status: 409 }
+        );
       }
     }
   }
 
-  // Step 7: Update — scoped to this salon so cross-salon updates are impossible.
+  // Step 7: Double-booking checks — duration-aware overlap detection.
+  // Only run when datetime, duration, or participants change. The stored
+  // duration is used when it does not change. The current appointment (id) is
+  // excluded from each conflict query so re-saving the same data never
+  // flags itself as a conflict.
+  const durationChanged = updates.duration_minutes !== undefined && updates.duration_minutes !== current.duration_minutes;
+  if (updates.datetime || 'client_id' in updates || barberChanged || durationChanged) {
+    const checkDatetime = updates.datetime ?? current.datetime;
+    const checkClientId = 'client_id' in updates ? updates.client_id : current.client_id;
+    const checkBarberId = 'barber_id' in updates ? updates.barber_id : current.barber_id;
+    const checkDuration = updates.duration_minutes ?? current.duration_minutes ?? 30;
+
+    const checkStartMs = new Date(checkDatetime).getTime();
+    const MAX_DURATION_MS = 480 * 60_000;
+    const queryStart = new Date(checkStartMs - MAX_DURATION_MS).toISOString();
+    const queryEnd   = new Date(checkStartMs + checkDuration * 60_000).toISOString();
+
+    // 7a: Check client double-booking, excluding this appointment.
+    if (checkClientId) {
+      const { data: clientAppts } = await supabase
+        .from('appointments')
+        .select('id, datetime, duration_minutes')
+        .eq('salon_id', salon.id)
+        .eq('client_id', checkClientId)
+        .neq('status', 'cancelled')
+        .neq('id', id)
+        .gte('datetime', queryStart)
+        .lt('datetime', queryEnd);
+
+      const hasClientConflict = (clientAppts ?? []).some((a) => {
+        const existStartMs  = new Date(a.datetime).getTime();
+        const existDuration = a.duration_minutes ?? 30;
+        return appointmentsOverlap(checkStartMs, checkDuration, existStartMs, existDuration);
+      });
+
+      if (hasClientConflict) {
+        return Response.json(
+          { error: 'This client already has an appointment at that time.' },
+          { status: 409 }
+        );
+      }
+    }
+
+    // 7b: Check staff double-booking, excluding this appointment.
+    // Skipped when no staff is assigned, or when the staff member was just
+    // auto-assigned (findEligibleBarbers already checked their appointments).
+    if (checkBarberId && !autoAssigned) {
+      const { data: staffAppts } = await supabase
+        .from('appointments')
+        .select('id, datetime, duration_minutes')
+        .eq('salon_id', salon.id)
+        .eq('barber_id', checkBarberId)
+        .neq('status', 'cancelled')
+        .neq('id', id)
+        .gte('datetime', queryStart)
+        .lt('datetime', queryEnd);
+
+      const hasStaffConflict = (staffAppts ?? []).some((a) => {
+        const existStartMs  = new Date(a.datetime).getTime();
+        const existDuration = a.duration_minutes ?? 30;
+        return appointmentsOverlap(checkStartMs, checkDuration, existStartMs, existDuration);
+      });
+
+      if (hasStaffConflict) {
+        return Response.json(
+          { error: 'This staff member already has an appointment at that time.' },
+          { status: 409 }
+        );
+      }
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    // e.g. service_id re-sent unchanged for a free-text service: nothing to write.
+    return Response.json({ error: 'No valid fields provided to update' }, { status: 400 });
+  }
+
+  // Step 8: Update — scoped to this salon so cross-salon updates are impossible.
   const { data: appointment, error: updateError } = await supabase
     .from('appointments')
     .update(updates)
@@ -499,6 +549,13 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     if (updateError?.code === 'PGRST116') {
       // PostgREST code for "no rows returned" — appointment not found or not owned
       return Response.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (updateError?.code === '23P01') {
+      // An exclusion constraint caught an overlapping booking made at the same moment.
+      return Response.json(
+        { error: 'This staff member already has an appointment at that time.' },
+        { status: 409 }
+      );
     }
     console.error('[PUT /api/appointments/:id] DB error:', updateError?.message);
     return Response.json({ error: 'Failed to update appointment' }, { status: 500 });
