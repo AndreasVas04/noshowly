@@ -119,8 +119,10 @@ export type SkipReason =
   /** 24-hour reminders are only sent within 24 h of the appointment. */
   | 'not_due'
   | 'no_email'
-  /** The owner's plan does not include email. */
+  /** The owner cannot send email: an ended trial or an inactive subscription (lib/entitlements.ts). */
   | 'plan'
+  /** The owner is on the free trial and has used the trial's monthly emails (never shown publicly). */
+  | 'trial_cap'
   /** The owner's monthly fair-use cap is reached (never shown publicly). */
   | 'monthly_cap'
   | 'recipient_limit'

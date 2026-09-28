@@ -14,8 +14,9 @@
  * A subtle "Saving…" → "Saved ✓" indicator appears in the top-right of each
  * section header while the request is in flight / just completed.
  *
- * The email confirmation toggle is plan-gated:
- *  - Email: disabled on trial (email reminders require a paid plan).
+ * The email confirmation toggle is plan-gated (lib/entitlements.ts): it is
+ * disabled when the account cannot send email (an ended trial or an inactive
+ * subscription).
  *
  * Team, Services, and Online Booking are managed in /dashboard/booking.
  *
@@ -31,7 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import { isDemoAccount } from '@/lib/demo';
-import { planAllowsEmail } from '@/lib/plans';
+import { getEntitlements } from '@/lib/entitlements';
 import { normaliseTime } from '@/lib/time';
 import type { UserPlan } from '@/lib/plans';
 import type { Salon } from '@/types';
@@ -212,6 +213,8 @@ export default function SettingsPage() {
   // Plan — fetched from users table via browser Supabase client (RLS, read-only)
   // -------------------------------------------------------------------------
   const [plan, setPlan] = useState<UserPlan>('trial');
+  /** users.trial_ends_at — with the plan, decides whether email can be sent. */
+  const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Section 1: Business info
@@ -315,13 +318,14 @@ export default function SettingsPage() {
             setIsDemo(isDemoAccount(authUser.email));
             const { data: userData } = await supabase
               .from('users')
-              .select('plan')
+              .select('plan, trial_ends_at')
               .eq('id', authUser.id)
               .single();
             if (userData?.plan) setPlan(userData.plan as UserPlan);
+            setTrialEndsAt(userData?.trial_ends_at ?? null);
           }
         } catch {
-          // Plan fetch failed — keep default 'trial' (most restrictive; safe fallback).
+          // Plan fetch failed — keep the defaults (no email; most restrictive, safe fallback).
         }
 
         setLoadState('ready');
@@ -725,8 +729,8 @@ export default function SettingsPage() {
   const previewEmailFooterText   = renderPreview(activeEmailFooter,   { business_name: previewBusiness });
   const previewEmailClosingText  = renderPreview(activeEmailClosing,  PREVIEW_VARS);
 
-  // Plan-gated feature availability.
-  const emailAllowed = planAllowsEmail(plan);
+  // Plan-gated feature availability (an ended trial or an inactive subscription sends no email).
+  const emailAllowed = getEntitlements({ plan, trial_ends_at: trialEndsAt }, new Date()).canSendEmail;
 
   // -------------------------------------------------------------------------
   // Main render
@@ -930,7 +934,7 @@ export default function SettingsPage() {
                   </p>
                 ) : (
                   <p className="text-xs text-amber-600 mt-0.5">
-                    Upgrade to any paid plan to enable email reminders.
+                    Upgrade to send email reminders.
                   </p>
                 )}
               </div>

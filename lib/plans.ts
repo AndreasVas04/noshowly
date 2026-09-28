@@ -3,6 +3,11 @@
  *
  * Single source of truth for Noshowly's subscription plan configuration.
  *
+ * Free trial:
+ *  - trial — every new account, for TRIAL_LENGTH_DAYS (users.trial_ends_at).
+ *    Full access with a small monthly email cap (TRIAL_EMAIL_LIMIT). When it
+ *    ends the account is read-only until it subscribes (lib/entitlements.ts).
+ *
  * Public plan (the ONLY plan available via checkout and pricing UI for MVP):
  *  - Basic — Unlimited email reminders (2,000/month internal fair-use cap). $19/month.
  *
@@ -14,10 +19,30 @@
  *
  * RULES (never violate):
  *  - Email limits are internal fair-use caps — never shown publicly. Public copy says "Unlimited email reminders".
+ *  - What an account may do (write, send email, take bookings) is decided by
+ *    getEntitlements() in lib/entitlements.ts, which also honours the trial
+ *    end date. Never decide access from the plan name alone.
  *
  * Every part of the codebase that touches plan limits, reminder caps, or
  * geo-blocking MUST import from this file — never hardcode these values.
  */
+
+// ---------------------------------------------------------------------------
+// Free trial
+// ---------------------------------------------------------------------------
+
+/**
+ * Length of the free trial in days. Matches the users.trial_ends_at default
+ * (sign-up + 14 days) and the public copy ("14-day free trial").
+ */
+export const TRIAL_LENGTH_DAYS = 14 as const;
+
+/**
+ * Emails (reminders, booking confirmations and test sends together) an
+ * account on an active trial may send per month. Internal limit — never shown
+ * publicly. Enforced by lib/reminders/gateway.ts through lib/entitlements.ts.
+ */
+export const TRIAL_EMAIL_LIMIT = 25 as const;
 
 // ---------------------------------------------------------------------------
 // Plan limits — { email } caps per month
@@ -28,15 +53,16 @@
  *
  * Email caps:
  *  - Internal fair-use caps. Public-facing copy always says "Unlimited email reminders".
- *  - 0 means email reminders are disabled (trial).
+ *  - The trial cap only applies while the trial is running; an ended trial
+ *    and 'cancelled' send nothing (lib/entitlements.ts).
  *  - Never expose these values in any public-facing UI or API response.
  *
  * Legacy plan names (starter, professional) are kept as backward-compatible
  * aliases for existing database values. All new users get basic or pro only.
  */
 export const PLAN_LIMITS = {
-  // Trial — no reminders; user must upgrade to activate messaging.
-  trial:        { email: 0 },
+  // Trial — full access with a small email cap until users.trial_ends_at.
+  trial:        { email: TRIAL_EMAIL_LIMIT },
 
   // Basic ($19/month) — unlimited email (internal fair-use cap: 2,000/month).
   basic:        { email: 2000 },
@@ -80,6 +106,19 @@ export type PaidPlan = 'basic';
  */
 export type UserPlan = PlanType | 'cancelled';
 
+/**
+ * The plan names the database accepts after the data_integrity migration
+ * (users_plan_check). parsePlan() in lib/entitlements.ts maps legacy names
+ * to these, so access decisions only ever see these five values.
+ */
+export type CanonicalPlan = 'trial' | 'basic' | 'pro' | 'business' | 'cancelled';
+
+/**
+ * Plans that come from a Stripe subscription and give full access. The
+ * Stripe webhook maps subscription prices to these (lib/billing/subscriptions.ts).
+ */
+export type SubscriptionPlan = Extract<CanonicalPlan, 'basic' | 'pro' | 'business'>;
+
 // ---------------------------------------------------------------------------
 // Plan prices (USD per month) — public paid plans only
 // ---------------------------------------------------------------------------
@@ -121,49 +160,29 @@ export const MAX_TEST_EMAILS_PER_DAY = 5 as const;
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the monthly email reminder fair-use cap for a given plan.
+ * Returns the monthly email cap of a plan while that plan is in force.
  *
- * Returns 0 for 'cancelled' and 'trial' accounts.
- * Returns a finite fair-use cap for all paid plans (2000 for basic, 5000 for pro).
+ * Returns 0 for 'cancelled', TRIAL_EMAIL_LIMIT for 'trial' and a finite
+ * fair-use cap for all paid plans (2000 for basic, 5000 for pro).
+ *
+ * It does not know whether a trial has ended: use getEntitlements() from
+ * lib/entitlements.ts (emailMonthlyLimit, canSendEmail) for any decision.
  *
  * NOTE: This value must never be displayed publicly. Public copy says "Unlimited email reminders".
  *
  * @param plan - The user's current subscription plan.
- * @returns The internal fair-use cap for email reminders per month.
+ * @returns The internal cap for emails per month.
  *
  * @example
  * getPlanEmailLimit('basic')        // → 2000 (internal fair-use cap)
  * getPlanEmailLimit('pro')          // → 5000 (internal fair-use cap)
  * getPlanEmailLimit('starter')      // → 2000 (legacy alias for basic)
  * getPlanEmailLimit('professional') // → 5000 (legacy alias for pro)
- * getPlanEmailLimit('trial')        // → 0
+ * getPlanEmailLimit('trial')        // → TRIAL_EMAIL_LIMIT (while the trial runs)
  * getPlanEmailLimit('cancelled')    // → 0
  */
 export function getPlanEmailLimit(plan: UserPlan): number {
   if (plan === 'cancelled') return 0;
   return PLAN_LIMITS[plan].email;
-}
-
-/**
- * Returns true if the given plan allows email reminders to be sent.
- *
- * All paid plans (basic, pro, and legacy aliases) include email reminders.
- * Trial and cancelled plans return false.
- *
- * @param plan - The user's current subscription plan.
- * @returns true if email reminders are permitted on this plan.
- *
- * @example
- * planAllowsEmail('basic')        // → true
- * planAllowsEmail('pro')          // → true
- * planAllowsEmail('starter')      // → true (legacy alias for basic)
- * planAllowsEmail('professional') // → true (legacy alias for pro)
- * planAllowsEmail('business')     // → true (internal plan)
- * planAllowsEmail('trial')        // → false (no reminders during trial)
- * planAllowsEmail('cancelled')    // → false
- */
-export function planAllowsEmail(plan: UserPlan): boolean {
-  if (plan === 'cancelled') return false;
-  return PLAN_LIMITS[plan].email > 0;
 }
 

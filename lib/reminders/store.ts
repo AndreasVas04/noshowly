@@ -80,6 +80,8 @@ export type OwnerRecord = {
   id: string;
   email: string;
   plan: string;
+  /** When the free trial ends; read with plan by getEntitlements(). */
+  trial_ends_at: string | null;
   email_reminders_used_this_month: number;
   reminders_reset_at: string;
 };
@@ -494,7 +496,7 @@ export async function countEmailsToAddressSince(
 // ---------------------------------------------------------------------------
 
 /** Columns of OwnerRecord. */
-const OWNER_COLUMNS = 'id, email, plan, email_reminders_used_this_month, reminders_reset_at';
+const OWNER_COLUMNS = 'id, email, plan, trial_ends_at, email_reminders_used_this_month, reminders_reset_at';
 
 /**
  * Loads salon owners by id.
