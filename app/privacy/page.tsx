@@ -76,7 +76,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="mt-4 text-white/60 font-body text-sm tracking-wide">
-            Last updated: April 2026
+            Last updated: September 2026
           </p>
           <div className="mt-7 w-10 h-px bg-white/25" />
           <p className="mt-6 text-white/65 font-body text-sm">
@@ -99,13 +99,15 @@ export default function PrivacyPage() {
 
           <Section number="01" title="What we collect">
             <p>
-              We collect your name, email address, business name, and timezone when you create an
-              account.
+              We collect your email address, business name, and timezone when you create an account.
             </p>
             <p>
               When you add appointments, you enter client names, phone numbers, and optionally email
               addresses. We store this information to send reminders on your behalf. Your clients
               never create a Noshowly account. We do not market to them or share their data.
+            </p>
+            <p>
+              Staff names, photos, and bios you add are shown on your public booking page.
             </p>
             <p>
               We collect basic usage data such as page visits and error logs to fix bugs and improve
@@ -124,6 +126,21 @@ export default function PrivacyPage() {
           <Section number="03" title="Who we share it with">
             <p>We share data with a small number of services needed to run Noshowly.</p>
             <p>
+              <strong className="font-semibold text-[#1A1A1A]">Supabase</strong>{' '}
+              hosts our database, handles sign-in, and stores staff photos. Your account, business,
+              and client data are stored there.
+            </p>
+            <p>
+              <strong className="font-semibold text-[#1A1A1A]">Vercel</strong>{' '}
+              hosts the Noshowly website and servers. It processes every request to the site and
+              keeps logs of requests and errors.
+            </p>
+            <p>
+              <strong className="font-semibold text-[#1A1A1A]">Stripe</strong>{' '}
+              processes subscription payments. It receives your email address and the payment
+              details you enter at checkout. We never see or store your card number.
+            </p>
+            <p>
               <strong className="font-semibold text-[#1A1A1A]">Resend</strong>{' '}
               receives your client&apos;s email address and the reminder content to deliver email
               reminders.
@@ -133,17 +150,20 @@ export default function PrivacyPage() {
 
           <Section number="04" title="How long we keep it">
             <p>
-              We keep your data for as long as your account is active. If you cancel, your data is
-              kept for 30 days in case you change your mind. After 30 days, your account and all
-              associated data is permanently deleted.
+              We keep your data for as long as your account exists. If your free trial ends or your
+              subscription is cancelled, your data is kept and your account becomes read-only, so you
+              can subscribe again at any time. Your data is deleted when you delete your account.
             </p>
           </Section>
 
           <Section number="05" title="Deleting your account">
             <p>
-              You can delete your account at any time from the dashboard settings. All your data,
-              including client records and appointment history, will be permanently deleted within
-              30 days.
+              You can delete your account at any time in Settings. This cancels your subscription and
+              deletes your account and all your data, including client records, appointment history,
+              and staff photos, straight away. It cannot be undone.
+            </p>
+            <p>
+              Stripe keeps its own records of past payments and invoices.
             </p>
             <p>
               You can also email us at{' '}

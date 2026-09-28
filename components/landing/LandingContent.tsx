@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
 import LandingFooter from '@/components/landing/LandingFooter';
+import { TRIAL_LENGTH_DAYS } from '@/lib/plans';
 
 // =============================================================================
 // FadeIn — reusable scroll-triggered entrance animation
@@ -581,7 +582,7 @@ export default function LandingContent() {
           </FadeIn>
 
           <p className="mt-8 text-center text-sm text-[#8A8680] font-body">
-            No commissions. No per-booking fees. No credit card required to start.
+            {TRIAL_LENGTH_DAYS}-day free trial, no card required. No commissions. No per-booking fees.
           </p>
         </div>
       </section>
@@ -604,7 +605,7 @@ export default function LandingContent() {
               Ready to stop the no-shows?
             </h2>
             <p className="text-white/65 text-lg max-w-xl mx-auto mb-10 font-body">
-              Set up in 5 minutes. No long-term contract. Cancel any time.
+              Set up in 5 minutes. {TRIAL_LENGTH_DAYS}-day free trial, no card required. Cancel any time.
             </p>
             <Link
               href="/register"
