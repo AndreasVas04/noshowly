@@ -3,14 +3,20 @@
  *
  * DELETE /api/account
  *
- * Permanently deletes the authenticated user's entire account:
- *  - All salon data (appointments, clients, barbers, services, reminders)
- *    is removed via CASCADE deletes triggered by deleting the salon row.
- *  - The users row is removed via CASCADE from auth.users.
- *  - The auth.users record itself is deleted using the service role admin API.
+ * Permanently deletes the authenticated user's entire account
+ * (lib/account.ts deleteAccount):
+ *  1. Cancels every Stripe subscription of the owner that has not ended, so
+ *     nobody keeps paying for a deleted account. If Stripe fails, nothing is
+ *     deleted (502) and the owner can try again.
+ *  2. Removes the owner's staff photos from Storage (best effort, logged).
+ *  3. Deletes the auth.users record with the admin API. Foreign keys cascade
+ *     from auth.users to public.users, to salons, and from there to every
+ *     salon table (appointments, clients, staff, services, availability,
+ *     reminders, booking page). There are no separate partial deletes, so an
+ *     account can never be left as a login without a salon.
  *
- * This operation is irreversible. The endpoint requires the service role key
- * to delete from auth.users, which is not accessible via RLS-constrained clients.
+ * This operation is irreversible. Stripe keeps its own records of past
+ * invoices; the Stripe customer itself is not deleted.
  *
  * Security:
  *  - The user is verified with Supabase Auth (requireUser → getUser), because
@@ -21,23 +27,11 @@
  *  - Service role key is server-side only — never exposed to the browser.
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { requireUser } from '@/lib/auth';
 import { isDemoAccount } from '@/lib/demo';
-import type { Database } from '@/types';
-
-// ---------------------------------------------------------------------------
-// Service role client — needed to call auth.admin.deleteUser()
-// ---------------------------------------------------------------------------
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!SUPABASE_URL) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
-if (!SERVICE_ROLE_KEY) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
-
-/** Admin client — bypasses RLS and can delete auth users. Server-side only. */
-const adminSupabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY);
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { deleteAccount, removeStaffPhotos } from '@/lib/account';
+import { cancelSubscription, listCustomerSubscriptions } from '@/lib/billing/server';
 
 // ---------------------------------------------------------------------------
 // DELETE handler
@@ -46,18 +40,11 @@ const adminSupabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY);
 /**
  * Permanently deletes the authenticated user's account and all associated data.
  *
- * Deletion order:
- *  1. Verify the user — return 401 if not authenticated, 403 for the demo account.
- *  2. Delete the salon row — CASCADE deletes appointments, clients, barbers,
- *     services, and reminders automatically (FK ON DELETE CASCADE in schema).
- *  3. Delete the public.users row — CASCADE from auth.users handles this
- *     when we delete the auth user, but we do it explicitly first to be safe.
- *  4. Delete the auth.users record via the admin API.
- *
  * @returns 200 { success: true }               — account deleted
  * @returns 401 { error: "Unauthorized" }        — no valid session
  * @returns 403 { error: string }                — demo account
- * @returns 500 { error: string }                — unexpected failure
+ * @returns 500 { error: string }                — database error; see the message
+ * @returns 502 { error: string }                — Stripe error; nothing was deleted
  */
 export async function DELETE(): Promise<Response> {
   // Step 1: Verify the user with Supabase Auth.
@@ -72,49 +59,60 @@ export async function DELETE(): Promise<Response> {
   }
 
   const userId = auth.user.id;
+  const db = createAdminSupabaseClient();
   console.log(`[DELETE /api/account] Deleting account for user=${userId}`);
 
-  try {
-    // Step 2: Delete the salon row.
-    // ON DELETE CASCADE in the schema means this also removes:
-    // barbers, clients, appointments, reminders, services for this salon.
-    const { error: salonError } = await adminSupabase
-      .from('salons')
-      .delete()
-      .eq('user_id', userId);
+  // Step 2: The owner's Stripe customer (a half-created account may have no users row).
+  const { data: account, error: accountError } = await db
+    .from('users')
+    .select('stripe_customer_id')
+    .eq('id', userId)
+    .maybeSingle();
 
-    if (salonError) {
-      console.error('[DELETE /api/account] Failed to delete salon:', salonError.message);
-      return Response.json({ error: 'Failed to delete account data' }, { status: 500 });
-    }
-
-    // Step 3: Delete the public.users row.
-    // This would also be triggered by deleting the auth user via CASCADE,
-    // but we delete it explicitly first to avoid timing issues.
-    const { error: usersError } = await adminSupabase
-      .from('users')
-      .delete()
-      .eq('id', userId);
-
-    if (usersError) {
-      console.error('[DELETE /api/account] Failed to delete users row:', usersError.message);
-      return Response.json({ error: 'Failed to delete account data' }, { status: 500 });
-    }
-
-    // Step 4: Delete the auth.users record.
-    // This requires the service role admin API — not possible with anon key.
-    const { error: authError } = await adminSupabase.auth.admin.deleteUser(userId);
-
-    if (authError) {
-      console.error('[DELETE /api/account] Failed to delete auth user:', authError.message);
-      return Response.json({ error: 'Failed to delete account' }, { status: 500 });
-    }
-
-    console.log(`[DELETE /api/account] Account deleted successfully for user=${userId}`);
-    return Response.json({ success: true }, { status: 200 });
-
-  } catch (err) {
-    console.error('[DELETE /api/account] Unexpected error:', err);
-    return Response.json({ error: 'Internal server error' }, { status: 500 });
+  if (accountError) {
+    console.error('[DELETE /api/account] Failed to load the users row:', accountError.message);
+    return Response.json({ error: 'Failed to delete account. Nothing was deleted.' }, { status: 500 });
   }
+
+  // Step 3: Cancel subscriptions, remove photos, delete the auth user (cascades).
+  const result = await deleteAccount(
+    {
+      listSubscriptions:  listCustomerSubscriptions,
+      cancelSubscription,
+      removeStaffPhotos:  (id) => removeStaffPhotos(db, id),
+      async deleteAuthUser(id) {
+        const { error } = await db.auth.admin.deleteUser(id);
+        if (error) throw new Error(error.message);
+      },
+    },
+    { userId, stripeCustomerId: account?.stripe_customer_id ?? null },
+  );
+
+  if (!result.ok) {
+    if (result.step === 'billing') {
+      console.error(
+        `[DELETE /api/account] Subscription cancellation failed for user=${userId}, nothing deleted:`,
+        result.message,
+      );
+      return Response.json(
+        { error: 'We could not cancel your subscription, so nothing was deleted. Please try again.' },
+        { status: 502 }
+      );
+    }
+    console.error(`[DELETE /api/account] Failed to delete auth user=${userId}:`, result.message);
+    return Response.json(
+      {
+        error: result.cancelledSubscriptions.length > 0
+          ? 'Your subscription was cancelled, but the account could not be deleted. Please try again.'
+          : 'Failed to delete account. Please try again.',
+      },
+      { status: 500 }
+    );
+  }
+
+  console.log(
+    `[DELETE /api/account] Account deleted for user=${userId} ` +
+    `(subscriptions cancelled: ${result.cancelledSubscriptions.length}, photos removed: ${result.photosRemoved ?? 'unknown'})`
+  );
+  return Response.json({ success: true }, { status: 200 });
 }
