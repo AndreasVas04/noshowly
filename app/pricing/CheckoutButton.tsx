@@ -6,7 +6,10 @@
  * On click:
  *  1. Calls POST /api/stripe/checkout with the plan name.
  *  2. On success, redirects to Stripe Checkout.
- *  3. On error, shows an inline error message below the button.
+ *  3. On 409 because a subscription already exists, shows the message with a
+ *     "Manage billing" button (Stripe customer portal) instead of starting a
+ *     second subscription.
+ *  4. On any other error, shows an inline error message below the button.
  *
  * Premium design: brand-dark primary button, clean hover states.
  */
@@ -15,10 +18,11 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import ManageBillingButton from '@/components/billing/ManageBillingButton';
 import type { PaidPlan } from '@/lib/plans';
 
 type CheckoutButtonProps = {
-  /** The plan name to pass to the checkout API. One of the 9 paid plan keys. */
+  /** The plan name to pass to the checkout API ('basic'). */
   plan: PaidPlan;
   /** When true, renders the button in the primary brand-dark style. */
   highlighted: boolean;
@@ -34,6 +38,8 @@ type CheckoutButtonProps = {
 export default function CheckoutButton({ plan, highlighted }: CheckoutButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The checkout was refused because a subscription exists: offer the portal. */
+  const [showManageBilling, setShowManageBilling] = useState(false);
 
   /**
    * Calls the checkout API and redirects to Stripe on success.
@@ -42,6 +48,7 @@ export default function CheckoutButton({ plan, highlighted }: CheckoutButtonProp
     if (loading) return;
     setLoading(true);
     setError(null);
+    setShowManageBilling(false);
 
     try {
       const res = await fetch('/api/stripe/checkout', {
@@ -51,8 +58,9 @@ export default function CheckoutButton({ plan, highlighted }: CheckoutButtonProp
       });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
         setError(data.error ?? 'Something went wrong. Please try again.');
+        setShowManageBilling(res.status === 409 && data.code === 'subscription_exists');
         return;
       }
 
@@ -83,6 +91,12 @@ export default function CheckoutButton({ plan, highlighted }: CheckoutButtonProp
 
       {error && (
         <p className="mt-2 text-center text-xs text-red-600">{error}</p>
+      )}
+
+      {showManageBilling && (
+        <div className="mt-3 flex justify-center">
+          <ManageBillingButton />
+        </div>
       )}
     </div>
   );

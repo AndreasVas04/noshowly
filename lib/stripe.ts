@@ -24,8 +24,11 @@ if (!STRIPE_SECRET_KEY) {
  * Singleton Stripe client configured for server-side use.
  *
  * Used by:
- *  - app/api/stripe/checkout/route.ts   — create Checkout sessions
+ *  - app/api/stripe/checkout/route.ts   — create customers and Checkout sessions
+ *  - app/api/stripe/portal/route.ts     — create customer portal sessions
+ *  - app/api/stripe/sync/route.ts       — read a completed Checkout session
  *  - app/api/webhooks/stripe/route.ts   — verify webhook signatures
+ *  - lib/billing/server.ts              — list and cancel subscriptions, read customers
  *
  * @example
  * ```ts
