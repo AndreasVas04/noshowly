@@ -120,6 +120,25 @@ async function loadLink(db: AdminSupabaseClient, token: string): Promise<LinkRec
 }
 
 /**
+ * Returns a copy of a link with the appointment (and its reminder row) in a
+ * new status — what a successful POST just saved.
+ *
+ * @param link   - The link as read before the update.
+ * @param status - The saved status.
+ */
+function withStatus(link: LinkRecord, status: 'confirmed' | 'cancelled'): LinkRecord {
+  if (!link.appointment) return link;
+  return {
+    reminder: { ...link.reminder, status },
+    appointment: {
+      ...link.appointment,
+      status,
+      page: { ...link.appointment.page, status },
+    },
+  };
+}
+
+/**
  * Builds the page for a link as it is now.
  *
  * @param link    - The link (null: unknown token).
@@ -260,9 +279,16 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       );
     }
 
-    // Step 5: Show the real status now (re-read, whatever happened).
-    const current = await loadLink(db, token);
+    // Step 5: Show the real status now (re-read, whatever happened). If the
+    // re-read fails, the answer is still saved: show it from what is known.
     const outcome: PostOutcome = changed ? newStatus : 'unchanged';
+    let current: LinkRecord | null;
+    try {
+      current = await loadLink(db, token);
+    } catch (err) {
+      console.error('[confirm] POST re-read failed:', err instanceof Error ? err.message : err);
+      current = changed ? withStatus(link, newStatus) : link;
+    }
     return page(viewFor(current, token, new Date(), { outcome }));
 
   } catch (err) {
