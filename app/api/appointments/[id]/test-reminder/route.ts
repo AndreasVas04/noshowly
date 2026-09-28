@@ -151,7 +151,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
     salon.email_closing,
   );
 
-  const emailResult = await sendEmail(clientEmail, subject, html);
+  const emailResult = await sendEmail({ to: clientEmail, subject, html });
 
   if (!emailResult.success) {
     // Mark reminder as failed so it doesn't block real reminders from the cron.

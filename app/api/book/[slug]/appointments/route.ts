@@ -741,11 +741,11 @@ async function handleBookingPost(
       salon.timezone,
     );
 
-    const emailResult = await sendEmail(
-      clientEmail,
-      `Appointment booked at ${salon.name}`,
-      confirmHtml,
-    );
+    const emailResult = await sendEmail({
+      to: clientEmail,
+      subject: `Appointment booked at ${salon.name}`,
+      html: confirmHtml,
+    });
 
     if (!emailResult.success) {
       // Log but do not fail — the appointment exists, only the confirmation email failed.

@@ -134,8 +134,8 @@ const COMMON_TIMEZONES = [
 /** Default email footer — matches lib/reminder-templates.ts DEFAULT_EMAIL_FOOTER. */
 const DEFAULT_EMAIL_FOOTER = 'If you have questions, contact {business_name} directly.';
 
-/** Default email template field values (must match getEmailHTML fallbacks). */
-const DEFAULT_EMAIL_SUBJECT  = 'Reminder: Your appointment at {business_name} tomorrow';
+/** Default email template field values (must match the defaults in lib/reminder-templates.ts). */
+const DEFAULT_EMAIL_SUBJECT  = 'Reminder: Your appointment at {business_name} on {date} at {time}';
 const DEFAULT_EMAIL_GREETING = 'Hi {client_name},';
 const DEFAULT_EMAIL_BODY     = 'This is a reminder for your upcoming appointment.';
 const DEFAULT_EMAIL_CLOSING  = 'We look forward to seeing you.';
@@ -706,8 +706,8 @@ export default function SettingsPage() {
     client_name:   'John',
     business_name: salonName.trim() || 'Your Business',
     service:       'Haircut',
-    time:          '10:30 AM',
-    date:          'Tomorrow',
+    time:          '10:30',
+    date:          'Tuesday 16 June',
   };
 
   const previewBusiness = PREVIEW_VARS.business_name;
@@ -993,7 +993,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <p className="text-[10px] text-[#8A8680] uppercase font-semibold tracking-wide">Date &amp; Time</p>
-                        <p className="text-sm text-[#1A1A1A] font-semibold">Monday, June 16 at 2:00 PM</p>
+                        <p className="text-sm text-[#1A1A1A] font-semibold">{PREVIEW_VARS.date} at {PREVIEW_VARS.time}</p>
                       </div>
                     </div>
                     {/* Confirm prompt + buttons */}

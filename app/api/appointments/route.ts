@@ -615,7 +615,7 @@ export async function POST(request: Request): Promise<Response> {
               salonData?.email_closing,
             );
 
-            const result = await sendEmail(clientData.email, subject, html);
+            const result = await sendEmail({ to: clientData.email, subject, html });
 
             if (result.success) {
               // Mark reminder as sent and record the timestamp.

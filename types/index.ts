@@ -130,8 +130,9 @@ export type Salon = {
    */
   email_footer: string | null;
   /**
-   * Custom email subject line. Supports {business_name} placeholder.
-   * Null → use application default ("Reminder: Your appointment at {business_name} tomorrow").
+   * Custom subject line of the 24-hour reminder email. Supports {business_name}
+   * (and the other template variables). Null → use application default
+   * ("Reminder: Your appointment at {business_name} on {date} at {time}").
    */
   email_subject: string | null;
   /**

@@ -1,0 +1,320 @@
+/**
+ * lib/__tests__/reminder-rules.test.ts
+ *
+ * Unit tests for the appointment email rules in lib/reminders/rules.ts: when
+ * the 24-hour reminder is due (window, catch-up after missed runs, claims,
+ * the rule for bookings made less than a day ahead), the claim race
+ * tie-break, the per-email appointment checks and the sending limits.
+ */
+
+import { describe, expect, it } from 'vitest';
+import {
+  HOURLY_REMINDER_RATE_LIMIT,
+  MAX_EMAILS_PER_RECIPIENT_PER_DAY,
+  MAX_TEST_EMAILS_PER_DAY,
+} from '@/lib/plans';
+import {
+  CONFIRMATION_QUIET_PERIOD_MS,
+  HOUR_MS,
+  STALE_CLAIM_AFTER_MS,
+  checkAppointmentForEmail,
+  classifyReminderClaims,
+  decideReminderDue,
+  evaluateSendLimits,
+  needsConfirmationLinks,
+  reminderWindow,
+  selectDueReminders,
+  wonClaimRace,
+  type ReminderRecord,
+} from '@/lib/reminders/rules';
+
+const MINUTE_MS = 60_000;
+const NOW = new Date('2026-10-05T12:00:00Z');
+
+/** ISO timestamp `ms` after NOW (negative for before). */
+function at(ms: number, from: Date = NOW): string {
+  return new Date(from.getTime() + ms).toISOString();
+}
+
+/** A scheduled appointment starting `hours` after NOW. */
+function appointment(id: string, hours: number, status = 'scheduled') {
+  return { id, datetime: at(hours * HOUR_MS), status };
+}
+
+let rowId = 0;
+/** A reminders row for appointment 'a1' with overrides. */
+function row(overrides: Partial<ReminderRecord>): ReminderRecord {
+  rowId++;
+  return {
+    id:             `r${rowId}`,
+    appointment_id: 'a1',
+    type:           'email',
+    status:         'sent',
+    token:          `token-${rowId}`,
+    created_at:     at(-HOUR_MS),
+    sent_at:        at(-HOUR_MS),
+    ...overrides,
+  };
+}
+
+/**
+ * Runs the due rule every 15 minutes from `bookedAt` until the appointment
+ * starts, with a booking confirmation sent at `bookedAt`, and returns how many
+ * hours before the appointment the reminder first becomes due (null: never).
+ */
+function firstDueHoursBefore(hoursAhead: number): number | null {
+  const bookedAt = NOW;
+  const start = new Date(bookedAt.getTime() + hoursAhead * HOUR_MS);
+  const appt = { datetime: start.toISOString(), status: 'scheduled' };
+  const confirmation = row({ type: 'email_confirmation', created_at: bookedAt.toISOString(), sent_at: bookedAt.toISOString() });
+
+  for (let t = bookedAt.getTime(); t < start.getTime(); t += 15 * MINUTE_MS) {
+    if (decideReminderDue(appt, [confirmation], new Date(t)).due) {
+      return (start.getTime() - t) / HOUR_MS;
+    }
+  }
+  return null;
+}
+
+describe('reminderWindow', () => {
+  it('covers (now, now + 24 h]', () => {
+    expect(reminderWindow(NOW)).toEqual({
+      after: '2026-10-05T12:00:00.000Z',
+      until: '2026-10-06T12:00:00.000Z',
+    });
+  });
+});
+
+describe('decideReminderDue — window', () => {
+  it('is due for a scheduled appointment within 24 hours with no reminder yet', () => {
+    expect(decideReminderDue(appointment('a1', 23.5), [], NOW)).toEqual({ due: true, staleClaimIds: [] });
+  });
+
+  it('includes exactly 24 hours ahead and excludes anything later', () => {
+    expect(decideReminderDue(appointment('a1', 24), [], NOW).due).toBe(true);
+    expect(decideReminderDue({ datetime: at(24 * HOUR_MS + MINUTE_MS), status: 'scheduled' }, [], NOW))
+      .toEqual({ due: false, reason: 'outside_window' });
+  });
+
+  it('never reminds about an appointment that has started or passed', () => {
+    expect(decideReminderDue({ datetime: NOW.toISOString(), status: 'scheduled' }, [], NOW))
+      .toEqual({ due: false, reason: 'outside_window' });
+    expect(decideReminderDue(appointment('a1', -1), [], NOW)).toEqual({ due: false, reason: 'outside_window' });
+  });
+
+  it('catches up after missed runs: 3 hours ahead with no reminder is still due', () => {
+    expect(decideReminderDue(appointment('a1', 3), [], NOW).due).toBe(true);
+    expect(decideReminderDue({ datetime: at(5 * MINUTE_MS), status: 'scheduled' }, [], NOW).due).toBe(true);
+  });
+
+  it('only reminds scheduled appointments', () => {
+    expect(decideReminderDue(appointment('a1', 10, 'confirmed'), [], NOW)).toEqual({ due: false, reason: 'not_scheduled' });
+    expect(decideReminderDue(appointment('a1', 10, 'cancelled'), [], NOW)).toEqual({ due: false, reason: 'not_scheduled' });
+  });
+});
+
+describe('decideReminderDue — claims', () => {
+  it('is not due once a reminder was sent (or confirmed through its link)', () => {
+    expect(decideReminderDue(appointment('a1', 10), [row({ status: 'sent' })], NOW))
+      .toEqual({ due: false, reason: 'already_sent' });
+    expect(decideReminderDue(appointment('a1', 10), [row({ status: 'confirmed' })], NOW))
+      .toEqual({ due: false, reason: 'already_sent' });
+  });
+
+  it('is not due while a fresh claim is being sent', () => {
+    const claim = row({ status: 'pending', sent_at: null, created_at: at(-5 * MINUTE_MS) });
+    expect(decideReminderDue(appointment('a1', 10), [claim], NOW)).toEqual({ due: false, reason: 'in_progress' });
+  });
+
+  it('retries a claim left pending for 30 minutes or more', () => {
+    const stale = row({ status: 'pending', sent_at: null, created_at: at(-STALE_CLAIM_AFTER_MS) });
+    expect(decideReminderDue(appointment('a1', 10), [stale], NOW)).toEqual({ due: true, staleClaimIds: [stale.id] });
+  });
+
+  it('ignores pending rows without a token (written by the old booking route)', () => {
+    const orphan = row({ status: 'pending', token: null, sent_at: null, created_at: at(-2 * HOUR_MS) });
+    expect(decideReminderDue(appointment('a1', 10), [orphan], NOW)).toEqual({ due: true, staleClaimIds: [] });
+  });
+
+  it('ignores failed, retired (cancelled) and skipped reminders', () => {
+    const rows = [
+      row({ status: 'failed', sent_at: null }),
+      row({ status: 'cancelled' }),
+      row({ status: 'skipped', sent_at: null }),
+    ];
+    expect(decideReminderDue(appointment('a1', 10), rows, NOW)).toEqual({ due: true, staleClaimIds: [] });
+  });
+
+  it('a sent reminder wins over stale and in-progress claims, in any order', () => {
+    const stale = row({ status: 'pending', sent_at: null, created_at: at(-2 * HOUR_MS) });
+    const sent = row({ status: 'sent' });
+    expect(classifyReminderClaims([stale, sent], NOW)).toEqual({ kind: 'sent' });
+    expect(classifyReminderClaims([sent, stale], NOW)).toEqual({ kind: 'sent' });
+  });
+
+  it('ignores rows of other types when classifying claims', () => {
+    const test = row({ type: 'email_test', status: 'pending', created_at: at(-MINUTE_MS) });
+    expect(classifyReminderClaims([test], NOW)).toEqual({ kind: 'none', staleClaimIds: [] });
+  });
+});
+
+describe('decideReminderDue — booking confirmations', () => {
+  it('holds the reminder back for 12 hours after a booking confirmation', () => {
+    const recent = row({ type: 'email_confirmation', sent_at: at(-3 * HOUR_MS) });
+    expect(decideReminderDue(appointment('a1', 20), [recent], NOW))
+      .toEqual({ due: false, reason: 'recent_confirmation' });
+
+    const older = row({ type: 'email_confirmation', sent_at: at(-CONFIRMATION_QUIET_PERIOD_MS - MINUTE_MS) });
+    expect(decideReminderDue(appointment('a1', 20), [older], NOW).due).toBe(true);
+  });
+
+  it('also holds it back while a confirmation is being sent', () => {
+    const sending = row({ type: 'email_confirmation', status: 'pending', sent_at: null, created_at: at(-MINUTE_MS) });
+    expect(decideReminderDue(appointment('a1', 20), [sending], NOW))
+      .toEqual({ due: false, reason: 'recent_confirmation' });
+  });
+
+  it('counts a confirmation the client already answered', () => {
+    const answered = row({ type: 'email_confirmation', status: 'confirmed', sent_at: at(-HOUR_MS) });
+    expect(decideReminderDue(appointment('a1', 20), [answered], NOW).due).toBe(false);
+  });
+
+  it('ignores confirmations retired by a reschedule, and failed ones', () => {
+    const retired = row({ type: 'email_confirmation', status: 'cancelled', sent_at: at(-HOUR_MS) });
+    const failed = row({ type: 'email_confirmation', status: 'failed', sent_at: null, created_at: at(-MINUTE_MS) });
+    expect(decideReminderDue(appointment('a1', 20), [retired, failed], NOW).due).toBe(true);
+  });
+
+  it('booked 3 hours ahead: the confirmation only, no reminder minutes later', () => {
+    expect(firstDueHoursBefore(3)).toBeNull();
+  });
+
+  it('booked 20 hours ahead: the reminder follows 12 hours after the confirmation', () => {
+    expect(firstDueHoursBefore(20)).toBe(8);
+  });
+
+  it('booked 30 hours ahead: the reminder 18 hours before', () => {
+    expect(firstDueHoursBefore(30)).toBe(18);
+  });
+
+  it('booked days ahead: the reminder as soon as the 24-hour window opens', () => {
+    expect(firstDueHoursBefore(72)).toBe(24);
+  });
+});
+
+describe('selectDueReminders', () => {
+  it('groups rows by appointment, keeps order and counts what is not due', () => {
+    const appts = [
+      appointment('a1', 2),
+      appointment('a2', 5),
+      appointment('a3', 8),
+      appointment('a4', 30),
+      appointment('a5', 9, 'confirmed'),
+    ];
+    const rows = [
+      row({ appointment_id: 'a2', status: 'sent' }),
+      row({ appointment_id: 'a3', status: 'pending', sent_at: null, created_at: at(-HOUR_MS) }),
+    ];
+    const result = selectDueReminders(appts, rows, NOW);
+    expect(result.due.map((d) => d.appointment.id)).toEqual(['a1', 'a3']);
+    expect(result.due[1].staleClaimIds).toEqual([rows[1].id]);
+    expect(result.notDue).toEqual({
+      not_scheduled: 1,
+      outside_window: 1,
+      already_sent: 1,
+      in_progress: 0,
+      recent_confirmation: 0,
+    });
+  });
+});
+
+describe('wonClaimRace', () => {
+  const claim = (id: string, createdMs: number, status = 'pending') => ({ id, status, created_at: at(createdMs) });
+
+  it('wins when its claim is the only one or the oldest', () => {
+    expect(wonClaimRace('x', [claim('x', 0)])).toBe(true);
+    expect(wonClaimRace('x', [claim('x', 0), claim('y', 5)])).toBe(true);
+  });
+
+  it('loses to an older claim or to a sent reminder', () => {
+    expect(wonClaimRace('x', [claim('y', -5), claim('x', 0)])).toBe(false);
+    expect(wonClaimRace('x', [claim('x', 0), claim('y', 5, 'sent')])).toBe(false);
+  });
+
+  it('breaks ties on created_at by id, so both runs agree', () => {
+    const rows = [claim('a', 0), claim('b', 0)];
+    expect(wonClaimRace('a', rows)).toBe(true);
+    expect(wonClaimRace('b', rows)).toBe(false);
+  });
+
+  it('loses when its own claim is missing or no longer pending', () => {
+    expect(wonClaimRace('x', [claim('y', 0)])).toBe(false);
+    expect(wonClaimRace('x', [claim('x', 0, 'sent')])).toBe(false);
+  });
+});
+
+describe('checkAppointmentForEmail', () => {
+  it('never emails about past or cancelled appointments', () => {
+    for (const kind of ['email', 'email_confirmation', 'email_test'] as const) {
+      expect(checkAppointmentForEmail(kind, appointment('a1', -0.1), NOW)).toBe('appointment_past');
+      expect(checkAppointmentForEmail(kind, { datetime: NOW.toISOString(), status: 'scheduled' }, NOW)).toBe('appointment_past');
+      expect(checkAppointmentForEmail(kind, appointment('a1', 5, 'cancelled'), NOW)).toBe('appointment_cancelled');
+    }
+  });
+
+  it('sends 24-hour reminders only for scheduled appointments within 24 hours', () => {
+    expect(checkAppointmentForEmail('email', appointment('a1', 5), NOW)).toBeNull();
+    expect(checkAppointmentForEmail('email', appointment('a1', 5, 'confirmed'), NOW)).toBe('not_scheduled');
+    expect(checkAppointmentForEmail('email', appointment('a1', 30), NOW)).toBe('not_due');
+  });
+
+  it('allows confirmations and test sends for confirmed appointments, any time ahead', () => {
+    expect(checkAppointmentForEmail('email_confirmation', appointment('a1', 2, 'confirmed'), NOW)).toBeNull();
+    expect(checkAppointmentForEmail('email_test', appointment('a1', 200, 'confirmed'), NOW)).toBeNull();
+  });
+});
+
+describe('needsConfirmationLinks', () => {
+  it('follows the salon setting and the caller\'s choice for confirmations', () => {
+    expect(needsConfirmationLinks('email', true, false)).toBe(true);
+    expect(needsConfirmationLinks('email', null, false)).toBe(true);
+    expect(needsConfirmationLinks('email', false, true)).toBe(false);
+    expect(needsConfirmationLinks('email_test', undefined, false)).toBe(true);
+    expect(needsConfirmationLinks('email_confirmation', true, true)).toBe(true);
+    expect(needsConfirmationLinks('email_confirmation', true, false)).toBe(false);
+    expect(needsConfirmationLinks('email_confirmation', false, true)).toBe(false);
+  });
+});
+
+describe('evaluateSendLimits', () => {
+  const quiet = { salonLastHour: 0, recipientLastDay: 0, testsLastDay: 0 };
+
+  it('allows sends under every limit', () => {
+    expect(evaluateSendLimits('email', quiet)).toBeNull();
+    expect(evaluateSendLimits('email', {
+      salonLastHour: HOURLY_REMINDER_RATE_LIMIT - 1,
+      recipientLastDay: MAX_EMAILS_PER_RECIPIENT_PER_DAY - 1,
+      testsLastDay: MAX_TEST_EMAILS_PER_DAY,
+    })).toBeNull();
+  });
+
+  it('stops a salon at the hourly burst guard', () => {
+    expect(evaluateSendLimits('email_confirmation', { ...quiet, salonLastHour: HOURLY_REMINDER_RATE_LIMIT }))
+      .toBe('salon_hourly_limit');
+  });
+
+  it('limits emails per recipient address', () => {
+    expect(evaluateSendLimits('email', { ...quiet, recipientLastDay: MAX_EMAILS_PER_RECIPIENT_PER_DAY }))
+      .toBe('recipient_limit');
+  });
+
+  it('limits test sends per day, reported before the recipient limit', () => {
+    expect(evaluateSendLimits('email_test', { ...quiet, testsLastDay: MAX_TEST_EMAILS_PER_DAY }))
+      .toBe('test_daily_limit');
+    expect(evaluateSendLimits('email_test', {
+      ...quiet,
+      testsLastDay: MAX_TEST_EMAILS_PER_DAY,
+      recipientLastDay: MAX_EMAILS_PER_RECIPIENT_PER_DAY,
+    })).toBe('test_daily_limit');
+  });
+});

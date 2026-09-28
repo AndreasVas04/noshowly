@@ -99,11 +99,22 @@ export const PLAN_PRICES: Record<PaidPlan, number> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Maximum number of reminders a single salon may send in any 60-minute window.
- * Exceeding this triggers an alert and blocks further sending for that window.
- * Protects against runaway cron jobs and misconfigured pg_cron schedules.
+ * Burst guard: the most emails (reminders, booking confirmations and test
+ * sends together) a single salon may send in any 60-minute window. Not a
+ * normal limit — reaching it means something is looping, so further emails
+ * are refused and an error is logged. Enforced by lib/reminders/gateway.ts.
  */
-export const HOURLY_REMINDER_RATE_LIMIT = 20 as const;
+export const HOURLY_REMINDER_RATE_LIMIT = 200 as const;
+
+/**
+ * The most emails one recipient address may receive from a salon in any
+ * 24 hours, across all appointments of that salon. Protects clients from
+ * repeated bookings, edits and test sends. Enforced by lib/reminders/gateway.ts.
+ */
+export const MAX_EMAILS_PER_RECIPIENT_PER_DAY = 5 as const;
+
+/** The most test emails a salon may send in any 24 hours (dashboard "Send reminder"). */
+export const MAX_TEST_EMAILS_PER_DAY = 5 as const;
 
 /**
  * Appointment time window (hours from now) that triggers an email reminder.

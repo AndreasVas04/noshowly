@@ -377,7 +377,7 @@ async function processReminder(
       appt.salons?.email_closing,
     );
 
-    const result = await sendEmail(email, subject, html);
+    const result = await sendEmail({ to: email, subject, html });
 
     if (!result.success) {
       console.error(`${logPrefix} Email send failed:`, result.error);
