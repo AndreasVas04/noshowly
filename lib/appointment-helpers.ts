@@ -4,8 +4,8 @@
  * Shared server-side helpers for the dashboard appointment routes.
  *
  * Used by:
- *  - app/api/appointments/route.ts        (dashboard POST)
- *  - app/api/appointments/[id]/route.ts   (dashboard PUT)
+ *  - app/api/appointments/route.ts        (dashboard GET and POST)
+ *  - app/api/appointments/[id]/route.ts   (dashboard GET and PUT)
  *
  * Eligibility, durations and working intervals come from lib/availability.ts,
  * the same rules the public booking page uses (app/api/book/[slug]/appointments).
@@ -15,7 +15,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types';
+import type { Appointment, AppointmentWithDetails, Database } from '@/types';
 import {
   MAX_DURATION_MINUTES,
   eligibleBarberIds,
@@ -25,11 +25,22 @@ import {
   intervalsToRanges,
   type AvailabilityRecord,
 } from '@/lib/availability';
+import { escapeLike } from '@/lib/postgrest';
 import { utcToZonedParts } from '@/lib/time';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * An appointment row selected with its client and staff member
+ * (`*, clients (name, phone, email), barbers (name)`). The joined rows are
+ * null when the client or staff member was removed or never set.
+ */
+export type AppointmentRowWithRelations = Appointment & {
+  clients: { name: string; phone: string | null; email: string | null } | null;
+  barbers: { name: string } | null;
+};
 
 /** A staff member who can take an appointment, with their appointment length. */
 export type EligibleBarber = { id: string; name: string; durationMinutes: number };
@@ -50,13 +61,29 @@ export type ServiceLookupResult =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
-// Services and durations
+// Response shape
 // ---------------------------------------------------------------------------
 
-/** Escapes LIKE wildcards so a value is matched literally by ilike. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
+/**
+ * Flattens the joined client and staff rows into the AppointmentWithDetails
+ * shape the dashboard reads, so it needs no extra requests for names.
+ *
+ * @param row - Appointment with its joined client and staff rows.
+ */
+export function toAppointmentWithDetails(row: AppointmentRowWithRelations): AppointmentWithDetails {
+  const { clients, barbers, ...rest } = row;
+  return {
+    ...rest,
+    client_name: clients?.name ?? null,
+    client_phone: clients?.phone ?? null,
+    client_email: clients?.email ?? null,
+    barber_name: barbers?.name ?? null,
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Services and durations
+// ---------------------------------------------------------------------------
 
 /**
  * Finds the salon service an appointment is for, with that service's staff

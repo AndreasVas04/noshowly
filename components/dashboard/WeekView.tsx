@@ -50,8 +50,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { isPastAppointment, weekCardClasses } from '@/lib/appointment-status';
 import {
   addDaysToDate,
+  browserTimeZone,
   formatDateOnly,
   formatTimeInZone,
   resolveTimeZone,
@@ -65,15 +67,6 @@ import type { AppointmentWithDetails, Barber, Salon } from '@/types';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the browser's timezone, used only if the salon's cannot be loaded. */
-function browserTimeZone(): string {
-  try {
-    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  } catch {
-    return 'UTC';
-  }
-}
-
 /**
  * Returns the seven salon dates (Mon–Sun) of the week containing a date.
  *
@@ -82,18 +75,6 @@ function browserTimeZone(): string {
 function getWeekDays(anchor: string): string[] {
   const monday = startOfWeekDate(anchor, 1);
   return Array.from({ length: 7 }, (_, i) => addDaysToDate(monday, i));
-}
-
-/**
- * Returns true when a scheduled appointment's time has already passed.
- * Only meaningful for 'scheduled' status — confirmed and cancelled are
- * not affected by whether their time has passed.
- *
- * @param apt - The appointment to check.
- * @returns true if the appointment is not cancelled and its datetime has passed.
- */
-function isPastScheduled(apt: AppointmentWithDetails): boolean {
-  return apt.status !== 'cancelled' && new Date(apt.datetime) < new Date();
 }
 
 /**
@@ -145,42 +126,17 @@ interface WeekCardProps {
 }
 
 /**
- * Returns Tailwind border and background classes for a pill colored by status.
- *  confirmed          = forest green
- *  scheduled (future) = amber
- *  scheduled (past)   = grey/muted — time elapsed without a YES/NO reply
- *  cancelled          = red/dim, dashed border handled by the parent element
- *
- * @param status - Appointment lifecycle status.
- * @param isPast - Whether this is a past unanswered appointment.
- * @returns       Tailwind class string.
- */
-function pillClasses(status: AppointmentWithDetails['status'], isPast: boolean): string {
-  if (isPast) {
-    // Past appointment (any non-cancelled status) — grey/muted
-    return 'border-[#C8C8C8]/60 bg-[#F0EFED] opacity-60';
-  }
-  switch (status) {
-    case 'confirmed':
-      return 'border-[#1B4332]/30 bg-[#E8F2EC]';
-    case 'cancelled':
-      return 'border-red-200/60 bg-red-50/50 opacity-50';
-    default: // 'scheduled' (upcoming) — shown as pending
-      return 'border-amber-200 bg-amber-50';
-  }
-}
-
-/**
  * Compact appointment card for the week grid.
- * Color-coded by status. Past unanswered appointments are greyed out with a
- * "Past" label so they are visually distinct from active upcoming appointments.
+ * Color-coded by status (lib/appointment-status.ts): confirmed green, pending
+ * amber, cancelled red with a dashed border. Past appointments are greyed out
+ * with a "Past" label so they are visually distinct from upcoming ones.
  *
  * @param props.apt     - The appointment data.
  * @param props.onClick - Opens the edit modal for this appointment.
  */
 function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
   const isCancelled = apt.status === 'cancelled';
-  const isPast      = isPastScheduled(apt);
+  const isPast      = isPastAppointment(apt);
 
   return (
     <div
@@ -201,7 +157,7 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
         'hover:brightness-95 transition-all cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30',
         isCancelled ? 'border-dashed' : '',
-        pillClasses(apt.status, isPast),
+        weekCardClasses(apt.status, isPast),
       ].join(' ')}
     >
       {/* Time + optional "Past" label for past unanswered */}
@@ -901,7 +857,7 @@ export default function WeekView() {
             }
 
             return dayApts.map((apt) => {
-              const past = isPastScheduled(apt);
+              const past = isPastAppointment(apt);
               return (
                 <button
                   key={apt.id}

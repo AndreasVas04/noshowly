@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
 import LandingFooter from '@/components/landing/LandingFooter';
-import { TRIAL_LENGTH_DAYS } from '@/lib/plans';
+import { PLAN_PRICES, TRIAL_LENGTH_DAYS } from '@/lib/plans';
 
 // =============================================================================
 // FadeIn — reusable scroll-triggered entrance animation
@@ -567,7 +567,7 @@ export default function LandingContent() {
           <FadeIn className="max-w-sm mx-auto w-full">
             <PricingCard
               name="Basic"
-              price={19}
+              price={PLAN_PRICES.basic}
               description="Online booking and email reminders for service businesses."
               features={[
                 'Online booking page',

@@ -34,7 +34,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import BillingSection from '@/components/dashboard/BillingSection';
-import { normaliseTime } from '@/lib/time';
+import {
+  DEFAULT_EMAIL_BODY,
+  DEFAULT_EMAIL_CLOSING,
+  DEFAULT_EMAIL_FOOTER,
+  DEFAULT_EMAIL_GREETING,
+  DEFAULT_EMAIL_SUBJECT,
+  applyTemplate,
+} from '@/lib/reminder-templates';
+import { formatTimeZoneLabel, normaliseTime } from '@/lib/time';
 import type { BillingOverview, Salon } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -132,15 +140,6 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
 ] as const;
 
-/** Default email footer — matches lib/reminder-templates.ts DEFAULT_EMAIL_FOOTER. */
-const DEFAULT_EMAIL_FOOTER = 'If you have questions, contact {business_name} directly.';
-
-/** Default email template field values (must match the defaults in lib/reminder-templates.ts). */
-const DEFAULT_EMAIL_SUBJECT  = 'Reminder: Your appointment at {business_name} on {date} at {time}';
-const DEFAULT_EMAIL_GREETING = 'Hi {client_name},';
-const DEFAULT_EMAIL_BODY     = 'This is a reminder for your upcoming appointment.';
-const DEFAULT_EMAIL_CLOSING  = 'We look forward to seeing you.';
-
 /** Template variables supported in email fields. */
 const TEMPLATE_VARIABLES = [
   '{client_name}',
@@ -149,25 +148,6 @@ const TEMPLATE_VARIABLES = [
   '{time}',
   '{date}',
 ] as const;
-
-// ---------------------------------------------------------------------------
-// Helper: preview substitution
-// ---------------------------------------------------------------------------
-
-/**
- * Substitutes {variable} placeholders with sample display values.
- * Only used for the live settings preview — not the actual send path.
- *
- * @param template - String with {variable} placeholders.
- * @param vars     - Map of variable name → display value.
- * @returns         Rendered string with known variables replaced.
- */
-function renderPreview(template: string, vars: Record<string, string>): string {
-  return Object.entries(vars).reduce(
-    (t, [k, v]) => t.split(`{${k}}`).join(v),
-    template
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -710,11 +690,11 @@ export default function SettingsPage() {
   const activeEmailFooter   = emailFooter.trim()   || DEFAULT_EMAIL_FOOTER;
   const activeEmailClosing  = emailClosing.trim()  || DEFAULT_EMAIL_CLOSING;
 
-  const previewEmailSubjectText  = renderPreview(activeEmailSubject,  PREVIEW_VARS);
-  const previewEmailGreetingText = renderPreview(activeEmailGreeting, PREVIEW_VARS);
-  const previewEmailBodyText     = renderPreview(activeEmailBody,     PREVIEW_VARS);
-  const previewEmailFooterText   = renderPreview(activeEmailFooter,   { business_name: previewBusiness });
-  const previewEmailClosingText  = renderPreview(activeEmailClosing,  PREVIEW_VARS);
+  const previewEmailSubjectText  = applyTemplate(activeEmailSubject,  PREVIEW_VARS);
+  const previewEmailGreetingText = applyTemplate(activeEmailGreeting, PREVIEW_VARS);
+  const previewEmailBodyText     = applyTemplate(activeEmailBody,     PREVIEW_VARS);
+  const previewEmailFooterText   = applyTemplate(activeEmailFooter,   { business_name: previewBusiness });
+  const previewEmailClosingText  = applyTemplate(activeEmailClosing,  PREVIEW_VARS);
 
   // Plan-gated feature availability (an ended trial or an inactive subscription sends no email).
   const emailAllowed = billing?.canSendEmail ?? false;
@@ -786,7 +766,7 @@ export default function SettingsPage() {
                   ? COMMON_TIMEZONES
                   : [timezone, ...COMMON_TIMEZONES]
                 ).map((tz) => (
-                  <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                  <option key={tz} value={tz}>{formatTimeZoneLabel(tz)}</option>
                 ))}
               </select>
               <p className="text-xs text-[#8A8680] font-body">All appointment times are shown in this timezone.</p>
@@ -972,11 +952,11 @@ export default function SettingsPage() {
                   <div className="bg-white px-5 py-5 space-y-4">
                     {/* Greeting */}
                     <p className="text-sm text-[#1A1A1A] whitespace-pre-wrap break-words">
-                      {emailGreeting.trim() ? previewEmailGreetingText : <span className="italic text-[#8A8680]">{renderPreview(DEFAULT_EMAIL_GREETING, PREVIEW_VARS)}</span>}
+                      {emailGreeting.trim() ? previewEmailGreetingText : <span className="italic text-[#8A8680]">{applyTemplate(DEFAULT_EMAIL_GREETING, PREVIEW_VARS)}</span>}
                     </p>
                     {/* Body message */}
                     <p className="text-sm text-[#8A8680] leading-relaxed whitespace-pre-wrap break-words">
-                      {emailBody.trim() ? previewEmailBodyText : <span className="italic">{renderPreview(DEFAULT_EMAIL_BODY, PREVIEW_VARS)}</span>}
+                      {emailBody.trim() ? previewEmailBodyText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_BODY, PREVIEW_VARS)}</span>}
                     </p>
                     {/* Appointment details card */}
                     <div className="bg-[#F5F3EF] rounded-lg p-4 space-y-3">
@@ -1000,19 +980,19 @@ export default function SettingsPage() {
                       </>
                     ) : (
                       <p className="text-sm text-[#8A8680] whitespace-pre-wrap break-words">
-                        {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{renderPreview(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
+                        {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
                       </p>
                     )}
                     {/* Closing (shown when confirmation buttons are present) */}
                     {emailConfirmationEnabled && emailAllowed && (
                       <p className="text-sm text-[#8A8680] whitespace-pre-wrap break-words">
-                        {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{renderPreview(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
+                        {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
                       </p>
                     )}
                     {/* Divider + footer */}
                     <div className="border-t border-[#E5E2DB] pt-3">
                       <p className="text-xs text-[#8A8680] whitespace-pre-wrap break-words font-body">
-                        {emailFooter.trim() ? previewEmailFooterText : <span className="italic">{renderPreview(DEFAULT_EMAIL_FOOTER, { business_name: previewBusiness })}</span>}
+                        {emailFooter.trim() ? previewEmailFooterText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_FOOTER, { business_name: previewBusiness })}</span>}
                       </p>
                     </div>
                   </div>

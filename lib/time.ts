@@ -241,6 +241,28 @@ export function resolveTimeZone(value: unknown): string {
   return isValidTimeZone(value) ? value : 'UTC';
 }
 
+/**
+ * Returns the browser's timezone, or 'UTC' when it is not a valid IANA name.
+ * The dashboard only uses it when the salon's timezone cannot be loaded.
+ */
+export function browserTimeZone(): string {
+  try {
+    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Formats a timezone name for display.
+ *
+ * @param timeZone - IANA timezone.
+ * @returns        The name with spaces, e.g. 'America/New_York' → 'America/New York'.
+ */
+export function formatTimeZoneLabel(timeZone: string): string {
+  return timeZone.replace(/_/g, ' ');
+}
+
 // ---------------------------------------------------------------------------
 // Intl plumbing
 // ---------------------------------------------------------------------------

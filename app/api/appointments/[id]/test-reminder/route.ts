@@ -32,14 +32,12 @@
 import { requireUser } from '@/lib/auth';
 import { requireWriteAccess } from '@/lib/access';
 import { MAX_TEST_EMAILS_PER_DAY } from '@/lib/plans';
+import { isUuid } from '@/lib/postgrest';
 import { sendAppointmentEmail, type SendResult } from '@/lib/reminders/gateway';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
-
-/** Matches a UUID, so malformed ids are rejected before reaching the database. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Sends a test reminder email immediately for the given appointment.
@@ -67,7 +65,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   const access = await requireWriteAccess(supabase, user.id);
   if (!access.ok) return access.response;
 
-  if (!UUID_PATTERN.test(id)) {
+  if (!isUuid(id)) {
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
 

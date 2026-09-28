@@ -30,17 +30,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AppointmentCard from '@/components/dashboard/AppointmentCard';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { addDaysToDate, formatDateOnly, resolveTimeZone, todayInZone } from '@/lib/time';
+import { isPastAppointment } from '@/lib/appointment-status';
+import { addDaysToDate, browserTimeZone, formatDateOnly, resolveTimeZone, todayInZone } from '@/lib/time';
 import type { AppointmentWithDetails, Barber, Salon } from '@/types';
-
-/** Returns the browser's timezone, used only if the salon's cannot be loaded. */
-function browserTimeZone(): string {
-  try {
-    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  } catch {
-    return 'UTC';
-  }
-}
 
 /** Props accepted by DayView. */
 interface DayViewProps {
@@ -223,11 +215,10 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   //     greyed out (AppointmentCard handles the visual, sort order communicates priority)
   //  3. Cancelled: shown last with strikethrough
   const now = new Date();
-  const isPastScheduled = (a: AppointmentWithDetails) =>
-    a.status !== 'cancelled' && new Date(a.datetime) < now;
+  const isPast = (a: AppointmentWithDetails) => isPastAppointment(a, now);
 
-  const upcomingActive    = filteredAppointments.filter((a) => a.status !== 'cancelled' && !isPastScheduled(a));
-  const pastUnanswered    = filteredAppointments.filter(isPastScheduled);
+  const upcomingActive    = filteredAppointments.filter((a) => a.status !== 'cancelled' && !isPast(a));
+  const pastUnanswered    = filteredAppointments.filter(isPast);
   const cancelledAppointments = filteredAppointments.filter((a) => a.status === 'cancelled');
   const sortedAppointments = [...upcomingActive, ...pastUnanswered, ...cancelledAppointments];
 
@@ -418,7 +409,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
       )}
 
       {/* Appointment list */}
-      {!isLoading && !error && sortedAppointments.length > 0 && (
+      {!isLoading && !error && salonTimezone && sortedAppointments.length > 0 && (
         <AnimatePresence mode="popLayout">
           <div className="space-y-2">
             {sortedAppointments.map((appointment, i) => (
@@ -431,7 +422,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
                 <AppointmentCard
                   appointment={appointment}
                   onClick={() => handleOpenEditModal(appointment)}
-                  timezone={salonTimezone ?? undefined}
+                  timezone={salonTimezone}
                 />
               </motion.div>
             ))}

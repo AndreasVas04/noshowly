@@ -36,6 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import Badge from '@/components/ui/Badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,6 +45,7 @@ import { isDemoAccount } from '@/lib/demo';
 import { getEffectiveDuration, isBarberEligibleForService } from '@/lib/availability';
 import { MAX_PHONE_INPUT_LENGTH, validateEmail, validatePhone } from '@/lib/contact';
 import {
+  formatTimeZoneLabel,
   minutesToTime,
   normaliseTime,
   resolveZonedTime,
@@ -1026,9 +1028,7 @@ export default function AddAppointmentModal({
             {isCancelledView && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-[#8A8680]">Status:</span>
-                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100">
-                  Cancelled
-                </span>
+                <Badge status="cancelled" />
               </div>
             )}
 
@@ -1186,7 +1186,7 @@ export default function AddAppointmentModal({
                 {fieldErrors.time && <p className="text-xs text-red-600">{fieldErrors.time}</p>}
               </div>
             </div>
-            <p className="text-xs text-[#8A8680] -mt-2">Times are in {timezone.replace(/_/g, ' ')} time.</p>
+            <p className="text-xs text-[#8A8680] -mt-2">Times are in {formatTimeZoneLabel(timezone)} time.</p>
 
             {/* ---- Service + Staff -------------------------------------- */}
             <div className="grid grid-cols-2 gap-3">

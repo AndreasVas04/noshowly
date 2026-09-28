@@ -35,6 +35,8 @@ import {
   appointmentsOverlap,
   findAppointmentService,
   findEligibleBarbers,
+  toAppointmentWithDetails,
+  type AppointmentRowWithRelations,
   type ServiceLookupResult,
 } from '@/lib/appointment-helpers';
 import {
@@ -42,49 +44,10 @@ import {
   isBarberEligibleForService,
   isValidDuration,
 } from '@/lib/availability';
+import { isUuid } from '@/lib/postgrest';
 import { resolveTimeZone } from '@/lib/time';
 import { cancelReminderLinks } from '@/lib/reminders/store';
-import type {
-  Appointment,
-  AppointmentWithDetails,
-  AppointmentStatus,
-} from '@/types';
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-/**
- * Raw row shape returned by Supabase when using the nested-select join syntax.
- */
-type RawAppointmentRow = Omit<Appointment, 'client_id' | 'barber_id'> & {
-  client_id: string | null;
-  barber_id: string | null;
-  clients: { name: string; phone: string | null; email: string | null } | null;
-  barbers: { name: string } | null;
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Transforms a raw Supabase joined row into the flat AppointmentWithDetails
- * shape consumed by frontend components.
- *
- * @param row - Raw row from Supabase with nested clients/barbers objects.
- * @returns Flattened AppointmentWithDetails.
- */
-function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetails {
-  const { clients, barbers, ...rest } = row;
-  return {
-    ...rest,
-    client_name: clients?.name ?? null,
-    client_phone: clients?.phone ?? null,
-    client_email: clients?.email ?? null,
-    barber_name: barbers?.name ?? null,
-  };
-}
+import type { Appointment, AppointmentStatus } from '@/types';
 
 /**
  * Retires an appointment's email links (cancelReminderLinks()) with the
@@ -111,9 +74,6 @@ async function retireEmailLinks(appointmentId: string): Promise<string | null> {
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
-
-/** Matches a UUID, so malformed ids are rejected before reaching the database. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // GET — fetch single appointment
@@ -175,7 +135,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   // Cast through unknown — same reason as route.ts: Relationships: [] means
   // the Supabase TS client returns a SelectQueryError for the joined columns,
   // but the actual runtime data is correct because the SQL FKs exist.
-  const appointment = toAppointmentWithDetails(row as unknown as RawAppointmentRow);
+  const appointment = toAppointmentWithDetails(row as unknown as AppointmentRowWithRelations);
   return Response.json({ appointment }, { status: 200 });
 }
 
@@ -268,7 +228,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     if (raw.barber_id !== null && typeof raw.barber_id !== 'string') {
       return Response.json({ error: 'barber_id must be a string or null' }, { status: 400 });
     }
-    if (typeof raw.barber_id === 'string' && raw.barber_id !== '' && !UUID_PATTERN.test(raw.barber_id)) {
+    if (typeof raw.barber_id === 'string' && raw.barber_id !== '' && !isUuid(raw.barber_id)) {
       return Response.json({ error: 'barber_id is not a valid id' }, { status: 400 });
     }
     updates.barber_id = (raw.barber_id as string | null) || null;
@@ -280,7 +240,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     if (raw.service_id !== null && typeof raw.service_id !== 'string') {
       return Response.json({ error: 'service_id must be a string or null' }, { status: 400 });
     }
-    if (typeof raw.service_id === 'string' && raw.service_id !== '' && !UUID_PATTERN.test(raw.service_id)) {
+    if (typeof raw.service_id === 'string' && raw.service_id !== '' && !isUuid(raw.service_id)) {
       return Response.json({ error: 'Service not found' }, { status: 400 });
     }
     requestedServiceId = (raw.service_id as string | null) || null;

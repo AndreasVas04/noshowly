@@ -50,7 +50,15 @@ import {
   type SlotCandidate,
 } from '@/lib/availability';
 import { MAX_PHONE_INPUT_LENGTH, validateEmail, validatePhone } from '@/lib/contact';
-import { dayOfWeekForDate, formatDateOnly, resolveZonedTime, todayInZone } from '@/lib/time';
+import { getCurrencySymbol } from '@/lib/currency';
+import {
+  dayOfWeekForDate,
+  formatDateOnly,
+  formatTimeZoneLabel,
+  resolveZonedTime,
+  todayInZone,
+} from '@/lib/time';
+import { getInitials } from '@/lib/utils';
 import type {
   PublicAvailability,
   PublicBarber,
@@ -103,32 +111,6 @@ type Props = {
 };
 
 // ---------------------------------------------------------------------------
-// Currency
-// ---------------------------------------------------------------------------
-
-/** Maps ISO 4217 codes to their display symbols. */
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$',  EUR: '€',  GBP: '£',  AUD: 'A$', CAD: 'C$',
-  CHF: 'Fr', JPY: '¥',  CNY: '¥',  INR: '₹',  BRL: 'R$',
-  MXN: '$',  SGD: 'S$', HKD: 'HK$',NOK: 'kr', SEK: 'kr',
-  DKK: 'kr', NZD: 'NZ$',ZAR: 'R',  AED: 'د.إ',SAR: '﷼',
-  QAR: '﷼',  KWD: 'KD', TRY: '₺',  PLN: 'zł', CZK: 'Kč',
-  HUF: 'Ft', RON: 'lei',BGN: 'лв', ILS: '₪',  KRW: '₩',
-  THB: '฿',  MYR: 'RM', IDR: 'Rp', PHP: '₱',
-};
-
-/**
- * Returns the display symbol for a currency code.
- * Falls back to the code itself if not found.
- *
- * @param code - ISO 4217 currency code, e.g. 'EUR'.
- * @returns    Symbol string, e.g. '€'.
- */
-function getCurrencySymbol(code: string): string {
-  return CURRENCY_SYMBOLS[code] ?? code;
-}
-
-// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
@@ -146,18 +128,6 @@ function formatTime12h(time: string): string {
  */
 function formatDateLong(dateStr: string): string {
   return formatDateOnly(dateStr, { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
-/** Formats an IANA timezone for display, e.g. "America/New_York" → "America/New York". */
-function formatTimeZoneLabel(timeZone: string): string {
-  return timeZone.replace(/_/g, ' ');
-}
-
-/** Builds initials from a name (up to 2 characters). */
-function getInitials(name: string): string {
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /**

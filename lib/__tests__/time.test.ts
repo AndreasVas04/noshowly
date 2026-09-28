@@ -8,10 +8,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDaysToDate,
+  browserTimeZone,
   dayOfWeekForDate,
   dayRangeUtc,
   formatDateOnly,
   formatTimeInZone,
+  formatTimeZoneLabel,
   isValidDateString,
   isValidTimeString,
   isValidTimeZone,
@@ -262,5 +264,17 @@ describe('formatDateOnly', () => {
     expect(formatDateOnly('2026-01-01', { month: 'short', day: 'numeric', year: 'numeric' })).toBe(
       'Jan 1, 2026',
     );
+  });
+});
+
+describe('timezone display', () => {
+  it('shows timezone names with spaces', () => {
+    expect(formatTimeZoneLabel('America/New_York')).toBe('America/New York');
+    expect(formatTimeZoneLabel('America/Argentina/Buenos_Aires')).toBe('America/Argentina/Buenos Aires');
+    expect(formatTimeZoneLabel('UTC')).toBe('UTC');
+  });
+
+  it('reads a valid browser timezone', () => {
+    expect(isValidTimeZone(browserTimeZone())).toBe(true);
   });
 });

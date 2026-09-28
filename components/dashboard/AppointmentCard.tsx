@@ -8,12 +8,12 @@
  *  - Client name + service type and staff name (centre)
  *  - Status badge (right, colour-coded)
  *
- * Visual states:
+ * Visual states (colours from lib/appointment-status.ts):
  *  - Upcoming scheduled (status='scheduled', datetime >= now): amber dot, no badge
  *  - Confirmed (status='confirmed'): green dot, "Confirmed" badge
- *  - Past unanswered (status='scheduled', datetime < now): grey dot, grey left border,
- *    reduced opacity, "Past" label — the time passed without a YES/NO reply
- *  - Cancelled: amber dot + full row opacity-40 + strikethrough on client name
+ *  - Past (not cancelled, datetime < now): grey dot, grey left border,
+ *    reduced opacity, "Past" label
+ *  - Cancelled: red dot + full row opacity-40 + strikethrough on client name
  *
  * Clicking opens the edit modal in the parent.
  *
@@ -23,65 +23,17 @@
 'use client';
 
 import Badge from '@/components/ui/Badge';
+import { isPastAppointment, statusDotColor } from '@/lib/appointment-status';
+import { formatTimeInZone } from '@/lib/time';
+import { getInitials } from '@/lib/utils';
 import type { AppointmentWithDetails } from '@/types';
-
-/**
- * Returns the hex color for the status dot beside each appointment.
- * Past unanswered (scheduled + past time) uses grey to avoid looking "active".
- *
- * @param status        - The appointment status string.
- * @param isPastScheduled - True when status is 'scheduled' and datetime has passed.
- * @returns A hex color string.
- */
-function statusColor(status: string, isPastScheduled: boolean): string {
-  if (isPastScheduled) return '#C8C8C8';    // grey — past, unanswered
-  if (status === 'confirmed') return '#10B981';
-  if (status === 'cancelled') return '#EF4444';
-  return '#F59E0B'; // upcoming scheduled / pending
-}
-
-/**
- * Formats an ISO datetime string as a 24-hour clock time string.
- * Uses the salon's IANA timezone when provided so appointments display correctly
- * regardless of the browser's local timezone. Falls back to browser timezone
- * when no timezone is specified (backwards compatible).
- *
- * @param isoString - ISO 8601 datetime string (UTC).
- * @param timezone  - Optional IANA timezone, e.g. "Europe/Nicosia".
- * @returns Formatted time string like "09:30".
- */
-function formatTime(isoString: string, timezone?: string): string {
-  if (timezone) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour:   '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(new Date(isoString));
-    const h = parts.find((p) => p.type === 'hour')?.value   ?? '00';
-    const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
-    return `${h === '24' ? '00' : h}:${m}`;
-  }
-  const date = new Date(isoString);
-  const h = date.getHours().toString().padStart(2, '0');
-  const m = date.getMinutes().toString().padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-/** Returns up to 2 initials from a client's display name. */
-function clientInitials(name: string | null): string {
-  if (!name) return '?';
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 /** Props accepted by AppointmentCard. */
 interface AppointmentCardProps {
   appointment: AppointmentWithDetails;
   onClick: () => void;
-  /** IANA timezone for displaying appointment times, e.g. "Europe/Nicosia". */
-  timezone?: string;
+  /** Salon timezone for the appointment time, e.g. "Europe/Nicosia". */
+  timezone: string;
 }
 
 /**
@@ -90,15 +42,15 @@ interface AppointmentCardProps {
  *
  * @param props.appointment - Appointment data with joined display names.
  * @param props.onClick     - Opens the edit modal.
+ * @param props.timezone    - Salon timezone.
  */
 export default function AppointmentCard({ appointment, onClick, timezone }: AppointmentCardProps) {
-  const time         = formatTime(appointment.datetime, timezone);
+  const time         = formatTimeInZone(appointment.datetime, timezone);
   const isCancelled  = appointment.status === 'cancelled';
 
   // Past: any non-cancelled appointment whose datetime has already elapsed.
   // Covers both 'scheduled' (unanswered) and 'confirmed' (already happened).
-  const isPastScheduled =
-    appointment.status !== 'cancelled' && new Date(appointment.datetime) < new Date();
+  const isPastScheduled = isPastAppointment(appointment);
 
   const parts: string[] = [];
   if (appointment.service_type) parts.push(appointment.service_type);
@@ -126,7 +78,7 @@ export default function AppointmentCard({ appointment, onClick, timezone }: Appo
       {/* Status dot */}
       <div
         className="w-2 h-2 rounded-full shrink-0 ml-0.5"
-        style={{ background: statusColor(appointment.status, isPastScheduled) }}
+        style={{ background: statusDotColor(appointment.status, isPastScheduled) }}
       />
 
       {/* Left: time — Playfair Display, fixed width so all times align */}
@@ -140,7 +92,7 @@ export default function AppointmentCard({ appointment, onClick, timezone }: Appo
       {/* Client initial avatar — hidden on very small screens to give badge room */}
       <div className="hidden sm:flex w-8 h-8 rounded-full bg-[#E8F2EC] items-center justify-center shrink-0">
         <span className="text-[10px] font-semibold text-[#1B4332]">
-          {clientInitials(appointment.client_name)}
+          {getInitials(appointment.client_name)}
         </span>
       </div>
 

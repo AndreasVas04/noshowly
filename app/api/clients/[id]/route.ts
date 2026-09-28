@@ -18,14 +18,12 @@
 import { requireUser } from '@/lib/auth';
 import { requireWriteAccess } from '@/lib/access';
 import { parseClientFields } from '@/lib/clients';
+import { isUuid } from '@/lib/postgrest';
 import type { Client } from '@/types';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
-
-/** Matches a UUID so malformed ids return 404 instead of a database error. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // PATCH — update client details
@@ -61,7 +59,8 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
   const access = await requireWriteAccess(supabase, user.id);
   if (!access.ok) return access.response;
 
-  if (!UUID_PATTERN.test(id)) {
+  // A malformed id is "not found", not a database error.
+  if (!isUuid(id)) {
     return Response.json({ error: 'Client not found' }, { status: 404 });
   }
 

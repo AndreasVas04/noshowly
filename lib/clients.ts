@@ -21,6 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Client, Database } from '@/types';
 import { normalisePhone, phoneMatchPattern, validateEmail, validatePhone } from '@/lib/contact';
+import { escapeLike } from '@/lib/postgrest';
 
 // ---------------------------------------------------------------------------
 // Constants and types
@@ -146,11 +147,6 @@ export function parseClientFields(
  */
 export function namesMatch(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
-/** Escapes LIKE wildcards so a value is matched literally by ilike. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 /**

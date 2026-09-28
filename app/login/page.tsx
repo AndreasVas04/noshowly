@@ -29,6 +29,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { DEMO_ACCOUNT_EMAIL } from '@/lib/demo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -478,7 +479,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => {
-              setForm({ email: 'demo@noshowly.com', password: 'Demo1234!' });
+              setForm({ email: DEMO_ACCOUNT_EMAIL, password: 'Demo1234!' });
               setStatus('idle');
               setErrorMessage('');
             }}

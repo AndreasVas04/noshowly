@@ -26,10 +26,8 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { requireWriteAccess } from '@/lib/access';
 import { isValidDuration, isValidPrice } from '@/lib/availability';
+import { isUuid } from '@/lib/postgrest';
 import type { BarberService } from '@/types';
-
-/** Matches a UUID (barber and service ids). */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // GET — list all barber/service assignments for the salon
@@ -153,7 +151,7 @@ export async function PUT(request: Request): Promise<Response> {
   }
 
   const barberId = raw.barber_id.trim();
-  if (!UUID_PATTERN.test(barberId)) {
+  if (!isUuid(barberId)) {
     return Response.json({ error: 'Barber not found' }, { status: 404 });
   }
   const rawAssignments = raw.assignments as Record<string, unknown>[];
@@ -167,7 +165,7 @@ export async function PUT(request: Request): Promise<Response> {
     if (typeof a.service_id !== 'string' || !a.service_id.trim()) {
       return Response.json({ error: 'Each assignment must have a non-empty service_id string' }, { status: 400 });
     }
-    if (!UUID_PATTERN.test(a.service_id.trim())) {
+    if (!isUuid(a.service_id.trim())) {
       return Response.json({ error: 'One or more services not found' }, { status: 400 });
     }
     const serviceId = a.service_id.trim().toLowerCase();
@@ -263,7 +261,7 @@ export async function PUT(request: Request): Promise<Response> {
 
   // Step 6b: Remove this barber's assignments that are not in the new set.
   // Scoped to salon_id to prevent cross-salon mutations even if RLS is bypassed.
-  // The ids were checked against UUID_PATTERN and this salon's services above.
+  // The ids were checked with isUuid() and against this salon's services above.
   let removeQuery = supabase
     .from('barber_services')
     .delete()

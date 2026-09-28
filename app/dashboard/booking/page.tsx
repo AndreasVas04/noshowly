@@ -28,8 +28,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MAX_DURATION_MINUTES, MIN_DURATION_MINUTES } from '@/lib/availability';
 import { mergeSavedAssignments, toAssignmentValues } from '@/lib/barber-services';
+import { getCurrencySymbol } from '@/lib/currency';
 import { normaliseBreaks, timeSlotsToWorkingDay, workingDayToTimeSlots } from '@/lib/schedule';
 import { normaliseTime } from '@/lib/time';
+import { getInitials } from '@/lib/utils';
 import type { Barber, BarberService, BookingPage, Service, StaffAvailability } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -94,24 +96,6 @@ const CIRCLE_RADIUS = 140;
 
 /** Output canvas size (square, in pixels) for the cropped JPEG. */
 const CROP_OUTPUT_SIZE = 400;
-
-/** Currency code → display symbol map. */
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$',  EUR: '€',  GBP: '£',  AUD: 'A$', CAD: 'C$',
-  CHF: 'Fr', JPY: '¥',  CNY: '¥',  INR: '₹',  BRL: 'R$',
-  MXN: '$',  SGD: 'S$', HKD: 'HK$',NOK: 'kr', SEK: 'kr',
-  DKK: 'kr', NZD: 'NZ$',ZAR: 'R',  TRY: '₺',  PLN: 'zł',
-  CZK: 'Kč', HUF: 'Ft', RON: 'lei',BGN: 'лв', ILS: '₪',
-  KRW: '₩',  THB: '฿',  MYR: 'RM', IDR: 'Rp', PHP: '₱',
-};
-
-/**
- * Returns the display symbol for a currency code.
- * @param code - ISO 4217 currency code.
- */
-function getCurrencySymbol(code: string): string {
-  return CURRENCY_SYMBOLS[code] ?? code;
-}
 
 /** Days displayed in the availability grid, Mon-first order. */
 const WEEK_DAYS = [
@@ -2411,7 +2395,7 @@ export default function BookingPage() {
               const barberSaveStatus = barberSaveStatuses[barber.id] ?? 'idle';
               const isDeleting = deletingBarberId === barber.id;
               const isRemovingPhoto = removingPhotoForId === barber.id;
-              const initials = barber.name.slice(0, 2).toUpperCase();
+              const initials = getInitials(barber.name);
 
               return (
                 <SectionCard key={barber.id}>

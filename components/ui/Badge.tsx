@@ -4,7 +4,7 @@
  * Status badge for appointment cards. Maps appointment status values to
  * clean, minimal pill labels using the brand palette.
  *
- * Mapping:
+ * Mapping (lib/appointment-status.ts):
  *  - 'scheduled' → null (no badge shown — reduces visual noise for pending)
  *  - 'confirmed' → "Confirmed" (dark green text)
  *  - 'cancelled' → "Cancelled" (muted red text)
@@ -14,6 +14,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { STATUS_BADGE_CLASSES, STATUS_LABELS } from '@/lib/appointment-status';
 import type { AppointmentStatus } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -66,26 +67,12 @@ interface BadgeProps {
  * @returns A status pill, or null if status is 'scheduled'.
  */
 export default function Badge({ status }: BadgeProps) {
-  if (status === 'scheduled') {
-    // No badge for pending — reduces clutter in the appointment list.
-    return null;
-  }
+  const colours = STATUS_BADGE_CLASSES[status];
+  if (!colours) return null;
 
-  if (status === 'confirmed') {
-    return (
-      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-        Confirmed
-      </span>
-    );
-  }
-
-  if (status === 'cancelled') {
-    return (
-      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100">
-        Cancelled
-      </span>
-    );
-  }
-
-  return null;
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${colours}`}>
+      {STATUS_LABELS[status]}
+    </span>
+  );
 }

@@ -17,6 +17,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types';
+import { escapeLike } from '@/lib/postgrest';
 import type { ClaimRow, ClaimStore, InsertClaimResult } from '@/lib/reminders/claim';
 import type { CounterSnapshot, CounterStore } from '@/lib/reminders/quota';
 import {
@@ -99,11 +100,6 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
   return chunks;
-}
-
-/** Escapes LIKE wildcards so a value is matched literally by ilike. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 /**
