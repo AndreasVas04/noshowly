@@ -11,7 +11,8 @@
  *  4. Publish — CTA to go live or take offline.
  *
  * Auto-save never disables the field being typed in, runs one save at a time
- * per section, and only applies server values to fields the owner has not
+ * per section (per staff member for profiles, availability and service
+ * assignments), and only applies server values to fields the owner has not
  * changed since the request was sent.
  *
  * Design: brand-dark palette, shadcn Input + Button.
@@ -26,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MAX_DURATION_MINUTES, MIN_DURATION_MINUTES } from '@/lib/availability';
+import { mergeSavedAssignments, toAssignmentValues } from '@/lib/barber-services';
 import { normaliseBreaks, timeSlotsToWorkingDay, workingDayToTimeSlots } from '@/lib/schedule';
 import { normaliseTime } from '@/lib/time';
 import type { Barber, BarberService, BookingPage, Service, StaffAvailability } from '@/types';
@@ -436,8 +438,17 @@ export default function BookingPage() {
   const [salonServices, setSalonServices] = useState<Service[]>([]);
   /** All barber_services assignments for this salon. */
   const [barberServiceAssignments, setBarberServiceAssignments] = useState<BarberService[]>([]);
-  /** barberId currently being updated (for disabling checkboxes during save). */
-  const [savingBarberServiceId, setSavingBarberServiceId] = useState<string | null>(null);
+  /**
+   * Always the latest assignments. Written together with the state (see
+   * updateBarberServiceAssignments) so a save started in the same event
+   * handler sends what the owner just changed.
+   */
+  const barberServiceAssignmentsRef = useRef<BarberService[]>([]);
+  /** Staff members whose service assignments are being saved (shows "Saving…"). */
+  const [savingAssignmentsFor, setSavingAssignmentsFor] = useState<Record<string, boolean>>({});
+  /** Per-barber: an assignment save is in flight / another save is queued behind it. */
+  const assignmentSaveInFlightRef = useRef<Record<string, boolean>>({});
+  const assignmentSaveQueuedRef = useRef<Record<string, boolean>>({});
 
   // -------------------------------------------------------------------------
   // Global Services section state
@@ -519,6 +530,7 @@ export default function BookingPage() {
         setBarbers(loadedBarbers);
         setStaffAvailability(loadedAvailability);
         setSalonServices(loadedSalonServices);
+        barberServiceAssignmentsRef.current = loadedBarberServices;
         setBarberServiceAssignments(loadedBarberServices);
 
         // Initialise per-barber form state from DB data.
@@ -1674,7 +1686,7 @@ export default function BookingPage() {
       }
       setSalonServices((prev) => prev.filter((s) => s.id !== serviceId));
       // Also clean up any barber_services assignments for this service from local state.
-      setBarberServiceAssignments((prev) => prev.filter((ba) => ba.service_id !== serviceId));
+      updateBarberServiceAssignments((prev) => prev.filter((ba) => ba.service_id !== serviceId));
     } catch {
       alert('Something went wrong. Please try again.');
     } finally {
@@ -1720,87 +1732,48 @@ export default function BookingPage() {
   // -------------------------------------------------------------------------
 
   /**
-   * Toggles a service assignment for a barber (optimistic update + server sync).
-   * Replaces the entire assignment set for the barber on each change.
-   * Preserves existing price/duration overrides for retained assignments.
+   * Updates the assignment list in state and in barberServiceAssignmentsRef together.
+   *
+   * @param update - Returns the new list from the current one.
+   */
+  function updateBarberServiceAssignments(update: (prev: BarberService[]) => BarberService[]): void {
+    const next = update(barberServiceAssignmentsRef.current);
+    barberServiceAssignmentsRef.current = next;
+    setBarberServiceAssignments(next);
+  }
+
+  /**
+   * Toggles a service assignment for a barber: updates the list at once, then
+   * queues a save of the barber's whole assignment set. Price/duration
+   * overrides of the other assignments are kept.
    *
    * @param barberId  - The barber to update.
    * @param serviceId - The salon-level service to toggle.
    * @param checked   - True to add the assignment, false to remove it.
    */
-  async function handleToggleBarberService(
-    barberId: string,
-    serviceId: string,
-    checked: boolean,
-  ): Promise<void> {
-    // Retained assignments: existing assignments for this barber, minus the toggled one.
-    const retainedAssignments = barberServiceAssignments.filter(
-      (ba) => ba.barber_id === barberId && ba.service_id !== serviceId
-    );
-
-    // Build the new assignments list with overrides preserved for retained entries.
-    const newAssignments: BarberService[] = checked
-      ? [
-          ...retainedAssignments,
-          {
-            id:                       `tmp-${barberId}-${serviceId}`,
-            salon_id:                 '',
-            barber_id:                barberId,
-            service_id:               serviceId,
-            price_override:           null,
-            duration_minutes_override: null,
-            created_at:               '',
-          },
-        ]
-      : retainedAssignments;
-
-    // Optimistic update: reflect the change immediately in the UI.
-    setBarberServiceAssignments((prev) => [
-      ...prev.filter((ba) => ba.barber_id !== barberId),
-      ...newAssignments,
-    ]);
-
-    setSavingBarberServiceId(barberId);
-
-    try {
-      const res = await fetch('/api/barber-services', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          barber_id: barberId,
-          assignments: newAssignments.map((ba) => ({
-            service_id:               ba.service_id,
-            price_override:           ba.price_override,
-            duration_minutes_override: ba.duration_minutes_override,
-          })),
-        }),
-      });
-
-      if (res.ok) {
-        // Sync from server response to get real IDs for newly inserted rows.
-        const data = (await res.json()) as { barberServices: BarberService[] };
-        setBarberServiceAssignments((prev) => [
-          ...prev.filter((ba) => ba.barber_id !== barberId),
-          ...data.barberServices,
-        ]);
-      } else {
-        // On failure, reload actual state from server to undo the optimistic update.
-        const assignRes = await fetch('/api/barber-services');
-        if (assignRes.ok) {
-          const data = (await assignRes.json()) as { barberServices: BarberService[] };
-          setBarberServiceAssignments(data.barberServices);
-        }
-      }
-    } catch (err) {
-      console.error('[BookingPage] handleToggleBarberService error:', err);
-    } finally {
-      setSavingBarberServiceId(null);
-    }
+  function handleToggleBarberService(barberId: string, serviceId: string, checked: boolean): void {
+    updateBarberServiceAssignments((prev) => {
+      const others = prev.filter((ba) => !(ba.barber_id === barberId && ba.service_id === serviceId));
+      if (!checked) return others;
+      return [
+        ...others,
+        {
+          id:                       `tmp-${barberId}-${serviceId}`,
+          salon_id:                 '',
+          barber_id:                barberId,
+          service_id:               serviceId,
+          price_override:           null,
+          duration_minutes_override: null,
+          created_at:               '',
+        },
+      ];
+    });
+    void runAssignmentSave(barberId);
   }
 
   /**
    * Updates price or duration override for a barber-service assignment in local state.
-   * Call handleSaveBarberServiceOverrides (onBlur) to persist to the server.
+   * The input's onBlur queues the save (runAssignmentSave).
    *
    * @param barberId  - UUID of the barber.
    * @param serviceId - UUID of the service.
@@ -1822,7 +1795,7 @@ export default function BookingPage() {
           ? Math.round(parsed)
           : parsed;
 
-    setBarberServiceAssignments((prev) =>
+    updateBarberServiceAssignments((prev) =>
       prev.map((ba) =>
         ba.barber_id === barberId && ba.service_id === serviceId
           ? { ...ba, [field]: value }
@@ -1832,61 +1805,88 @@ export default function BookingPage() {
   }
 
   /**
-   * Saves all price/duration overrides for a barber's service assignments via PUT /api/barber-services.
-   * Called on blur of the override number inputs — saves the full assignments list for the barber.
+   * Runs one assignment save at a time per barber (see runBookingSave). A
+   * change made while a save is in flight queues one more save, which sends
+   * the latest list, so an older request can never finish after (and
+   * overwrite) a newer one.
    *
-   * @param barberId - UUID of the barber whose overrides should be saved.
+   * @param barberId - UUID of the barber whose assignments should be saved.
    */
-  async function handleSaveBarberServiceOverrides(barberId: string): Promise<void> {
-    const assignments = barberServiceAssignments
-      .filter((ba) => ba.barber_id === barberId)
-      .map((ba) => ({
-        service_id:               ba.service_id,
-        price_override:           ba.price_override,
-        duration_minutes_override: ba.duration_minutes_override,
-      }));
+  async function runAssignmentSave(barberId: string): Promise<void> {
+    if (assignmentSaveInFlightRef.current[barberId]) {
+      assignmentSaveQueuedRef.current[barberId] = true;
+      return;
+    }
+    assignmentSaveInFlightRef.current[barberId] = true;
+    setSavingAssignmentsFor((prev) => ({ ...prev, [barberId]: true }));
+    try {
+      await saveBarberServiceAssignments(barberId);
+    } finally {
+      assignmentSaveInFlightRef.current[barberId] = false;
+      if (assignmentSaveQueuedRef.current[barberId]) {
+        assignmentSaveQueuedRef.current[barberId] = false;
+        void runAssignmentSave(barberId);
+      } else {
+        setSavingAssignmentsFor((prev) => {
+          const next = { ...prev };
+          delete next[barberId];
+          return next;
+        });
+      }
+    }
+  }
 
-    setSavingBarberServiceId(barberId);
+  /**
+   * Saves a barber's whole assignment set, with price/duration overrides, via
+   * PUT /api/barber-services. Called through runAssignmentSave only.
+   *
+   * The saved rows are merged in so that anything the owner changed while the
+   * request was in flight is kept (lib/barber-services.ts). When the save is
+   * rejected, the stored rows are reloaded and merged the same way, which undoes
+   * the rejected change.
+   *
+   * @param barberId - UUID of the barber whose assignments should be saved.
+   */
+  async function saveBarberServiceAssignments(barberId: string): Promise<void> {
+    const sent = toAssignmentValues(
+      barberServiceAssignmentsRef.current.filter((ba) => ba.barber_id === barberId)
+    );
+
+    /** Merges the barber's rows as the server holds them into the current list. */
+    function applySaved(saved: BarberService[]): void {
+      updateBarberServiceAssignments((prev) => [
+        ...prev.filter((ba) => ba.barber_id !== barberId),
+        ...mergeSavedAssignments(prev.filter((ba) => ba.barber_id === barberId), sent, saved),
+      ]);
+    }
 
     try {
       const res = await fetch('/api/barber-services', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ barber_id: barberId, assignments }),
+        body: JSON.stringify({ barber_id: barberId, assignments: sent }),
       });
 
       if (res.ok) {
-        // Sync returned rows to get real ids and canonical DB values, but keep
-        // any override the owner changed while this request was in flight.
         const data = (await res.json()) as { barberServices: BarberService[] };
-        setBarberServiceAssignments((prev) => {
-          const current = prev.filter((ba) => ba.barber_id === barberId);
-          const merged = data.barberServices.map((savedRow) => {
-            const sentRow = assignments.find((a) => a.service_id === savedRow.service_id);
-            const currentRow = current.find((ba) => ba.service_id === savedRow.service_id);
-            if (!sentRow || !currentRow) return savedRow;
-            return {
-              ...savedRow,
-              price_override:
-                currentRow.price_override === sentRow.price_override
-                  ? savedRow.price_override
-                  : currentRow.price_override,
-              duration_minutes_override:
-                currentRow.duration_minutes_override === sentRow.duration_minutes_override
-                  ? savedRow.duration_minutes_override
-                  : currentRow.duration_minutes_override,
-            };
-          });
-          return [...prev.filter((ba) => ba.barber_id !== barberId), ...merged];
-        });
-      } else {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        alert(data.error ?? 'Failed to save the price or duration. Please check the values.');
+        // An empty list for a non-empty save means the rows were saved but could
+        // not be read back; keep what the owner sees.
+        if (data.barberServices.length > 0 || sent.length === 0) {
+          applySaved(data.barberServices);
+        }
+        return;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      alert(data.error ?? 'Failed to save the services. Please check the price and duration.');
+
+      const reloadRes = await fetch('/api/barber-services');
+      if (reloadRes.ok) {
+        const { barberServices } = (await reloadRes.json()) as { barberServices: BarberService[] };
+        applySaved(barberServices.filter((ba) => ba.barber_id === barberId));
       }
     } catch (err) {
-      console.error('[BookingPage] handleSaveBarberServiceOverrides error:', err);
-    } finally {
-      setSavingBarberServiceId(null);
+      console.error('[BookingPage] saveBarberServiceAssignments error:', err);
     }
   }
 
@@ -2546,16 +2546,14 @@ export default function BookingPage() {
                               (ba) => ba.barber_id === barber.id && ba.service_id === svc.id
                             );
                             const isAssigned = !!assignment;
-                            const isSavingAssignments = savingBarberServiceId === barber.id;
                             return (
                               <div key={svc.id} className="space-y-2">
                                 <label className="flex items-center gap-2.5 cursor-pointer select-none group">
                                   <input
                                     type="checkbox"
                                     checked={isAssigned}
-                                    disabled={isSavingAssignments}
                                     onChange={(e) =>
-                                      void handleToggleBarberService(barber.id, svc.id, e.target.checked)
+                                      handleToggleBarberService(barber.id, svc.id, e.target.checked)
                                     }
                                     className="h-4 w-4 rounded border-[#E5E2DB] accent-[#1B4332] cursor-pointer disabled:opacity-50"
                                   />
@@ -2579,7 +2577,7 @@ export default function BookingPage() {
                                           onChange={(e) =>
                                             updateBarberServiceOverride(barber.id, svc.id, 'price_override', e.target.value)
                                           }
-                                          onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                          onBlur={() => void runAssignmentSave(barber.id)}
                                           placeholder={svc.price != null ? String(svc.price) : 'Same as service'}
                                           className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                         />
@@ -2600,7 +2598,7 @@ export default function BookingPage() {
                                         onChange={(e) =>
                                           updateBarberServiceOverride(barber.id, svc.id, 'duration_minutes_override', e.target.value)
                                         }
-                                        onBlur={() => void handleSaveBarberServiceOverrides(barber.id)}
+                                        onBlur={() => void runAssignmentSave(barber.id)}
                                         placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
                                         className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
                                       />
@@ -2614,7 +2612,7 @@ export default function BookingPage() {
                             );
                           })}
                         </div>
-                        {savingBarberServiceId === barber.id && (
+                        {savingAssignmentsFor[barber.id] && (
                           <p className="text-xs text-[#8A8680] mt-2">Saving…</p>
                         )}
                       </div>
