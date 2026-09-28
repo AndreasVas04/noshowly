@@ -22,15 +22,15 @@
  *  500 { error: string }          — unexpected DB error
  *
  * Security:
- *  - Reads the Supabase session from the request cookies to identify the user.
- *  - Uses the service-role key ONLY for inserting into `users` and `salons`;
- *    the anon client is used first to verify the session via RLS.
+ *  - Verifies the user with Supabase Auth (requireUser → getUser) before the
+ *    user ID is used with the service-role key.
+ *  - Uses the service-role key ONLY for inserting into `users` and `salons`.
  *  - All inputs are validated before any DB operation.
  *  - The service-role client is scoped to this file and never exported.
  */
 
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { requireUser } from '@/lib/auth';
 import type { Database } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -56,38 +56,17 @@ export async function POST(request: Request): Promise<Response> {
   console.log(`[register:${requestId}] POST received`);
 
   // -------------------------------------------------------------------------
-  // Step 1: Verify the caller has a valid session (auth check — always first)
+  // Step 1: Verify the caller with Supabase Auth (auth check — always first)
   // Security: prevents unauthenticated callers from probing or creating records.
   // -------------------------------------------------------------------------
-  const cookieStore = await cookies();
-
-  // Use the anon key here — RLS verifies that the session user exists in auth.users.
-  const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (cookiesToSet) => {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    // No valid session — reject immediately, no further processing.
-    console.warn(`[register:${requestId}] No session found — returning 401`);
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) {
+    console.warn(`[register:${requestId}] No verified user — returning 401`);
+    return auth.response;
   }
+  const { user } = auth;
 
-  console.log(`[register:${requestId}] Session verified for user ${session.user.id}`);
+  console.log(`[register:${requestId}] User verified: ${user.id}`);
 
   // -------------------------------------------------------------------------
   // Step 2: Parse and validate the request body
@@ -155,7 +134,7 @@ export async function POST(request: Request): Promise<Response> {
   const { data: existingUser, error: userCheckError } = await adminSupabase
     .from('users')
     .select('id')
-    .eq('id', session.user.id)
+    .eq('id', user.id)
     .maybeSingle(); // maybeSingle() returns null (not error) when no row is found
 
   if (userCheckError) {
@@ -164,10 +143,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (!existingUser) {
-    console.log(`[register:${requestId}] Inserting users row for ${session.user.id}`);
+    console.log(`[register:${requestId}] Inserting users row for ${user.id}`);
     const { error: insertUserError } = await adminSupabase.from('users').insert({
-      id: session.user.id,
-      email: session.user.email!, // auth.users guarantees email is present
+      id: user.id,
+      email: user.email!, // auth.users guarantees email is present
       plan: 'trial',              // All new accounts start on the 14-day trial
     });
 
@@ -187,7 +166,7 @@ export async function POST(request: Request): Promise<Response> {
   const { data: existingSalon, error: salonCheckError } = await adminSupabase
     .from('salons')
     .select('id')
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .maybeSingle();
 
   if (salonCheckError) {
@@ -196,9 +175,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (!existingSalon) {
-    console.log(`[register:${requestId}] Inserting salons row for user ${session.user.id}`);
+    console.log(`[register:${requestId}] Inserting salons row for user ${user.id}`);
     const { error: insertSalonError } = await adminSupabase.from('salons').insert({
-      user_id: session.user.id,
+      user_id: user.id,
       name: salonName,
       // timezone defaults to 'UTC' — user can change it in /dashboard/settings
     });
@@ -212,6 +191,6 @@ export async function POST(request: Request): Promise<Response> {
     console.log(`[register:${requestId}] salons row already exists — skipping`);
   }
 
-  console.log(`[register:${requestId}] Registration complete for user ${session.user.id}`);
+  console.log(`[register:${requestId}] Registration complete for user ${user.id}`);
   return Response.json({ success: true }, { status: 201 });
 }

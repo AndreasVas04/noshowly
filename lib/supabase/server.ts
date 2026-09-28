@@ -12,9 +12,11 @@
  * Next.js App Router.
  *
  * Security note: SUPABASE_SERVICE_ROLE_KEY is intentionally NOT used here.
- * Service role bypasses Row Level Security and must only ever be used in
- * trusted server-side contexts (e.g. pg_cron callbacks). All regular API
- * routes use the anon key so that RLS policies are enforced automatically.
+ * Service role bypasses Row Level Security. Routes that need it (cron,
+ * webhooks, account deletion, uploads, sign-up) create their own admin client,
+ * and routes that act for a user must authenticate with requireUser() from
+ * lib/auth.ts first. Queries through this client run with the anon key, so
+ * RLS policies are enforced.
  */
 
 import { createServerClient } from '@supabase/ssr';
@@ -60,8 +62,8 @@ if (!SUPABASE_ANON_KEY) {
  *
  * export async function GET(request: Request) {
  *   const supabase = await createServerSupabaseClient();
- *   const { data: { session } } = await supabase.auth.getSession();
- *   if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+ *   const { data: { user } } = await supabase.auth.getUser();
+ *   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
  *   // ...
  * }
  * ```

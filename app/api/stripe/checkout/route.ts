@@ -6,7 +6,7 @@
  * Creates a Stripe Checkout session for a NoShowly subscription plan.
  *
  * Flow:
- *  1. Verify authentication — 401 if no session.
+ *  1. Verify the user with Supabase Auth — 401 if not authenticated.
  *  2. Validate the requested plan name (solo | salon | studio).
  *  3. Resolve or create a Stripe Customer for this user.
  *     - If the user already has a stripe_customer_id, reuse it.
@@ -30,8 +30,8 @@
  * @returns 500 { error: string }   — Stripe or DB error.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireUser } from '@/lib/auth';
 import { stripe } from '@/lib/stripe';
 import type { Database } from '@/types';
 import type { PaidPlan } from '@/lib/plans';
@@ -102,17 +102,13 @@ function getPriceId(plan: CheckoutPlan): string {
  * @returns JSON response with a Stripe Checkout URL or an error.
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: Verify the user with Supabase Auth. The user ID is used with the
+  // service-role client below, so it must come from a verified token.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const userId = session.user.id;
+  const authUser = auth.user;
+  const userId = authUser.id;
 
   // Step 2: Parse and validate the plan name.
   let body: { plan?: unknown };
@@ -163,7 +159,7 @@ export async function POST(request: Request): Promise<Response> {
     // Create a new Stripe Customer and store the ID in the DB.
     try {
       const customer = await stripe.customers.create({
-        email: session.user.email,
+        email: authUser.email,
         metadata: {
           // Store the Noshowly user ID so webhook handlers can look up the user
           // even if the stripe_customer_id column is not yet populated.
