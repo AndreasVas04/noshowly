@@ -19,8 +19,9 @@
 // UserPlan  = PlanType | 'cancelled'
 // The database (users_plan_check) accepts 'trial' | 'basic' | 'pro' | 'business' | 'cancelled';
 // the legacy aliases 'starter' and 'professional' were renamed to 'basic' and 'pro'.
-import type { PlanType, PaidPlan, UserPlan } from '@/lib/plans';
-export type { PlanType, PaidPlan, UserPlan };
+// CanonicalPlan = exactly those five names (parsePlan() in lib/entitlements.ts maps legacy names).
+import type { CanonicalPlan, PlanType, PaidPlan, UserPlan } from '@/lib/plans';
+export type { CanonicalPlan, PlanType, PaidPlan, UserPlan };
 
 // ---------------------------------------------------------------------------
 // Enum-like string union types
@@ -347,6 +348,48 @@ export type AppointmentWithDetails = Appointment & {
   client_phone: string | null;
   client_email: string | null;
   barber_name: string | null;
+};
+
+/**
+ * A Stripe subscription as the Billing section in Settings shows it
+ * (GET /api/billing). Timestamps are ISO strings.
+ */
+export type BillingSubscription = {
+  /** Stripe status: active, trialing, past_due, unpaid, incomplete, paused. */
+  status: string;
+  /** The subscription ends at the end of the current period instead of renewing. */
+  cancelAtPeriodEnd: boolean;
+  /** End of the current billing period, or null. */
+  currentPeriodEnd: string | null;
+  /** When the subscription is set to end, or null. */
+  cancelAt: string | null;
+};
+
+/**
+ * Response of GET /api/billing: the owner's plan and what it allows
+ * (lib/entitlements.ts, without the internal email caps) and their Stripe
+ * subscription.
+ */
+export type BillingOverview = {
+  plan: CanonicalPlan;
+  /** Plan name as shown to the owner, e.g. "Free trial", "Basic". */
+  planLabel: string;
+  isPaid: boolean;
+  isTrial: boolean;
+  /** When the free trial ends or ended (ISO), or null. */
+  trialEndsAt: string | null;
+  trialDaysLeft: number | null;
+  trialExpired: boolean;
+  canWrite: boolean;
+  canSendEmail: boolean;
+  /** The public demo account: billing actions are hidden. */
+  isDemo: boolean;
+  /** The owner has a Stripe customer, so "Manage billing" can open the portal. */
+  hasBillingAccount: boolean;
+  /** The subscription to describe, or null when there is none that has not ended. */
+  subscription: BillingSubscription | null;
+  /** Stripe could not be reached; `subscription` is unknown. */
+  billingUnavailable: boolean;
 };
 
 // ---------------------------------------------------------------------------
