@@ -3,47 +3,94 @@
  *
  * POST /api/book/[slug]/appointments — public endpoint; no authentication required.
  *
- * Creates a new appointment via the public booking page. Steps:
- *  1. Validate the slug and that the booking page is active.
- *  2. Validate all client-supplied fields.
- *  3. Find or create the client by phone number (deduplication).
- *  4. Check for scheduling conflicts using a ±30 min window.
- *  5. Create the appointment.
- *  6. Create pending email reminder record (24 h before).
- *  7. Send a booking confirmation email to the client (if email provided).
+ * Creates a new appointment via the public booking page. Everything is
+ * validated before anything is written:
+ *  1. Parse the body and reject bot submissions (hidden honeypot field).
+ *  2. Validate every field: real calendar date, HH:MM time, formats, lengths.
+ *  3. Load the active booking page and enforce its required contact fields.
+ *  4. Load the salon's staff, services and availability; convert to UTC.
+ *  5. Enforce the booking window (minimum notice, maximum days ahead).
+ *  6. Validate the service (required when the salon has active services).
+ *  7. Validate the chosen staff member, or assign one for "Any available
+ *     staff": eligible for the service and free for the whole appointment.
+ *  8. Limit repeated bookings from the same email or phone number.
+ *  9. Find an existing client (read-only) and check their own conflicts.
+ * 10. Create the client when needed.
+ * 11. Create the appointment.
+ * 12. Create pending email reminder record (24 h before).
+ * 13. Send a booking confirmation email to the client (if email provided).
+ *
+ * Scheduling rules come from lib/availability.ts, the same module the booking
+ * page uses to offer times, so what is offered is what is accepted.
  *
  * Security:
  *  - No authentication — this is intentionally public.
- *  - The service role key is used server-side to write clients/appointments/reminders
- *    because the clients table has owner-only RLS; the booking flow needs to create
- *    records without the client being authenticated.
- *  - service role is NEVER exposed to the browser — only used in this API route.
- *  - All inputs are validated before touching the database.
+ *  - The service role key is used server-side (lib/supabase/admin.ts) because
+ *    visitors are anonymous and clients/appointments have owner-only RLS.
+ *  - The service role is NEVER exposed to the browser — only used in server code.
  *  - Slug is looked up server-side; salon_id always comes from the DB, never the client.
+ *  - Staff and service ids from the request must belong to the salon and be active.
  */
 
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '@/types';
 import { sendEmail } from '@/lib/resend';
-import { findEligibleBarbers, appointmentsOverlap } from '@/lib/appointment-helpers';
+import { createAdminSupabaseClient, type AdminSupabaseClient } from '@/lib/supabase/admin';
+import {
+  getBookingPageBySlug,
+  loadBusyIntervals,
+  loadPublicBookingData,
+} from '@/lib/booking-data';
+import {
+  DEFAULT_OPENING_HOURS,
+  MAX_ADVANCE_DAYS,
+  MAX_DURATION_MINUTES,
+  MIN_NOTICE_MINUTES,
+  busyToRanges,
+  checkBookingWindow,
+  eligibleBarberIds,
+  getBookableIntervals,
+  getEffectiveDuration,
+  getSalonHoursInterval,
+  isCandidateAvailable,
+  pickAnyAvailableBarber,
+  rangesOverlap,
+  type SlotCandidate,
+} from '@/lib/availability';
+import {
+  countRecentBookingsForContact,
+  fillMissingClientEmail,
+  findReusableClient,
+  MAX_CLIENT_NAME_LENGTH,
+} from '@/lib/clients';
+import { validateEmail, validatePhone } from '@/lib/contact';
+import {
+  dayOfWeekForDate,
+  isValidDateString,
+  isValidTimeString,
+  resolveZonedTime,
+} from '@/lib/time';
+import type { PublicBarber, PublicService } from '@/types';
 
 // ---------------------------------------------------------------------------
-// Service-role Supabase client (server-side only — bypasses RLS)
+// Limits
 // ---------------------------------------------------------------------------
 
-/**
- * Creates a Supabase client with the service role key.
- * Used only for the booking flow where the visitor is unauthenticated.
- * NEVER import this or use it in client components.
- */
-function createServiceRoleClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Missing Supabase environment variables');
-  }
-  return createClient<Database>(url, key);
-}
+/** Longest note a client can leave. */
+const MAX_NOTES_LENGTH = 500;
+
+/** Longest free-text service name (salons without a service list). */
+const MAX_SERVICE_NAME_LENGTH = 100;
+
+/** Bookings allowed per salon for the same email or phone within BOOKING_LIMIT_WINDOW_MS. */
+const MAX_BOOKINGS_PER_CONTACT = 3;
+
+/** Window for MAX_BOOKINGS_PER_CONTACT: one hour. */
+const BOOKING_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+/** Postgres error code for an exclusion-constraint violation (overlapping bookings). */
+const EXCLUSION_VIOLATION = '23P01';
+
+/** Matches a UUID, so malformed ids are rejected before reaching the database. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // Booking confirmation email template
@@ -171,51 +218,68 @@ function getConfirmationEmailHTML(
 }
 
 // ---------------------------------------------------------------------------
-// Timezone conversion helper
+// Request parsing helpers
 // ---------------------------------------------------------------------------
 
+/** Result of reading an optional string field from the request body. */
+type OptionalString = { ok: true; value: string | null } | { ok: false; error: string };
+
 /**
- * Converts a local date + time in the given IANA timezone to a UTC ISO string.
+ * Reads an optional string field: null, undefined and blank strings become null.
  *
- * Strategy: treat the input as UTC to get a reference Date, then compare what
- * the timezone formatter says the local time is vs. what we want, derive the
- * offset, and shift accordingly.
- *
- * @param dateStr  - Date in YYYY-MM-DD format.
- * @param timeStr  - Time in HH:MM format (24-hour).
- * @param timezone - IANA timezone identifier, e.g. "Europe/Nicosia".
- * @returns        UTC ISO timestamp string.
+ * @param raw   - Parsed request body.
+ * @param field - Field name.
  */
-function localToUTC(dateStr: string, timeStr: string, timezone: string): string {
-  // Treat the input as if it were UTC (we will correct for the offset below).
-  const naiveUTC = new Date(`${dateStr}T${timeStr}:00Z`);
+function readOptionalString(raw: Record<string, unknown>, field: string): OptionalString {
+  const value = raw[field];
+  if (value === null || value === undefined) return { ok: true, value: null };
+  if (typeof value !== 'string') return { ok: false, error: `${field} must be a string` };
+  return { ok: true, value: value.trim() || null };
+}
 
-  // Ask Intl what the given timezone says for naiveUTC.
-  const tzParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year:   'numeric',
-    month:  '2-digit',
-    day:    '2-digit',
-    hour:   '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(naiveUTC);
+/**
+ * Reads an optional UUID field: null, undefined and '' become null.
+ *
+ * @param raw   - Parsed request body.
+ * @param field - Field name.
+ */
+function readOptionalId(raw: Record<string, unknown>, field: string): OptionalString {
+  const result = readOptionalString(raw, field);
+  if (!result.ok || result.value === null) return result;
+  if (!UUID_PATTERN.test(result.value)) return { ok: false, error: `${field} is not a valid id` };
+  return result;
+}
 
-  const p: Record<string, string> = {};
-  for (const part of tzParts) {
-    if (part.type !== 'literal') p[part.type] = part.value;
-  }
+/**
+ * Returns true when the client already has a non-cancelled appointment that
+ * overlaps the new one.
+ *
+ * @param supabase        - Service-role client.
+ * @param salonId         - Salon of the booking page.
+ * @param clientId        - Existing client.
+ * @param start           - New appointment start.
+ * @param durationMinutes - New appointment length.
+ * @throws Error on a database error.
+ */
+async function clientHasOverlap(
+  supabase: AdminSupabaseClient,
+  salonId: string,
+  clientId: string,
+  start: Date,
+  durationMinutes: number,
+): Promise<boolean> {
+  const newRange = { start: start.getTime(), end: start.getTime() + durationMinutes * 60_000 };
+  const { data, error } = await supabase
+    .from('appointments')
+    .select('barber_id, datetime, duration_minutes')
+    .eq('salon_id', salonId)
+    .eq('client_id', clientId)
+    .neq('status', 'cancelled')
+    .gte('datetime', new Date(newRange.start - MAX_DURATION_MINUTES * 60_000).toISOString())
+    .lt('datetime', new Date(newRange.end).toISOString());
 
-  // Reconstruct the timezone-local time as a UTC timestamp so we can measure the offset.
-  const hour = p.hour === '24' ? '00' : p.hour;
-  const tzAsUTC = new Date(`${p.year}-${p.month}-${p.day}T${hour}:${p.minute}:${p.second}Z`);
-
-  // offsetMs = what the TZ showed for naiveUTC − naiveUTC itself
-  const offsetMs = tzAsUTC.getTime() - naiveUTC.getTime();
-
-  // Actual UTC = local time (naiveUTC) − offset
-  return new Date(naiveUTC.getTime() - offsetMs).toISOString();
+  if (error) throw new Error(`Client conflict check failed: ${error.message}`);
+  return busyToRanges(data ?? []).some((range) => rangesOverlap(range, newRange));
 }
 
 // ---------------------------------------------------------------------------
@@ -227,24 +291,26 @@ function localToUTC(dateStr: string, timeStr: string, timezone: string): string 
  *
  * Request body:
  *  {
- *    service_id?:    string   — UUID of a service from GET /api/book/[slug]
- *    service_name?:  string   — free-text service name (used if service_id not given)
- *    barber_id?:     string   — UUID of a barber (optional)
- *    date:           string   — YYYY-MM-DD in the salon's timezone
- *    time:           string   — HH:MM 24-hour in the salon's timezone
+ *    service_id?:    string   — UUID of an active service (required when the salon has any)
+ *    service_name?:  string   — free-text service name, only for salons without services (≤ 100)
+ *    barber_id?:     string   — UUID of an active staff member; null/absent = any available
+ *    date:           string   — YYYY-MM-DD in the salon's timezone (a real calendar date)
+ *    time:           string   — HH:MM 24-hour in the salon's timezone (00:00–23:59)
  *    client_name:    string   — 1–100 chars
- *    client_phone:   string   — must start with + (country code required for international routing)
- *    client_email?:  string   — optional; used for email reminders
- *    notes?:         string   — optional client note to barber
+ *    client_phone?:  string   — with country code (+…), ≤ 30 chars; required when the page requires it
+ *    client_email?:  string   — valid address, ≤ 254 chars; required when the page requires it
+ *    notes?:         string   — optional client note to barber, ≤ 500 chars
+ *    company?:       string   — hidden honeypot field; must be empty
  *  }
  *
  * @param request - Incoming request.
  * @param params  - Route params containing `slug`.
  *
- * @returns 201 { appointmentId: string }
+ * @returns 201 { appointmentId: string, barberName: string | null, durationMinutes: number }
  * @returns 400 { error: string }               — validation failure
  * @returns 404 { error: "Booking page not found" }
- * @returns 409 { error: string }               — scheduling conflict
+ * @returns 409 { error: string }               — the time is no longer available
+ * @returns 429 { error: string }               — too many bookings for this email/phone
  * @returns 500 { error: string }               — unexpected DB error
  */
 export async function POST(
@@ -273,7 +339,7 @@ async function handleBookingPost(
     return Response.json({ error: 'Booking page not found' }, { status: 404 });
   }
 
-  // Step 1: Parse and validate request body.
+  // Step 1: Parse the request body and reject bot submissions.
   let body: unknown;
   try {
     body = await request.json();
@@ -282,195 +348,285 @@ async function handleBookingPost(
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
-  if (typeof body !== 'object' || body === null) {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
   }
 
   const raw = body as Record<string, unknown>;
 
-  // Validate date
-  if (typeof raw.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raw.date)) {
-    return Response.json({ error: 'date must be in YYYY-MM-DD format' }, { status: 400 });
+  // The honeypot field is hidden from people; anything in it means a bot filled the form.
+  if (raw.company !== undefined && raw.company !== null && raw.company !== '') {
+    return Response.json({ error: 'Invalid submission' }, { status: 400 });
   }
 
-  // Validate time
-  if (typeof raw.time !== 'string' || !/^\d{2}:\d{2}$/.test(raw.time)) {
-    return Response.json({ error: 'time must be in HH:MM format' }, { status: 400 });
+  // Step 2: Validate every field before touching the database.
+  if (!isValidDateString(raw.date)) {
+    return Response.json({ error: 'date must be a valid date in YYYY-MM-DD format' }, { status: 400 });
   }
+  const date = raw.date;
 
-  // Validate client_name
+  if (!isValidTimeString(raw.time)) {
+    return Response.json({ error: 'time must be in HH:MM format (00:00 to 23:59)' }, { status: 400 });
+  }
+  const time = raw.time;
+
   if (typeof raw.client_name !== 'string' || !raw.client_name.trim()) {
     return Response.json({ error: 'client_name is required' }, { status: 400 });
   }
   const clientName = raw.client_name.trim();
-  if (clientName.length > 100) {
-    return Response.json({ error: 'client_name must be 100 characters or fewer' }, { status: 400 });
+  if (clientName.length > MAX_CLIENT_NAME_LENGTH) {
+    return Response.json(
+      { error: `client_name must be ${MAX_CLIENT_NAME_LENGTH} characters or fewer` },
+      { status: 400 }
+    );
   }
 
-  // Validate client_phone — optional but must start with + if provided (for international routing).
+  const phoneField = readOptionalString(raw, 'client_phone');
+  if (!phoneField.ok) return Response.json({ error: phoneField.error }, { status: 400 });
   let clientPhone: string | null = null;
-  if (raw.client_phone !== null && raw.client_phone !== undefined && raw.client_phone !== '') {
-    if (typeof raw.client_phone !== 'string' || !raw.client_phone.trim().startsWith('+')) {
+  if (phoneField.value) {
+    const phone = validatePhone(phoneField.value);
+    if (!phone.ok) return Response.json({ error: phone.error }, { status: 400 });
+    clientPhone = phone.value;
+  }
+
+  const emailField = readOptionalString(raw, 'client_email');
+  if (!emailField.ok) return Response.json({ error: emailField.error }, { status: 400 });
+  let clientEmail: string | null = null;
+  if (emailField.value) {
+    const email = validateEmail(emailField.value);
+    if (!email.ok) return Response.json({ error: email.error }, { status: 400 });
+    clientEmail = email.value;
+  }
+
+  const notesField = readOptionalString(raw, 'notes');
+  if (!notesField.ok) return Response.json({ error: notesField.error }, { status: 400 });
+  const notes = notesField.value;
+  if (notes && notes.length > MAX_NOTES_LENGTH) {
+    return Response.json({ error: `notes must be ${MAX_NOTES_LENGTH} characters or fewer` }, { status: 400 });
+  }
+
+  const serviceNameField = readOptionalString(raw, 'service_name');
+  if (!serviceNameField.ok) return Response.json({ error: serviceNameField.error }, { status: 400 });
+  if (serviceNameField.value && serviceNameField.value.length > MAX_SERVICE_NAME_LENGTH) {
+    return Response.json(
+      { error: `service_name must be ${MAX_SERVICE_NAME_LENGTH} characters or fewer` },
+      { status: 400 }
+    );
+  }
+
+  const serviceIdField = readOptionalId(raw, 'service_id');
+  if (!serviceIdField.ok) return Response.json({ error: serviceIdField.error }, { status: 400 });
+  const serviceId = serviceIdField.value;
+
+  const barberIdField = readOptionalId(raw, 'barber_id');
+  if (!barberIdField.ok) return Response.json({ error: barberIdField.error }, { status: 400 });
+  const barberId = barberIdField.value;
+
+  // Step 3: Look up the booking page (must be active) and enforce its required fields.
+  const supabase = createAdminSupabaseClient();
+
+  const bookingPage = await getBookingPageBySlug(supabase, slug);
+  if (!bookingPage || !bookingPage.is_active) {
+    return Response.json({ error: 'Booking page not found' }, { status: 404 });
+  }
+  const salonId = bookingPage.salon_id;
+
+  if (bookingPage.require_phone && !clientPhone) {
+    return Response.json({ error: 'Phone number is required' }, { status: 400 });
+  }
+  if (bookingPage.require_email && !clientEmail) {
+    return Response.json({ error: 'Email is required' }, { status: 400 });
+  }
+
+  // Step 4: Load the salon's staff, services and availability; convert to UTC.
+  const data = await loadPublicBookingData(supabase, salonId);
+  if (!data) {
+    console.error('[POST /api/book/[slug]/appointments] salon missing — salonId:', salonId);
+    return Response.json({ error: 'Failed to load salon data' }, { status: 500 });
+  }
+  const salon = data.salon;
+
+  const start = resolveZonedTime(date, time, salon.timezone);
+  if (!start.ok) {
+    return Response.json(
+      {
+        error: start.reason === 'nonexistent_time'
+          ? 'That time does not exist on this date because of a clock change. Please choose another time.'
+          : 'Invalid date or time',
+      },
+      { status: 400 }
+    );
+  }
+  const datetimeUTC = start.date.toISOString();
+
+  // Step 5: Booking window — not in the past, enough notice, not too far ahead.
+  const now = new Date();
+  const bookingWindow = checkBookingWindow(start.date, date, salon.timezone, now);
+  if (!bookingWindow.ok) {
+    const message =
+      bookingWindow.reason === 'past'       ? 'Cannot book an appointment in the past'
+      : bookingWindow.reason === 'too_soon' ? `Appointments must be booked at least ${MIN_NOTICE_MINUTES} minutes in advance`
+      : `Appointments can be booked at most ${MAX_ADVANCE_DAYS} days in advance`;
+    return Response.json({ error: message }, { status: 400 });
+  }
+
+  // Step 6: Service — required when the salon has active services, and it must
+  // be one of them. Salons without a service list may pass a free-text name.
+  let service: PublicService | null = null;
+  let resolvedServiceName: string | null = null;
+  if (data.services.length > 0) {
+    if (!serviceId) {
+      return Response.json({ error: 'Please choose a service' }, { status: 400 });
+    }
+    service = data.services.find((s) => s.id === serviceId) ?? null;
+    if (!service) {
+      return Response.json({ error: 'The selected service is not available' }, { status: 400 });
+    }
+    resolvedServiceName = service.name;
+  } else {
+    if (serviceId) {
+      return Response.json({ error: 'The selected service is not available' }, { status: 400 });
+    }
+    resolvedServiceName = serviceNameField.value;
+  }
+
+  // Step 7: Staff — validate the chosen staff member, or assign one for
+  // "Any available staff". Either way the staff member must be eligible for
+  // the service and free for the whole appointment (with their own duration).
+  const salonHours = { opening_time: salon.opening_time, closing_time: salon.closing_time };
+  const dayOfWeek = dayOfWeekForDate(date);
+  let assignedBarber: PublicBarber | null = null;
+  let durationMinutes: number;
+
+  if (data.barbers.length > 0) {
+    const eligibleIds = eligibleBarberIds(
+      service?.id ?? null,
+      data.barbers.map((b) => b.id),
+      data.assignments,
+    );
+    const busy = await loadBusyIntervals(supabase, salonId, date, salon.timezone);
+    const candidateFor = (barber: PublicBarber): SlotCandidate & { barberId: string; name: string } => ({
+      barberId: barber.id,
+      name: barber.name,
+      intervals: getBookableIntervals(barber.id, dayOfWeek, data.availability, salonHours),
+      durationMinutes: getEffectiveDuration(service, barber.id, data.assignments),
+    });
+
+    if (barberId) {
+      const barber = data.barbers.find((b) => b.id === barberId);
+      if (!barber) {
+        return Response.json(
+          { error: 'The selected staff member is not available for online booking' },
+          { status: 400 }
+        );
+      }
+      if (!eligibleIds.includes(barber.id)) {
+        return Response.json(
+          { error: 'This staff member does not offer the selected service.' },
+          { status: 400 }
+        );
+      }
+      const candidate = candidateFor(barber);
+      if (!isCandidateAvailable({ date, time, timeZone: salon.timezone, candidate, busy })) {
+        return Response.json(
+          { error: 'This staff member is not available at that time.' },
+          { status: 409 }
+        );
+      }
+      assignedBarber = barber;
+      durationMinutes = candidate.durationMinutes;
+    } else {
+      if (eligibleIds.length === 0) {
+        return Response.json(
+          { error: 'No staff member offers the selected service.' },
+          { status: 400 }
+        );
+      }
+      const candidates = data.barbers.filter((b) => eligibleIds.includes(b.id)).map(candidateFor);
+      const pickedId = pickAnyAvailableBarber({
+        date,
+        time,
+        timeZone: salon.timezone,
+        candidates,
+        busy,
+      });
+      const picked = candidates.find((c) => c.barberId === pickedId);
+      if (!picked) {
+        return Response.json(
+          { error: 'No staff available at this time. Please select a different time.' },
+          { status: 409 }
+        );
+      }
+      assignedBarber = data.barbers.find((b) => b.id === picked.barberId) ?? null;
+      durationMinutes = picked.durationMinutes;
+    }
+  } else {
+    // Salon without staff: appointments are unassigned and only need to fit
+    // inside the opening hours.
+    if (barberId) {
       return Response.json(
-        { error: 'Phone must include country code (e.g. +357 99 123 456)' },
+        { error: 'The selected staff member is not available for online booking' },
         { status: 400 }
       );
     }
-    const trimmedPhone = raw.client_phone.trim();
-    if (trimmedPhone.length > 20) {
-      return Response.json({ error: 'Phone number must be 20 characters or fewer' }, { status: 400 });
-    }
-    clientPhone = trimmedPhone;
-  }
-
-  // Validate client_email — optional
-  let clientEmail: string | null = null;
-  if ('client_email' in raw && raw.client_email !== null && raw.client_email !== '') {
-    if (typeof raw.client_email !== 'string') {
-      return Response.json({ error: 'client_email must be a string' }, { status: 400 });
-    }
-    clientEmail = raw.client_email.trim() || null;
-  }
-
-  // Validate notes — optional
-  let notes: string | null = null;
-  if ('notes' in raw && raw.notes !== null && raw.notes !== '') {
-    if (typeof raw.notes !== 'string') {
-      return Response.json({ error: 'notes must be a string' }, { status: 400 });
-    }
-    notes = raw.notes.trim() || null;
-  }
-
-  // service_id and barber_id are optional UUIDs
-  const serviceId = typeof raw.service_id === 'string' ? raw.service_id.trim() : null;
-  const serviceName = typeof raw.service_name === 'string' ? raw.service_name.trim() : null;
-  const barberId = typeof raw.barber_id === 'string' ? raw.barber_id.trim() : null;
-
-  // Step 2: Look up the booking page and derive the salon's info.
-  // Service role bypasses RLS — safe to use here since this is a server-side route.
-  const supabase = createServiceRoleClient();
-
-  const { data: bookingPage, error: bpError } = await supabase
-    .from('booking_pages')
-    .select('salon_id')
-    .eq('slug', slug)
-    .eq('is_active', true)
-    .single();
-
-  if (bpError || !bookingPage) {
-    console.error('[POST /api/book/[slug]/appointments] booking page lookup error — slug:', slug, '| error:', JSON.stringify(bpError));
-    return Response.json({ error: 'Booking page not found' }, { status: 404 });
-  }
-
-  const salonId = bookingPage.salon_id;
-
-  // Fetch salon timezone for UTC conversion and reminder scheduling.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('timezone, name')
-    .eq('id', salonId)
-    .single();
-
-  if (salonError || !salon) {
-    console.error('[POST /api/book/[slug]/appointments] salon lookup error — salonId:', salonId, '| error:', JSON.stringify(salonError));
-    return Response.json({ error: 'Failed to load salon data' }, { status: 500 });
-  }
-
-  // Step 3: Convert local date+time to UTC.
-  let datetimeUTC: string;
-  try {
-    datetimeUTC = localToUTC(raw.date as string, raw.time as string, salon.timezone);
-    console.log('[POST /api/book/[slug]/appointments] UTC datetime:', datetimeUTC, '| local:', raw.date, raw.time, '| tz:', salon.timezone);
-  } catch (err) {
-    console.error('[POST /api/book/[slug]/appointments] localToUTC error:', err, '| date:', raw.date, '| time:', raw.time, '| tz:', salon.timezone);
-    return Response.json({ error: 'Invalid date or time' }, { status: 400 });
-  }
-
-  // Reject past appointments — the booking UI should prevent this, but enforce server-side too.
-  if (new Date(datetimeUTC) <= new Date()) {
-    return Response.json({ error: 'Cannot book an appointment in the past' }, { status: 400 });
-  }
-
-  // Step 4: Resolve service name and duration from service_id if provided.
-  // service_id comes from the global services table (salon-level).
-  let resolvedServiceName: string | null = serviceName;
-  let resolvedDurationMinutes = 30; // default when no service selected
-  if (serviceId) {
-    const { data: svc, error: svcError } = await supabase
-      .from('services')
-      .select('name, duration_minutes')
-      .eq('id', serviceId)
-      .eq('active', true)
-      .single();
-    if (svcError) {
-      console.error('[POST /api/book/[slug]/appointments] services lookup error — serviceId:', serviceId, '| error:', JSON.stringify(svcError));
-    }
-    if (svc) {
-      resolvedServiceName = svc.name;
-      resolvedDurationMinutes = (svc.duration_minutes as number | null) ?? 30;
+    durationMinutes = getEffectiveDuration(service, null, data.assignments);
+    const candidate: SlotCandidate = {
+      barberId: null,
+      intervals: [getSalonHoursInterval(salonHours) ?? DEFAULT_OPENING_HOURS],
+      durationMinutes,
+    };
+    if (!isCandidateAvailable({ date, time, timeZone: salon.timezone, candidate, busy: [] })) {
+      return Response.json({ error: 'That time is outside our opening hours.' }, { status: 400 });
     }
   }
+  const resolvedBarberId = assignedBarber?.id ?? null;
 
-  // Check for barber-specific duration override (if a barber and service are selected).
-  if (barberId && serviceId) {
-    const { data: bsOverride } = await supabase
-      .from('barber_services')
-      .select('duration_minutes_override')
-      .eq('barber_id', barberId)
-      .eq('service_id', serviceId)
-      .maybeSingle();
-    if (bsOverride?.duration_minutes_override != null) {
-      resolvedDurationMinutes = bsOverride.duration_minutes_override;
-    }
+  // Step 8: Limit repeated bookings — at most MAX_BOOKINGS_PER_CONTACT per
+  // salon for the same email or phone number within the last hour.
+  const recent = await countRecentBookingsForContact(
+    supabase,
+    salonId,
+    { phone: clientPhone, email: clientEmail },
+    new Date(now.getTime() - BOOKING_LIMIT_WINDOW_MS),
+  );
+  if (!recent.ok) {
+    console.error('[POST /api/book/[slug]/appointments] booking limit lookup error:', recent.error);
+    return Response.json({ error: 'Failed to create appointment' }, { status: 500 });
+  }
+  if (recent.count >= MAX_BOOKINGS_PER_CONTACT) {
+    return Response.json(
+      { error: 'Too many bookings with these contact details. Please try again later or contact us directly.' },
+      { status: 429 }
+    );
   }
 
-  // Step 5: Find or create client. Deduplicate by phone first, then by email.
-  // Phone is the preferred identifier; fall back to email when phone is absent.
-  // Name-mismatch rule: if phone/email matches but the name differs, create a new
-  // client — the number may belong to a different person or a family member.
-  let clientId = '';
-
-  let existingClient: { id: string; name: string } | null = null;
-
-  if (clientPhone) {
-    // Primary dedup: match by phone within this salon.
-    const { data, error: findError } = await supabase
-      .from('clients')
-      .select('id, name')
-      .eq('salon_id', salonId)
-      .eq('phone', clientPhone)
-      .maybeSingle();
-    if (findError) {
-      console.error('[POST /api/book/[slug]/appointments] client phone lookup error:', JSON.stringify(findError));
-    }
-    existingClient = data as { id: string; name: string } | null;
-  } else if (clientEmail) {
-    // Fallback dedup: match by email when phone not provided.
-    const { data, error: findError } = await supabase
-      .from('clients')
-      .select('id, name')
-      .eq('salon_id', salonId)
-      .eq('email', clientEmail)
-      .maybeSingle();
-    if (findError) {
-      console.error('[POST /api/book/[slug]/appointments] client email lookup error:', JSON.stringify(findError));
-    }
-    existingClient = data as { id: string; name: string } | null;
+  // Step 9: Find an existing client (same phone, or same email without a phone,
+  // and same name). Read-only: nothing is written until every check has passed.
+  const lookup = await findReusableClient(supabase, salonId, {
+    name: clientName,
+    phone: clientPhone,
+    email: clientEmail,
+  });
+  if (!lookup.ok) {
+    console.error('[POST /api/book/[slug]/appointments] client lookup error:', lookup.error);
+    return Response.json({ error: 'Failed to create client record' }, { status: 500 });
   }
 
-  if (existingClient) {
-    // Only reuse the existing client when the name matches (case-insensitive, trimmed).
-    // If names differ, fall through to create a new record — different person, same number.
-    const existingNameNorm = existingClient.name.toLowerCase().trim();
-    const requestedNameNorm = clientName.toLowerCase().trim();
-    if (existingNameNorm === requestedNameNorm) {
-      clientId = existingClient.id;
-    } else {
-      existingClient = null; // fall through to create
-    }
+  // Client conflict — does this client already have an overlapping appointment?
+  if (lookup.client && await clientHasOverlap(supabase, salonId, lookup.client.id, start.date, durationMinutes)) {
+    return Response.json(
+      { error: 'You already have an appointment at that time.' },
+      { status: 409 }
+    );
   }
 
-  if (!existingClient) {
+  // Step 10: Create the client when needed (or fill in a missing email).
+  let clientId: string;
+  if (lookup.client) {
+    await fillMissingClientEmail(supabase, lookup.client, clientEmail);
+    clientId = lookup.client.id;
+  } else {
     const { data: newClient, error: clientError } = await supabase
       .from('clients')
       .insert({
@@ -490,135 +646,11 @@ async function handleBookingPost(
     clientId = newClient.id;
   }
 
-  // Step 6: Check for scheduling conflicts using duration-aware overlap.
-  // Two appointments overlap when: existingStart < newEnd AND newStart < existingEnd.
-  // Query a generous window to catch all possible overlaps.
-  const newStartMs = new Date(datetimeUTC).getTime();
-  const MAX_DURATION_MS = 480 * 60_000; // 8 h — matches validation max
-  const queryStart = new Date(newStartMs - MAX_DURATION_MS).toISOString();
-  const queryEnd   = new Date(newStartMs + resolvedDurationMinutes * 60_000).toISOString();
-
-  if (barberId) {
-    const { data: barberAppts } = await supabase
-      .from('appointments')
-      .select('id, datetime, duration_minutes')
-      .eq('salon_id', salonId)
-      .eq('barber_id', barberId)
-      .neq('status', 'cancelled')
-      .gte('datetime', queryStart)
-      .lte('datetime', queryEnd);
-
-    const hasBarberConflict = (barberAppts ?? []).some((a) => {
-      const existStartMs  = new Date(a.datetime as string).getTime();
-      const existDuration = (a.duration_minutes as number | null) ?? 30;
-      return appointmentsOverlap(newStartMs, resolvedDurationMinutes, existStartMs, existDuration);
-    });
-
-    if (hasBarberConflict) {
-      return Response.json(
-        { error: 'This staff member is not available at that time.' },
-        { status: 409 }
-      );
-    }
-  }
-
-  // Client conflict — does this client already have an overlapping appointment?
-  const { data: clientAppts } = await supabase
-    .from('appointments')
-    .select('id, datetime, duration_minutes')
-    .eq('client_id', clientId)
-    .neq('status', 'cancelled')
-    .gte('datetime', queryStart)
-    .lte('datetime', queryEnd);
-
-  const hasClientConflict = (clientAppts ?? []).some((a) => {
-    const existStartMs  = new Date(a.datetime as string).getTime();
-    const existDuration = (a.duration_minutes as number | null) ?? 30;
-    return appointmentsOverlap(newStartMs, resolvedDurationMinutes, existStartMs, existDuration);
-  });
-
-  if (hasClientConflict) {
-    return Response.json(
-      { error: 'You already have an appointment at that time.' },
-      { status: 409 }
-    );
-  }
-
-  // Step 6b: Auto-assign staff when the client chose "no preference" (barberId is null)
-  // and the salon has active barbers. We use findEligibleBarbers to apply availability
-  // and conflict filters, then always assign to eligible[0] (alphabetical — deterministic).
-  // Unlike the dashboard POST, we never force the client to choose — they already said
-  // "no preference", so we pick the best available member on their behalf.
-  let resolvedBarberId: string | null = barberId;
-  if (!barberId) {
-    // Fetch all active barbers for this salon.
-    const { data: activeBarbers } = await supabase
-      .from('barbers')
-      .select('id')
-      .eq('salon_id', salonId)
-      .eq('active', true);
-
-    if (activeBarbers && activeBarbers.length > 0) {
-      const allBarberIds = activeBarbers.map((b) => b.id);
-
-      // If a service was selected, narrow candidates to barbers who are assigned to it
-      // via barber_services. If no assignments exist, all barbers are candidates (backwards compat).
-      let candidateBarberIds: string[] | null = null;
-      if (serviceId || resolvedServiceName) {
-        // Look up the service record to get its ID (needed for barber_services join).
-        let resolvedServiceId = serviceId;
-        if (!resolvedServiceId && resolvedServiceName) {
-          const { data: svcRecord } = await supabase
-            .from('services')
-            .select('id')
-            .eq('salon_id', salonId)
-            .ilike('name', resolvedServiceName)
-            .maybeSingle();
-          resolvedServiceId = svcRecord?.id ?? null;
-        }
-
-        if (resolvedServiceId) {
-          const { data: svcRows } = await supabase
-            .from('barber_services')
-            .select('barber_id')
-            .eq('service_id', resolvedServiceId)
-            .in('barber_id', allBarberIds);
-
-          if (svcRows && svcRows.length > 0) {
-            candidateBarberIds = svcRows.map((r) => r.barber_id);
-          }
-          // svcRows empty → no restriction → candidateBarberIds stays null (all barbers)
-        }
-      }
-
-      const eligible = await findEligibleBarbers({
-        supabase,
-        salonId,
-        datetimeUTC,
-        timezone: salon.timezone,
-        // Service filter already applied via candidateBarberIds — skip built-in filter.
-        serviceTypeName: null,
-        candidateBarberIds,
-        newDurationMinutes: resolvedDurationMinutes,
-      });
-
-      if (eligible.length === 0) {
-        return Response.json(
-          { error: 'No staff available at this time. Please select a different time.' },
-          { status: 409 }
-        );
-      }
-
-      // Assign to first eligible (sorted alphabetically — deterministic).
-      resolvedBarberId = eligible[0].id;
-    }
-  }
-
-  // Step 7: Create the appointment.
+  // Step 11: Create the appointment.
   // Auto-confirm when the appointment is less than 23 hours away — the cron job
   // will never send a YES/NO reminder, so there is no mechanism for the client to
   // confirm later. Setting 'confirmed' immediately avoids a permanently-pending state.
-  const hoursUntilAppointment = (new Date(datetimeUTC).getTime() - Date.now()) / (1000 * 60 * 60);
+  const hoursUntilAppointment = (start.date.getTime() - Date.now()) / (1000 * 60 * 60);
   const appointmentStatus = hoursUntilAppointment < 23 ? 'confirmed' : 'scheduled';
 
   const { data: appointment, error: apptError } = await supabase
@@ -629,7 +661,7 @@ async function handleBookingPost(
       barber_id:        resolvedBarberId,
       datetime:         datetimeUTC,
       service_type:     resolvedServiceName,
-      duration_minutes: resolvedDurationMinutes,
+      duration_minutes: durationMinutes,
       notes:            notes,
       status:           appointmentStatus,
     })
@@ -637,14 +669,21 @@ async function handleBookingPost(
     .single();
 
   if (apptError || !appointment) {
-    console.error('[POST /api/book/[slug]/appointments] appointment insert error:', JSON.stringify(apptError), '| salonId:', salonId, '| clientId:', clientId, '| barberId:', barberId, '| datetimeUTC:', datetimeUTC);
+    if (apptError?.code === EXCLUSION_VIOLATION) {
+      // A database constraint caught an overlapping booking made at the same moment.
+      return Response.json(
+        { error: 'That time was just booked. Please choose another time.' },
+        { status: 409 }
+      );
+    }
+    console.error('[POST /api/book/[slug]/appointments] appointment insert error:', JSON.stringify(apptError), '| salonId:', salonId, '| clientId:', clientId, '| barberId:', resolvedBarberId, '| datetimeUTC:', datetimeUTC);
     return Response.json({ error: 'Failed to create appointment' }, { status: 500 });
   }
 
   const appointmentId = appointment.id;
   const appointmentTime = new Date(datetimeUTC).getTime();
 
-  // Step 8: Create pending email reminder record (24 h before appointment).
+  // Step 12: Create pending email reminder record (24 h before appointment).
   // Only created if the client supplied an email address.
   const remindersToInsert: Array<{
     appointment_id: string;
@@ -676,7 +715,7 @@ async function handleBookingPost(
     console.error('[POST /api/book/[slug]/appointments] reminder insert error:', JSON.stringify(reminderError), '| appointmentId:', appointmentId);
   }
 
-  // Step 9: Send a booking confirmation email to the client immediately (if email provided).
+  // Step 13: Send a booking confirmation email to the client immediately (if email provided).
   // This is separate from the 24 h reminder — it confirms the booking was received.
   // A failed confirmation email must never block the booking response.
   if (clientEmail) {
@@ -713,5 +752,8 @@ async function handleBookingPost(
     }
   }
 
-  return Response.json({ appointmentId }, { status: 201 });
+  return Response.json(
+    { appointmentId, barberName: assignedBarber?.name ?? null, durationMinutes },
+    { status: 201 }
+  );
 }

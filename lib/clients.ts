@@ -265,3 +265,50 @@ export async function fillMissingClientEmail(
   }
   return { ...client, email };
 }
+
+/** Result of countRecentBookingsForContact(). */
+export type RecentBookingsResult =
+  | { ok: true; count: number }
+  | { ok: false; error: string };
+
+/**
+ * Counts the salon's appointments created since a given time for any client
+ * with this phone number or email (whatever the name). Used to limit
+ * repeated bookings from the public booking page.
+ *
+ * @param supabase      - Supabase client allowed to read the salon's data.
+ * @param salonId       - Salon to count in.
+ * @param contact.phone - Normalised phone number, or null.
+ * @param contact.email - Email address, or null.
+ * @param since         - Only appointments created at or after this instant count.
+ */
+export async function countRecentBookingsForContact(
+  supabase: SupabaseClient<Database>,
+  salonId: string,
+  contact: { phone: string | null; email: string | null },
+  since: Date,
+): Promise<RecentBookingsResult> {
+  const clientIds = new Set<string>();
+
+  for (const lookup of [
+    contact.phone ? findClientsByPhone(supabase, salonId, contact.phone) : null,
+    contact.email ? findClientsByEmail(supabase, salonId, contact.email) : null,
+  ]) {
+    if (!lookup) continue;
+    const { clients, error } = await lookup;
+    if (error) return { ok: false, error };
+    for (const client of clients) clientIds.add(client.id);
+  }
+
+  if (clientIds.size === 0) return { ok: true, count: 0 };
+
+  const { count, error } = await supabase
+    .from('appointments')
+    .select('id', { count: 'exact', head: true })
+    .eq('salon_id', salonId)
+    .in('client_id', [...clientIds])
+    .gte('created_at', since.toISOString());
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, count: count ?? 0 };
+}
