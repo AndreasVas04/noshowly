@@ -127,16 +127,22 @@ type OwnerState = { id: string; email: string; plan: string; counter: CounterSna
  * caches salon owners and recent-send counts, which are kept up to date with
  * its own sends.
  *
- * @param options.db    - Service-role client (default: a new one).
- * @param options.clock - Current time (injectable for tests).
+ * @param options.db                - Service-role client (default: a new one).
+ * @param options.clock             - Current time (injectable for tests).
+ * @param options.minSendIntervalMs - Minimum time between two Resend calls made
+ *                                    by this gateway (the reminder job paces its
+ *                                    batch below Resend's rate limit). Default 0.
  */
 export function createEmailGateway(
-  options: { db?: AdminSupabaseClient; clock?: () => Date } = {},
+  options: { db?: AdminSupabaseClient; clock?: () => Date; minSendIntervalMs?: number } = {},
 ): EmailGateway {
-  const db           = options.db ?? createAdminSupabaseClient();
-  const clock        = options.clock ?? (() => new Date());
-  const counterStore = createCounterStore(db);
-  const claimStore   = createClaimStore(db);
+  const db                = options.db ?? createAdminSupabaseClient();
+  const clock             = options.clock ?? (() => new Date());
+  const minSendIntervalMs = options.minSendIntervalMs ?? 0;
+  const counterStore      = createCounterStore(db);
+  const claimStore        = createClaimStore(db);
+  /** When this gateway last called Resend (epoch ms). */
+  let lastSendAt = 0;
 
   const owners             = new Map<string, OwnerState | null>();
   const salonHourCounts    = new Map<string, number>();
@@ -305,6 +311,9 @@ export function createEmailGateway(
       }
 
       // Step 9: Send. The row id is the idempotency key.
+      const wait = lastSendAt + minSendIntervalMs - Date.now();
+      if (wait > 0) await sleep(wait);
+      lastSendAt = Date.now();
       const result = await sendEmail({
         to:             recipient,
         subject:        email.subject,
@@ -453,4 +462,9 @@ function failed(log: string, reason: FailReason, message: string): SendResult {
 /** Message of an unknown error value. */
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Resolves after `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

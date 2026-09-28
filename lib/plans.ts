@@ -116,13 +116,6 @@ export const MAX_EMAILS_PER_RECIPIENT_PER_DAY = 5 as const;
 /** The most test emails a salon may send in any 24 hours (dashboard "Send reminder"). */
 export const MAX_TEST_EMAILS_PER_DAY = 5 as const;
 
-/**
- * Appointment time window (hours from now) that triggers an email reminder.
- * pg_cron runs every hour; any appointment falling in the [minHours, maxHours]
- * window gets a reminder. The 2-hour window absorbs cron jitter.
- */
-export const EMAIL_REMINDER_WINDOW = { minHours: 23, maxHours: 25 } as const;
-
 // ---------------------------------------------------------------------------
 // Plan utility functions
 // ---------------------------------------------------------------------------
