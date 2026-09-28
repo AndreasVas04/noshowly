@@ -4,7 +4,7 @@
  * TypeScript types for all NoShowly database tables and the Supabase Database
  * generic used to type the Supabase client throughout the codebase.
  *
- * Keep these in sync with the SQL schema whenever the schema changes.
+ * Keep these in sync with the SQL schema (supabase/migrations) whenever the schema changes.
  * These types are the single source of truth for TypeScript — the DB is the source
  * of truth for the actual data.
  *
@@ -14,9 +14,11 @@
 
 // Import plan types from lib/plans (canonical definition) for use in this file,
 // then re-export them so callers that import from @/types get everything they need.
-// PlanType  = 'trial' | 'solo-sms' | 'team-sms' | ... (9 paid + trial)
-// PaidPlan  = Exclude<PlanType, 'trial'>               (9 paid plans only)
-// UserPlan  = PlanType | 'cancelled'                   (full DB column set)
+// PlanType  = keys of PLAN_LIMITS: 'trial' | 'basic' | 'pro' | 'business' | 'starter' | 'professional'
+// PaidPlan  = 'basic'                                   (the only plan sold at checkout)
+// UserPlan  = PlanType | 'cancelled'
+// The database (users_plan_check) accepts 'trial' | 'basic' | 'pro' | 'business' | 'cancelled';
+// the legacy aliases 'starter' and 'professional' were renamed to 'basic' and 'pro'.
 import type { PlanType, PaidPlan, UserPlan } from '@/lib/plans';
 export type { PlanType, PaidPlan, UserPlan };
 
@@ -33,9 +35,14 @@ export type { PlanType, PaidPlan, UserPlan };
 export type AppointmentStatus = 'scheduled' | 'confirmed' | 'cancelled';
 
 /**
- * Channel through which a reminder is delivered.
+ * Kind of reminder row.
+ * 'email'              — The 24-hour reminder with YES/NO buttons. At most one per appointment
+ *                        may be pending or sent (reminders_one_email_per_appointment).
+ * 'email_confirmation' — Booking confirmation sent right after a booking.
+ * 'email_test'         — Manual test send from the dashboard.
+ * 'sms'                — Legacy rows only; the product is email-only.
  */
-export type ReminderType = 'sms' | 'email';
+export type ReminderType = 'email' | 'email_confirmation' | 'email_test' | 'sms';
 
 /**
  * Processing state of a single reminder record.
@@ -43,9 +50,10 @@ export type ReminderType = 'sms' | 'email';
  * 'sent'      — Successfully delivered.
  * 'failed'    — Delivery attempt failed (will not auto-retry without manual intervention).
  * 'confirmed' — Client responded YES.
- * 'cancelled' — Client responded NO.
+ * 'cancelled' — Client responded NO, or the appointment was cancelled before sending.
+ * 'skipped'   — Never sent and never will be (e.g. the appointment was cancelled or has passed).
  */
-export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'confirmed' | 'cancelled';
+export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'confirmed' | 'cancelled' | 'skipped';
 
 /**
  * Type of service being performed in an appointment.
@@ -64,9 +72,9 @@ export type Service = {
   salon_id: string;
   /** Display name of the service, e.g. "Haircut", "Beard trim". */
   name: string;
-  /** Optional duration hint in minutes, e.g. 30. Null if not set. */
+  /** Optional duration in minutes, 1–480, e.g. 30. Null if not set. */
   duration_minutes: number | null;
-  /** Optional displayed price. Null means no price shown. */
+  /** Optional displayed price, never negative. Null means no price shown. */
   price: number | null;
   /** Whether the service is visible on the booking page and appointment modal. */
   active: boolean;
@@ -114,13 +122,8 @@ export type Salon = {
   timezone: string;
   /** Opening time in HH:MM 24-hour format, e.g. "09:00". Null if not yet set. */
   opening_time: string | null;
-  /** Closing time in HH:MM 24-hour format, e.g. "20:00". Null if not yet set. */
+  /** Closing time in HH:MM 24-hour format, e.g. "20:00". Must be after opening_time. Null if not yet set. */
   closing_time: string | null;
-  /**
-   * Custom SMS reminder template. Supports {client_name}, {business_name},
-   * {service}, {time}, {date} placeholders. Null → use application default.
-   */
-  sms_template: string | null;
   /**
    * Custom email footer text. Supports {business_name} placeholder.
    * Null → use application default.
@@ -149,8 +152,6 @@ export type Salon = {
   email_closing: string | null;
   /** ISO 4217 currency code used for price display on the booking page, e.g. 'USD', 'EUR'. */
   currency: string;
-  /** Whether SMS reminders include a YES/NO confirmation request. Default true. */
-  sms_confirmation_enabled: boolean;
   /** Whether email reminders include YES/NO confirmation buttons. Default true. */
   email_confirmation_enabled: boolean;
   created_at: string;
@@ -208,6 +209,10 @@ export type Appointment = {
   /** ISO timestamp of the appointment start time (stored in UTC). */
   datetime: string;
   service_type: ServiceType | null;
+  /**
+   * Length in minutes, 1–480. A barber cannot have two overlapping appointments
+   * that are not cancelled (appointments_no_double_booking, error 23P01).
+   */
   duration_minutes: number;
   notes: string | null;
   status: AppointmentStatus;
@@ -230,7 +235,7 @@ export type Reminder = {
   /**
    * Single-use token for the email confirmation link (/api/confirm/[token]).
    * Generated via crypto.randomUUID() at reminder creation time.
-   * Null on rows created before the add_reminder_token.sql migration.
+   * Null on rows created before reminder tokens existed.
    */
   token: string | null;
   created_at: string;
@@ -304,7 +309,7 @@ export type BookingPage = {
   id: string;
   /** FK → salons.id — one booking page per salon. */
   salon_id: string;
-  /** URL-friendly slug, e.g. "salon-elena". Must be globally unique. */
+  /** URL-friendly slug, e.g. "salon-elena": a-z, 0-9 and hyphens. Globally unique, ignoring case. */
   slug: string;
   /** Whether the public booking page is live. False by default. */
   is_active: boolean;
@@ -438,7 +443,6 @@ export type Database = {
           timezone?: string;
           opening_time?: string | null;
           closing_time?: string | null;
-          sms_template?: string | null;
           email_footer?: string | null;
           email_subject?: string | null;
           email_greeting?: string | null;
@@ -446,8 +450,6 @@ export type Database = {
           email_closing?: string | null;
           /** ISO 4217 currency code. Defaults to 'USD'. */
           currency?: string;
-          /** Defaults to true if omitted. */
-          sms_confirmation_enabled?: boolean;
           /** Defaults to true if omitted. */
           email_confirmation_enabled?: boolean;
           created_at?: string;
