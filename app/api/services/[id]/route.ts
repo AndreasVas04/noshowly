@@ -15,6 +15,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { Service } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -27,8 +28,8 @@ import type { Service } from '@/types';
  * Request body (all fields optional — at least one required):
  *  {
  *    name?:             string          — 1–50 chars
- *    duration_minutes?: number | null  — positive integer, or null to clear
- *    price?:            number | null  — non-negative decimal, or null to clear
+ *    duration_minutes?: number | null  — integer minutes from 1 to 480, or null to clear
+ *    price?:            number | null  — decimal of 0 or more, or null to clear
  *    active?:           boolean        — show/hide on booking page
  *  }
  *
@@ -94,8 +95,8 @@ export async function PUT(
   if ('duration_minutes' in raw) {
     if (raw.duration_minutes === null) {
       updates.duration_minutes = null;
-    } else if (typeof raw.duration_minutes !== 'number' || !Number.isInteger(raw.duration_minutes) || raw.duration_minutes <= 0) {
-      return Response.json({ error: 'duration_minutes must be a positive integer or null' }, { status: 400 });
+    } else if (!isValidDuration(raw.duration_minutes)) {
+      return Response.json({ error: 'duration_minutes must be an integer between 1 and 480, or null' }, { status: 400 });
     } else {
       updates.duration_minutes = raw.duration_minutes;
     }
@@ -104,8 +105,8 @@ export async function PUT(
   if ('price' in raw) {
     if (raw.price === null) {
       updates.price = null;
-    } else if (typeof raw.price !== 'number' || raw.price < 0) {
-      return Response.json({ error: 'price must be a non-negative number or null' }, { status: 400 });
+    } else if (!isValidPrice(raw.price)) {
+      return Response.json({ error: 'price must be a number of 0 or more, or null' }, { status: 400 });
     } else {
       updates.price = raw.price;
     }

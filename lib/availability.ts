@@ -59,6 +59,9 @@ export const MIN_DURATION_MINUTES = 1;
 /** Longest accepted appointment or service duration (8 hours). */
 export const MAX_DURATION_MINUTES = 480;
 
+/** Highest price that fits the DECIMAL(10,2) price columns. */
+export const MAX_PRICE = 99_999_999.99;
+
 /**
  * Hours used for public bookings when a staff member has no hours configured
  * for the day and the salon has no opening hours.
@@ -158,6 +161,13 @@ export function isValidDuration(value: unknown): value is number {
     value >= MIN_DURATION_MINUTES &&
     value <= MAX_DURATION_MINUTES
   );
+}
+
+/**
+ * Returns true for a price of 0 or more (and within MAX_PRICE).
+ */
+export function isValidPrice(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_PRICE;
 }
 
 /**

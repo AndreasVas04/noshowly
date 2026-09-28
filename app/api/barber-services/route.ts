@@ -21,6 +21,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { BarberService } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -91,8 +92,8 @@ type AssignmentInput = {
  *   barber_id:   string,           // UUID of the barber to update
  *   assignments: {                  // Services to assign (empty = no assignments)
  *     service_id:                 string,
- *     price_override?:            number | null,
- *     duration_minutes_override?: number | null,
+ *     price_override?:            number | null,   // 0 or more
+ *     duration_minutes_override?: number | null,   // integer minutes, 1–480
  *   }[]
  * }
  *
@@ -130,6 +131,10 @@ export async function PUT(request: Request): Promise<Response> {
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
   const raw = body as Record<string, unknown>;
 
   if (typeof raw.barber_id !== 'string' || !raw.barber_id.trim()) {
@@ -145,20 +150,29 @@ export async function PUT(request: Request): Promise<Response> {
   // Validate and normalise each assignment entry.
   const assignments: AssignmentInput[] = [];
   for (const a of rawAssignments) {
+    if (typeof a !== 'object' || a === null) {
+      return Response.json({ error: 'Each assignment must be an object' }, { status: 400 });
+    }
     if (typeof a.service_id !== 'string' || !a.service_id.trim()) {
       return Response.json({ error: 'Each assignment must have a non-empty service_id string' }, { status: 400 });
     }
-    // price_override: number | null | undefined — validate if present.
-    if (a.price_override !== undefined && a.price_override !== null && typeof a.price_override !== 'number') {
-      return Response.json({ error: 'price_override must be a number or null' }, { status: 400 });
+    if (assignments.some((existing) => existing.service_id === (a.service_id as string).trim())) {
+      return Response.json({ error: 'Each service can only be assigned once' }, { status: 400 });
     }
-    // duration_minutes_override: integer | null | undefined — validate if present.
+    // price_override: number ≥ 0 | null | undefined — validate if present.
+    if (a.price_override !== undefined && a.price_override !== null && !isValidPrice(a.price_override)) {
+      return Response.json({ error: 'price_override must be a number of 0 or more, or null' }, { status: 400 });
+    }
+    // duration_minutes_override: integer 1–480 | null | undefined — validate if present.
     if (
       a.duration_minutes_override !== undefined &&
       a.duration_minutes_override !== null &&
-      typeof a.duration_minutes_override !== 'number'
+      !isValidDuration(a.duration_minutes_override)
     ) {
-      return Response.json({ error: 'duration_minutes_override must be a number or null' }, { status: 400 });
+      return Response.json(
+        { error: 'duration_minutes_override must be an integer between 1 and 480, or null' },
+        { status: 400 }
+      );
     }
     assignments.push({
       service_id: a.service_id.trim(),

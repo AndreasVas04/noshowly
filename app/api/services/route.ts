@@ -16,6 +16,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { Service } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -77,8 +78,8 @@ export async function GET(): Promise<Response> {
  * Request body:
  *  {
  *    name:              string           — required, 1–50 chars
- *    duration_minutes?: number | null   — optional, positive integer in minutes
- *    price?:            number | null   — optional, non-negative decimal
+ *    duration_minutes?: number | null   — optional, integer minutes from 1 to 480
+ *    price?:            number | null   — optional, decimal of 0 or more
  *    active?:           boolean         — optional, defaults to true
  *  }
  *
@@ -134,20 +135,20 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Validate duration_minutes — optional
+  // Validate duration_minutes — optional, whole minutes from 1 to 480
   let duration_minutes: number | null = null;
   if ('duration_minutes' in raw && raw.duration_minutes !== null) {
-    if (typeof raw.duration_minutes !== 'number' || !Number.isInteger(raw.duration_minutes) || raw.duration_minutes <= 0) {
-      return Response.json({ error: 'duration_minutes must be a positive integer' }, { status: 400 });
+    if (!isValidDuration(raw.duration_minutes)) {
+      return Response.json({ error: 'duration_minutes must be an integer between 1 and 480' }, { status: 400 });
     }
     duration_minutes = raw.duration_minutes;
   }
 
-  // Validate price — optional
+  // Validate price — optional, 0 or more
   let price: number | null = null;
   if ('price' in raw && raw.price !== null) {
-    if (typeof raw.price !== 'number' || raw.price < 0) {
-      return Response.json({ error: 'price must be a non-negative number' }, { status: 400 });
+    if (!isValidPrice(raw.price)) {
+      return Response.json({ error: 'price must be a number of 0 or more' }, { status: 400 });
     }
     price = raw.price;
   }

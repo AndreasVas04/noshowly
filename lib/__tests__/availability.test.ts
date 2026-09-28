@@ -2,8 +2,8 @@
  * lib/__tests__/availability.test.ts
  *
  * Unit tests for the shared booking rules in lib/availability.ts: eligibility,
- * durations, working intervals, slot generation, the booking window and the
- * "Any available staff" assignment.
+ * durations, working intervals, slot generation, the booking window, the
+ * "Any available staff" assignment and duration/price validation.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -20,6 +20,8 @@ import {
   isBarberEligibleForService,
   isCandidateAvailable,
   isDateWithinBookingWindow,
+  isValidDuration,
+  isValidPrice,
   pickAnyAvailableBarber,
   sanitiseIntervals,
   type AvailabilityRecord,
@@ -321,5 +323,27 @@ describe('pickAnyAvailableBarber', () => {
     expect(pickAnyAvailableBarber({ date: DATE, time: '12:00', timeZone: TZ, candidates: withOverride, busy: [] })).toBe(
       'id-b',
     );
+  });
+});
+
+describe('duration and price validation', () => {
+  it('accepts whole minutes from 1 to 480', () => {
+    expect(isValidDuration(1)).toBe(true);
+    expect(isValidDuration(480)).toBe(true);
+    expect(isValidDuration(0)).toBe(false);
+    expect(isValidDuration(481)).toBe(false);
+    expect(isValidDuration(30.5)).toBe(false);
+    expect(isValidDuration('30')).toBe(false);
+    expect(isValidDuration(null)).toBe(false);
+  });
+
+  it('accepts prices of 0 or more', () => {
+    expect(isValidPrice(0)).toBe(true);
+    expect(isValidPrice(12.5)).toBe(true);
+    expect(isValidPrice(-0.01)).toBe(false);
+    expect(isValidPrice(Number.NaN)).toBe(false);
+    expect(isValidPrice(Number.POSITIVE_INFINITY)).toBe(false);
+    expect(isValidPrice(1e12)).toBe(false);
+    expect(isValidPrice('10')).toBe(false);
   });
 });
