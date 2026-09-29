@@ -18,8 +18,7 @@
  *    taking bookings (lib/booking-data.ts salonAcceptsBookings).
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import type { BookingPage } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -36,25 +35,10 @@ import type { BookingPage } from '@/types';
  * @returns 500 { error: string }
  */
 export async function GET(): Promise<Response> {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Derive salon_id from session — never trust the client to supply it.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
+  // The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   const { data: bookingPage, error } = await supabase
     .from('booking_pages')
@@ -94,18 +78,10 @@ export async function GET(): Promise<Response> {
  * @returns 500 { error: string }
  */
 export async function POST(request: Request): Promise<Response> {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   let body: unknown;
   try {
@@ -212,17 +188,6 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'At least one contact field (phone or email) must be required' }, { status: 400 });
   }
 
-  // Derive salon_id from session.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
   const { data: bookingPage, error: insertError } = await supabase
     .from('booking_pages')
     .insert({ salon_id: salon.id, slug, description, is_active, custom_title, custom_intro, require_phone, require_email })
@@ -267,18 +232,10 @@ export async function POST(request: Request): Promise<Response> {
  * @returns 500 { error: string }
  */
 export async function PUT(request: Request): Promise<Response> {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   let body: unknown;
   try {
@@ -396,17 +353,6 @@ export async function PUT(request: Request): Promise<Response> {
       { error: 'At least one field (slug, description, is_active, custom_title, custom_intro, require_phone, require_email) is required' },
       { status: 400 }
     );
-  }
-
-  // Derive salon_id from session.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
 
   const { data: bookingPage, error: updateError } = await supabase

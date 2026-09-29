@@ -24,13 +24,13 @@
  *    reminder is still sent by the reminder job.
  *
  * Security:
- *  - Requires authentication, verified with requireUser() because the
- *    gateway uses the service-role key — only the salon owner can trigger this.
+ *  - Requires authentication, verified with Supabase Auth by requireOwner()
+ *    because the gateway uses the service-role key — only the salon owner can
+ *    trigger this.
  *  - Appointment is scoped to the owner's salon (cross-salon access impossible).
  */
 
-import { requireUser } from '@/lib/auth';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { MAX_TEST_EMAILS_PER_DAY } from '@/lib/plans';
 import { isUuid } from '@/lib/postgrest';
 import { sendAppointmentEmail, type SendResult } from '@/lib/reminders/gateway';
@@ -56,32 +56,17 @@ interface RouteContext {
 export async function POST(_request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify authentication.
-  const auth = await requireUser();
-  if (!auth.ok) return auth.response;
-  const { user, supabase } = auth;
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon. requireOwner()
+  // verifies the token with Supabase Auth, which the service-role step below needs.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   if (!isUuid(id)) {
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
 
-  // Step 2: Resolve the salon for this user.
-  // salon_id always comes from the session — never trusted from the client.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 3: Fetch the appointment with its client's email, scoped to this salon.
+  // Step 2: Fetch the appointment with its client's email, scoped to this salon.
   const { data: row, error: apptError } = await supabase
     .from('appointments')
     .select('id, datetime, status, clients (email)')
@@ -102,7 +87,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
     clients: { email: string | null } | null;
   };
 
-  // Step 4: Only upcoming appointments that are not cancelled.
+  // Step 3: Only upcoming appointments that are not cancelled.
   if (appt.status === 'cancelled' || !(Date.parse(appt.datetime) > Date.now())) {
     return Response.json(
       { error: 'Test emails can only be sent for upcoming appointments that are not cancelled.' },
@@ -110,7 +95,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
     );
   }
 
-  // Step 5: Validate the client has an email address.
+  // Step 4: Validate the client has an email address.
   if (!appt.clients?.email) {
     return Response.json(
       { error: 'This client does not have an email address. Add one to send a test reminder.' },
@@ -118,7 +103,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
     );
   }
 
-  // Step 6: Send through the email gateway as a test.
+  // Step 5: Send through the email gateway as a test.
   const result = await sendAppointmentEmail({ kind: 'email_test', appointmentId: appt.id });
   return testSendResponse(result);
 }

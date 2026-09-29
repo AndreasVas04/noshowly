@@ -24,8 +24,7 @@
  *    read-only (lib/access.ts). Searching always works.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { fillMissingClientEmail, findReusableClient, parseClientFields } from '@/lib/clients';
 import { looksLikePhone, normalisePhone, phoneMatchPattern } from '@/lib/contact';
 import type { Client } from '@/types';
@@ -48,15 +47,10 @@ import type { Client } from '@/types';
  * @returns 500 { error: string }             — unexpected DB error
  */
 export async function GET(request: Request): Promise<Response> {
-  // Step 1: Verify authentication — always first.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Parse and validate the search query param.
   const { searchParams } = new URL(request.url);
@@ -75,19 +69,7 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
-  // Step 3: Resolve the salon for this user.
-  // Deriving salon_id from the session ensures cross-salon data is never returned.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4a: Phone-like terms search by phone first. Phone is the primary
+  // Step 3: Phone-like terms search by phone first. Phone is the primary
   // client identifier, so a phone match takes precedence over a name match.
   // The pattern ignores separators, so '+357 99' finds '+35799123456' and
   // numbers saved as '+357 99 123 456'.
@@ -111,7 +93,7 @@ export async function GET(request: Request): Promise<Response> {
     }
   }
 
-  // Step 4b: No phone matches — fall back to a name search.
+  // Step 4: No phone matches — fall back to a name search.
   const { data: clients, error: dbError } = await supabase
     .from('clients')
     .select('*')
@@ -169,19 +151,10 @@ export async function GET(request: Request): Promise<Response> {
  * @returns 500 { error: string }             — unexpected DB error
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Parse and validate the request body.
   let body: unknown;
@@ -205,18 +178,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Client name and phone number are required' }, { status: 400 });
   }
 
-  // Step 3: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: De-duplication — reuse the client with the same phone number and
+  // Step 3: De-duplication — reuse the client with the same phone number and
   // the same name. Several clients may share a number, so this looks at an
   // ordered list of candidates rather than expecting a single row.
   const lookup = await findReusableClient(supabase, salon.id, { name, phone, email });
@@ -230,7 +192,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ client }, { status: 200 });
   }
 
-  // Step 5: Insert the new client.
+  // Step 4: Insert the new client.
   // salon_id is derived from the session — never accepted from the request body.
   const { data: client, error: insertError } = await supabase
     .from('clients')

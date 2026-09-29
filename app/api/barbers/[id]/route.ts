@@ -18,8 +18,7 @@
  *    (lib/staff-photos.ts); the photo already saved is accepted unchanged.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { isOwnStaffPhotoUrl } from '@/lib/staff-photos';
 import type { Barber } from '@/types';
 
@@ -52,19 +51,10 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Await route params.
   const { id: barberId } = await params;
@@ -138,20 +128,9 @@ export async function PUT(
     );
   }
 
-  // Step 4: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4b: A new photo must be one the owner uploaded. The photo already
+  // Step 4: A new photo must be one the owner uploaded. The photo already
   // saved passes unchanged, so an older URL stays until it is replaced.
-  if (updates.photo_url && !isOwnStaffPhotoUrl(updates.photo_url, process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', session.user.id)) {
+  if (updates.photo_url && !isOwnStaffPhotoUrl(updates.photo_url, process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', owner.user.id)) {
     const { data: current } = await supabase
       .from('barbers')
       .select('photo_url')
@@ -210,19 +189,10 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Await the route params (Next.js 15+ params are async).
   const { id: barberId } = await params;
@@ -231,19 +201,7 @@ export async function DELETE(
     return Response.json({ error: 'Barber ID is required' }, { status: 400 });
   }
 
-  // Step 3: Resolve the salon for this user.
-  // We use the session-derived salon_id — never trust a client-supplied one.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: Delete the barber, but only if it belongs to this salon.
+  // Step 3: Delete the barber, but only if it belongs to this salon.
   // Security: the `.eq('salon_id', salon.id)` guard prevents a user from
   // deleting a barber that belongs to a different salon — even if they know the UUID.
   const { error: deleteError, count } = await supabase

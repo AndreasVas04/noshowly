@@ -16,8 +16,7 @@
  *  - RLS provides a second enforcement layer.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { Service } from '@/types';
 
@@ -50,19 +49,10 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Await route params.
   const { id: serviceId } = await params;
@@ -134,18 +124,7 @@ export async function PUT(
     );
   }
 
-  // Step 4: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 5: Update — ownership guard via .eq('salon_id', salon.id).
+  // Step 4: Update — ownership guard via .eq('salon_id', salon.id).
   const { data: service, error: updateError } = await supabase
     .from('services')
     .update(updates)
@@ -189,19 +168,10 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Await the route params (Next.js 15+ params are async).
   const { id: serviceId } = await params;
@@ -210,18 +180,7 @@ export async function DELETE(
     return Response.json({ error: 'Service ID is required' }, { status: 400 });
   }
 
-  // Step 3: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: Delete the service, but only if it belongs to this salon.
+  // Step 3: Delete the service, but only if it belongs to this salon.
   // Security: the `.eq('salon_id', salon.id)` guard prevents a user from
   // deleting a service that belongs to a different salon.
   const { error: deleteError, count } = await supabase

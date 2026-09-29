@@ -7,16 +7,15 @@
  * updates the client record instead of being silently dropped.
  *
  * Security:
- *  - The caller is verified with Supabase Auth (requireUser) first.
- *  - Write access is checked next: an ended trial or an inactive
- *    subscription is read-only (lib/access.ts).
+ *  - requireOwner({ write: true }) (lib/auth.ts) first: the caller is
+ *    verified with Supabase Auth, an ended trial or an inactive subscription
+ *    is read-only (lib/access.ts), and the salon comes from the session.
  *  - Only the RLS-scoped client is used; the update is also scoped to the
  *    caller's salon, so another salon's client id returns 404.
  *  - All inputs are validated before touching the database.
  */
 
-import { requireUser } from '@/lib/auth';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { parseClientFields } from '@/lib/clients';
 import { isUuid } from '@/lib/postgrest';
 import type { Client } from '@/types';
@@ -50,14 +49,11 @@ interface RouteContext {
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify the caller.
-  const auth = await requireUser();
-  if (!auth.ok) return auth.response;
-  const { user, supabase } = auth;
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon. requireOwner()
+  // verifies the token with Supabase Auth, which the service-role step below needs.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // A malformed id is "not found", not a database error.
   if (!isUuid(id)) {
@@ -81,18 +77,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     return Response.json({ error: parsed.error }, { status: 400 });
   }
 
-  // Step 3: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: Update, scoped to this salon so other salons' clients are unreachable.
+  // Step 3: Update, scoped to this salon so other salons' clients are unreachable.
   const { data: client, error: updateError } = await supabase
     .from('clients')
     .update(parsed.fields)
