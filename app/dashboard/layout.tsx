@@ -80,17 +80,30 @@ type AccountRows =
 /**
  * Reads the owner's salon name and plan through RLS.
  *
- * @param supabase - The signed-in user's client.
- * @param userId   - The verified user's id.
+ * While a request renders, Next.js answers a GET fetch identical to an
+ * earlier one with the earlier response (request memoization), so reading
+ * again after the repair below would return the rows as they were before it.
+ * A request with an abort signal is never memoized, which is what `fresh`
+ * does.
+ *
+ * @param supabase      - The signed-in user's client.
+ * @param userId        - The verified user's id.
+ * @param options.fresh - Read the database again, not a memoized response.
  */
 async function readAccountRows(
   supabase: SupabaseClient<Database>,
   userId: string,
+  options: { fresh?: boolean } = {},
 ): Promise<AccountRows> {
-  const [salonResult, userResult] = await Promise.all([
-    supabase.from('salons').select('name').eq('user_id', userId).limit(1),
-    supabase.from('users').select('plan, trial_ends_at').eq('id', userId).maybeSingle(),
-  ]);
+  let salonQuery = supabase.from('salons').select('name').eq('user_id', userId).limit(1);
+  let userQuery = supabase.from('users').select('plan, trial_ends_at').eq('id', userId);
+  if (options.fresh) {
+    const { signal } = new AbortController();
+    salonQuery = salonQuery.abortSignal(signal);
+    userQuery = userQuery.abortSignal(signal);
+  }
+
+  const [salonResult, userResult] = await Promise.all([salonQuery, userQuery.maybeSingle()]);
   if (salonResult.error || userResult.error) return { ok: false };
   return {
     ok: true,
@@ -129,7 +142,7 @@ async function loadDashboardAccount(): Promise<DashboardAccount> {
         `[dashboard] Completed the account of user=${user.id} ` +
         `(users row created: ${result.createdUser}, salon created: ${result.createdSalon})`
       );
-      rows = await readAccountRows(supabase, user.id);
+      rows = await readAccountRows(supabase, user.id, { fresh: true });
     }
 
     // Step 3: Salon name and plan banner.
