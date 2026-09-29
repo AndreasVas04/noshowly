@@ -36,7 +36,7 @@ export default function LandingFooter() {
 
           {/* Product links */}
           <div>
-            <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-4 font-body">
+            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4 font-body">
               Product
             </p>
             <nav className="space-y-3" aria-label="Footer product links">
@@ -57,7 +57,7 @@ export default function LandingFooter() {
 
           {/* Legal */}
           <div>
-            <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-4 font-body">
+            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4 font-body">
               Company
             </p>
             <nav className="space-y-3" aria-label="Footer company links">
@@ -81,7 +81,7 @@ export default function LandingFooter() {
 
         </div>
 
-        <p className="pt-8 text-xs text-white/30 font-body">
+        <p className="pt-8 text-xs text-white/50 font-body">
           &copy; {new Date().getFullYear()} Noshowly. All rights reserved.
         </p>
       </div>

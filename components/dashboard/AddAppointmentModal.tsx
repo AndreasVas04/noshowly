@@ -145,10 +145,18 @@ export default function AddAppointmentModal({
   /** True when viewing a cancelled appointment — all fields disabled, save hidden. */
   const isCancelledView = isEditMode && appointment?.status === 'cancelled';
 
+  /** True while the soft-warning confirmation covers the form. */
+  const isWarningOpen = warningDialog !== null;
+
   return (
     <Dialog
       open={isOpen}
-      onOpenChange={(open) => { if (!open && !isSubmitting && !isCancelling) onClose(); }}
+      onOpenChange={(open) => {
+        if (open || isSubmitting || isCancelling) return;
+        // Escape or a click outside while the warning is up only closes the warning.
+        if (isWarningOpen) setWarningDialog(null);
+        else onClose();
+      }}
     >
       <DialogContent
         showCloseButton={false}
@@ -157,7 +165,10 @@ export default function AddAppointmentModal({
         {/* ================================================================
             Header
         ================================================================ */}
-        <DialogHeader className="flex-row items-center justify-between px-6 py-4 border-b border-[#C8C8C8]/30 shrink-0 gap-0">
+        <DialogHeader
+          inert={isWarningOpen}
+          className="flex-row items-center justify-between px-6 py-4 border-b border-[#C8C8C8]/30 shrink-0 gap-0"
+        >
           <DialogTitle className="font-heading text-lg font-semibold text-[#1A1A1A]">
             {title}
           </DialogTitle>
@@ -165,7 +176,7 @@ export default function AddAppointmentModal({
             type="button"
             onClick={onClose}
             aria-label="Close modal"
-            className="p-1.5 rounded-lg text-[#C8C8C8] hover:text-[#1A1A1A] hover:bg-[#1A1A1A]/5 transition-colors"
+            className="p-1.5 rounded-lg text-[#6F6B65] hover:text-[#1A1A1A] hover:bg-[#1A1A1A]/5 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -174,14 +185,14 @@ export default function AddAppointmentModal({
         {/* ================================================================
             Form — scrollable body + sticky footer
         ================================================================ */}
-        <form onSubmit={handleSubmit} noValidate className="flex-1 flex flex-col min-h-0">
+        <form onSubmit={handleSubmit} noValidate inert={isWarningOpen} className="flex-1 flex flex-col min-h-0">
 
           {/* Scrollable fields */}
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
             {/* Global error */}
             {error && (
-              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3">
+              <div role="alert" className="bg-red-50 border border-red-100 rounded-lg px-4 py-3">
                 <p className="text-sm text-red-700">{error}</p>
               </div>
             )}
@@ -189,7 +200,7 @@ export default function AddAppointmentModal({
             {/* ---- Read-only cancelled badge (edit mode, cancelled only) --- */}
             {isCancelledView && (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#8A8680]">Status:</span>
+                <span className="text-xs font-medium text-[#6F6B65]">Status:</span>
                 <Badge status="cancelled" />
               </div>
             )}
@@ -297,7 +308,7 @@ export default function AddAppointmentModal({
             )}
 
             {isDemo && isEditMode && appointment?.status !== 'cancelled' && appointment?.client_email && (
-              <p className="text-[10px] text-[#8A8680] italic mt-1">Demo mode: reminder emails are sent only to the demo account owner, not to clients.</p>
+              <p className="text-[10px] text-[#6F6B65] italic mt-1">Demo mode: reminder emails are sent only to the demo account owner, not to clients.</p>
             )}
 
             {/* ml-auto pushes Close + Save to the right; wraps to its own row on small screens */}
@@ -334,7 +345,7 @@ export default function AddAppointmentModal({
             Soft-warning confirmation dialog
             Overlaid inside the modal when appointment has soft warnings.
         ================================================================ */}
-        {warningDialog !== null && (
+        {isWarningOpen && (
           <WarningDialog
             message={warningDialog}
             onGoBack={() => setWarningDialog(null)}

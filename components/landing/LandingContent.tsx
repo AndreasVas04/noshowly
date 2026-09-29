@@ -73,11 +73,11 @@ function ComparisonRow({ label, others, noshowly, othersOk, noshowlyOk, last }: 
 
   return (
     <tr className={borderClass}>
-      <td className={`py-4 px-6 text-[#1A1A1A] font-medium text-sm ${borderClass}`}>{label}</td>
+      <th scope="row" className={`py-4 px-6 text-left text-[#1A1A1A] font-medium text-sm ${borderClass}`}>{label}</th>
       <td className={`py-4 px-6 text-center ${borderClass}`}>
-        <span className="flex items-center justify-center gap-2 text-[#8A8680] text-sm">
+        <span className="flex items-center justify-center gap-2 text-[#6F6B65] text-sm">
           {othersOk ? (
-            <Check className="h-4 w-4 text-[#8A8680] shrink-0" aria-hidden="true" />
+            <Check className="h-4 w-4 text-[#6F6B65] shrink-0" aria-hidden="true" />
           ) : (
             <X className="h-4 w-4 text-red-400 shrink-0" aria-hidden="true" />
           )}
@@ -155,6 +155,7 @@ function PricingCard({ name, price, description, features }: PricingCardProps) {
 export default function LandingContent() {
   return (
     <>
+      <main>
       {/* ====================================================================
           HERO
       ==================================================================== */}
@@ -181,7 +182,7 @@ export default function LandingContent() {
               <h1 className="font-heading text-5xl md:text-6xl lg:text-[4rem] font-bold text-[#1A1A1A] leading-[1.06] tracking-tight mb-7">
                 Your 3pm just<br />cancelled.<br />Again.
               </h1>
-              <p className="text-lg text-[#8A8680] leading-relaxed mb-10 max-w-lg font-body">
+              <p className="text-lg text-[#6F6B65] leading-relaxed mb-10 max-w-lg font-body">
                 Noshowly automatically sends reminders before every appointment.
                 Clients reply YES or NO. You always know who is coming in.
               </p>
@@ -218,7 +219,7 @@ export default function LandingContent() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-[#1A1A1A] font-body">City Hair Salon</p>
-                      <p className="text-xs text-[#8A8680] font-body">Email Reminder</p>
+                      <p className="text-xs text-[#6F6B65] font-body">Email Reminder</p>
                     </div>
                     <div className="ml-auto w-2 h-2 rounded-full bg-[#1B4332]" />
                   </div>
@@ -240,7 +241,7 @@ export default function LandingContent() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <div className="flex items-center justify-center gap-2 h-10 rounded-lg border border-[#E8E4DC] text-[#8A8680] text-sm font-semibold font-body">
+                    <div className="flex items-center justify-center gap-2 h-10 rounded-lg border border-[#E8E4DC] text-[#6F6B65] text-sm font-semibold font-body">
                       <span>NO</span>
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
@@ -272,7 +273,7 @@ export default function LandingContent() {
       <section className="border-y border-[#E5E2DB] bg-white">
         <div className="mx-auto max-w-6xl px-6 py-5">
           <FadeIn>
-            <p className="text-center text-sm text-[#8A8680] font-body">
+            <p className="text-center text-sm text-[#6F6B65] font-body">
               Used by salons, clinics, physiotherapists and consultants
             </p>
           </FadeIn>
@@ -308,7 +309,7 @@ export default function LandingContent() {
                 <h3 className="font-heading text-3xl font-bold text-[#1A1A1A] mt-4 mb-4">
                   Reminders that actually get read.
                 </h3>
-                <p className="text-base text-[#8A8680] leading-relaxed font-body">
+                <p className="text-base text-[#6F6B65] leading-relaxed font-body">
                   Noshowly sends an email reminder before every appointment, automatically.
                   No manual work. No forgotten clients. It runs entirely in the background
                   from the moment you add an appointment.
@@ -316,7 +317,7 @@ export default function LandingContent() {
               </div>
               <div className="hidden lg:block">
                 <div className="bg-white rounded-2xl border border-[#E8E4DC] p-6 max-w-sm ml-auto shadow-sm">
-                  <p className="text-xs text-[#8A8680] font-body mb-3 uppercase tracking-widest">
+                  <p className="text-xs text-[#6F6B65] font-body mb-3 uppercase tracking-widest">
                     Email · Sent before your appointment
                   </p>
                   <div className="bg-[#F5F2ED] rounded-xl p-4">
@@ -326,7 +327,7 @@ export default function LandingContent() {
                       <strong>10:30 AM</strong>. Click YES to confirm or NO to cancel.
                     </p>
                   </div>
-                  <div className="mt-4 flex items-center gap-2 text-xs text-[#8A8680] font-body">
+                  <div className="mt-4 flex items-center gap-2 text-xs text-[#6F6B65] font-body">
                     <div className="w-1.5 h-1.5 rounded-full bg-[#1B4332]" />
                     Sent automatically by Noshowly
                   </div>
@@ -348,7 +349,7 @@ export default function LandingContent() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-[#1A1A1A] font-body">Sarah M. confirmed</p>
-                      <p className="text-xs text-[#8A8680] font-body">Replied YES · 2:14 PM</p>
+                      <p className="text-xs text-[#6F6B65] font-body">Replied YES · 2:14 PM</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 bg-white border border-[#E8E4DC] rounded-xl px-5 py-4 w-72 shadow-sm opacity-50">
@@ -359,7 +360,7 @@ export default function LandingContent() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-[#1A1A1A] font-body">James K. cancelled</p>
-                      <p className="text-xs text-[#8A8680] font-body">Replied NO · 3:02 PM</p>
+                      <p className="text-xs text-[#6F6B65] font-body">Replied NO · 3:02 PM</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 bg-white border border-[#E8E4DC] rounded-xl px-5 py-4 w-72 shadow-sm">
@@ -370,7 +371,7 @@ export default function LandingContent() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-[#1A1A1A] font-body">Maria L. confirmed</p>
-                      <p className="text-xs text-[#8A8680] font-body">Replied YES · 4:51 PM</p>
+                      <p className="text-xs text-[#6F6B65] font-body">Replied YES · 4:51 PM</p>
                     </div>
                   </div>
                 </div>
@@ -386,7 +387,7 @@ export default function LandingContent() {
                 <h3 className="font-heading text-3xl font-bold text-[#1A1A1A] mt-4 mb-4">
                   One reply. That is all.
                 </h3>
-                <p className="text-base text-[#8A8680] leading-relaxed font-body">
+                <p className="text-base text-[#6F6B65] leading-relaxed font-body">
                   Clients reply YES or NO to the reminder. Your dashboard updates the
                   moment they respond. You know who is coming and who has cancelled,
                   hours before the appointment. No phone tag. No back-and-forth.
@@ -409,7 +410,7 @@ export default function LandingContent() {
                 <h3 className="font-heading text-3xl font-bold text-[#1A1A1A] mt-4 mb-4">
                   Your own booking page.
                 </h3>
-                <p className="text-base text-[#8A8680] leading-relaxed font-body">
+                <p className="text-base text-[#6F6B65] leading-relaxed font-body">
                   Give clients a link to book themselves. Add it to your Google profile,
                   Instagram bio, or website. New appointments appear in your dashboard
                   immediately, with reminders scheduled automatically.
@@ -417,14 +418,14 @@ export default function LandingContent() {
               </div>
               <div className="hidden lg:block">
                 <div className="bg-white rounded-2xl border border-[#E8E4DC] p-6 max-w-sm ml-auto shadow-sm">
-                  <p className="text-xs text-[#8A8680] font-body mb-3 uppercase tracking-widest">
+                  <p className="text-xs text-[#6F6B65] font-body mb-3 uppercase tracking-widest">
                     Your booking link
                   </p>
                   <div className="bg-[#F5F2ED] rounded-xl px-4 py-3 flex items-center justify-between gap-2 mb-5">
                     <span className="text-sm text-[#1A1A1A] font-body font-medium truncate">
                       noshowly.vercel.app/book/city-hair
                     </span>
-                    <svg className="w-4 h-4 text-[#8A8680] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg className="w-4 h-4 text-[#6F6B65] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
                   </div>
@@ -435,7 +436,7 @@ export default function LandingContent() {
                       </span>
                     ))}
                   </div>
-                  <p className="mt-4 text-xs text-[#8A8680] font-body">
+                  <p className="mt-4 text-xs text-[#6F6B65] font-body">
                     Clients book in under a minute. No app download required.
                   </p>
                 </div>
@@ -458,22 +459,25 @@ export default function LandingContent() {
             <h2 className="font-heading text-4xl md:text-5xl font-bold text-[#1A1A1A] mb-4 max-w-xl leading-[1.1]">
               Not another booking marketplace.
             </h2>
-            <p className="text-base text-[#8A8680] max-w-xl font-body">
+            <p className="text-base text-[#6F6B65] max-w-xl font-body">
               Unlike marketplace-style booking platforms, Noshowly charges a flat monthly fee
               with zero commissions on your revenue.
             </p>
           </FadeIn>
 
           <FadeIn delay={0.1}>
-            <div className="overflow-x-auto">
+            {/* Scrolls sideways on narrow screens; focusable so the keyboard can scroll it too. */}
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Noshowly compared with booking platforms">
               <table className="w-full max-w-3xl mx-auto border-collapse text-sm">
                 <thead>
                   <tr>
-                    <th className="py-4 px-6 text-left text-[#8A8680] font-medium w-1/2" />
-                    <th className="py-4 px-6 text-center font-semibold text-[#1A1A1A] font-body">
+                    <th scope="col" className="py-4 px-6 text-left text-[#6F6B65] font-medium w-1/2">
+                      <span className="sr-only">Compared on</span>
+                    </th>
+                    <th scope="col" className="py-4 px-6 text-center font-semibold text-[#1A1A1A] font-body">
                       Booking platforms
                     </th>
-                    <th className="py-4 px-6 text-center font-semibold text-white bg-[#1B4332] rounded-t-xl font-body">
+                    <th scope="col" className="py-4 px-6 text-center font-semibold text-white bg-[#1B4332] rounded-t-xl font-body">
                       Noshowly
                     </th>
                   </tr>
@@ -527,7 +531,7 @@ export default function LandingContent() {
             <h2 className="font-heading text-4xl md:text-5xl font-bold text-[#1A1A1A] mb-4 leading-[1.1]">
               Simple, flat pricing.
             </h2>
-            <p className="text-base text-[#8A8680] max-w-xl font-body">
+            <p className="text-base text-[#6F6B65] max-w-xl font-body">
               No commissions. No per-booking fees. One flat monthly price,
               regardless of how many clients you serve.
             </p>
@@ -549,7 +553,7 @@ export default function LandingContent() {
             />
           </FadeIn>
 
-          <p className="mt-8 text-center text-sm text-[#8A8680] font-body">
+          <p className="mt-8 text-center text-sm text-[#6F6B65] font-body">
             {TRIAL_LENGTH_DAYS}-day free trial, no card required. No commissions. No per-booking fees.
           </p>
         </div>
@@ -588,6 +592,8 @@ export default function LandingContent() {
       {/* ====================================================================
           FOOTER
       ==================================================================== */}
+      </main>
+
       <LandingFooter />
     </>
   );

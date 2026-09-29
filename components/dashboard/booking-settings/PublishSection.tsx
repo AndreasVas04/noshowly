@@ -38,7 +38,7 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
   return (
     <section>
       <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Publish</h2>
-      <p className="text-sm text-[#8A8680] mb-4">
+      <p className="text-sm text-[#6F6B65] mb-4">
         Make your booking page live so clients can start booking online.
       </p>
 
@@ -54,7 +54,7 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
                 </p>
               </div>
               {bookingUrl && (
-                <p className="text-sm text-[#8A8680]">
+                <p className="text-sm text-[#6F6B65]">
                   Share this link with your clients:{' '}
                   <a
                     href={bookingUrl}
@@ -79,12 +79,12 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
           ) : (
             <>
               {!bookingPage && (
-                <p className="text-sm text-amber-600">
+                <p className="text-sm text-amber-700">
                   You need to save a booking page URL before you can go live.
                 </p>
               )}
               {!hasAnyService && (
-                <p className="text-sm text-amber-600">
+                <p className="text-sm text-amber-700">
                   Add at least one active service before going live.
                 </p>
               )}
@@ -99,7 +99,7 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
               </Button>
 
               {bookingPage && hasAnyService && (
-                <p className="text-xs text-[#8A8680]">
+                <p className="text-xs text-[#6F6B65]">
                   Your page will be visible at{' '}
                   <span className="font-mono">/book/{bookingPage.slug}</span>.
                   You can take it offline at any time.

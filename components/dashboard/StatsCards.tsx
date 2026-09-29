@@ -92,7 +92,7 @@ function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
   return (
     <Card className={`bg-white border-[#E5E2DB] shadow-none border-l-[3px] overflow-hidden relative ${accentClass}`}>
       <CardContent className="px-5 py-4">
-        <p className="text-[9px] sm:text-[11px] font-medium text-[#8A8680] uppercase tracking-tight font-body whitespace-nowrap overflow-hidden mb-3 text-center">{label}</p>
+        <p className="text-[9px] sm:text-[11px] font-medium text-[#6F6B65] uppercase tracking-tight font-body whitespace-nowrap overflow-hidden mb-3 text-center">{label}</p>
         {loading ? (
           <div className="h-10 w-10 animate-pulse rounded bg-[#E5E2DB]/60 mx-auto" />
         ) : (

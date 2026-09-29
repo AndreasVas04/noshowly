@@ -110,7 +110,7 @@ export default function ServiceStaffFields({
         <div className="space-y-1.5">
           <Label htmlFor="modal-service" className={labelClass}>Service</Label>
           {isLoadingServices ? (
-            <div className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-[#F9F9F9] text-sm text-[#C8C8C8] flex items-center">
+            <div className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-[#F9F9F9] text-sm text-[#6F6B65] flex items-center">
               Loading…
             </div>
           ) : services.length > 0 ? (
@@ -148,7 +148,7 @@ export default function ServiceStaffFields({
           <Label htmlFor="modal-staff" className={labelClass}>
             {selectableBarbers.length > 0
               ? 'Staff'
-              : <span>Staff <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span></span>
+              : <span>Staff <span className="text-xs font-normal text-[#6F6B65]">(optional)</span></span>
             }
           </Label>
           <select
@@ -167,7 +167,7 @@ export default function ServiceStaffFields({
             ))}
           </select>
           {staffFiltered && (
-            <p className="text-xs text-[#8A8680]">
+            <p className="text-xs text-[#6F6B65]">
               Showing {filteredBarbers.length} of {selectableBarbers.length} staff for this service.
             </p>
           )}
@@ -176,7 +176,7 @@ export default function ServiceStaffFields({
           )}
         </div>
       </div>
-      <p className="text-xs text-[#8A8680] -mt-2">Duration: {resolvedDuration} min</p>
+      <p className="text-xs text-[#6F6B65] -mt-2">Duration: {resolvedDuration} min</p>
     </>
   );
 }

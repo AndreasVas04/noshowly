@@ -84,7 +84,7 @@ function CalendarPicker({
           type="button"
           onClick={prevMonth}
           disabled={!canGoBack}
-          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332] disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#6F6B65] hover:text-[#1B4332] disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Previous month"
         >
           &#8592;
@@ -96,17 +96,17 @@ function CalendarPicker({
           type="button"
           onClick={nextMonth}
           disabled={!canGoForward}
-          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#8A8680] hover:text-[#1B4332] disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-2 rounded-lg hover:bg-[#E8F2EC]/60 transition-colors text-[#6F6B65] hover:text-[#1B4332] disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Next month"
         >
           &#8594;
         </button>
       </div>
 
-      {/* Day-of-week headers */}
-      <div className="grid grid-cols-7 mb-1">
+      {/* Day-of-week headers (each day's button names its full date) */}
+      <div className="grid grid-cols-7 mb-1" aria-hidden="true">
         {DAY_LABELS.map((d) => (
-          <div key={d} className="text-center text-[10px] text-[#8A8680] font-semibold py-1 tracking-wider">
+          <div key={d} className="text-center text-[10px] text-[#6F6B65] font-semibold py-1 tracking-wider">
             {d}
           </div>
         ))}
@@ -128,10 +128,13 @@ function CalendarPicker({
               type="button"
               disabled={isDisabled}
               onClick={() => onSelect(dateStr)}
+              aria-label={formatDateLong(dateStr)}
+              aria-pressed={isSelected}
+              aria-current={isToday ? 'date' : undefined}
               className={[
                 'aspect-square relative flex flex-col items-center justify-center text-sm rounded-full transition-colors font-body',
                 isDisabled
-                  ? 'text-[#8A8680]/40 cursor-not-allowed'
+                  ? 'text-[#6F6B65]/40 cursor-not-allowed'
                   : isSelected
                     ? 'bg-[#1B4332] text-white font-semibold'
                     : isToday
@@ -227,11 +230,11 @@ export default function DateTimeStep({
       {selectedDate && (
         <div className="bg-white rounded-2xl border border-[#E5E2DB] p-6 shadow-sm">
           <h2 className="font-heading text-lg font-bold text-[#1A1A1A] mb-0.5">Available times</h2>
-          <p className="font-body text-xs text-[#8A8680]">{formatDateLong(selectedDate)}</p>
-          <p className="font-body text-xs text-[#8A8680] mb-5">{timeZoneNote}</p>
+          <p className="font-body text-xs text-[#6F6B65]">{formatDateLong(selectedDate)}</p>
+          <p className="font-body text-xs text-[#6F6B65] mb-5">{timeZoneNote}</p>
 
           {loadingSlots ? (
-            <div className="flex items-center gap-2 text-[#8A8680]">
+            <div className="flex items-center gap-2 text-[#6F6B65]">
               <div className="w-4 h-4 border-2 border-[#E5E2DB] border-t-[#1B4332] rounded-full animate-spin" />
               <p className="font-body text-sm">Loading available times...</p>
             </div>
@@ -247,7 +250,7 @@ export default function DateTimeStep({
               </button>
             </div>
           ) : timeSlots.length === 0 ? (
-            <p className="font-body text-sm text-[#8A8680]">No times available on this day. Please choose another date.</p>
+            <p className="font-body text-sm text-[#6F6B65]">No times available on this day. Please choose another date.</p>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
               {timeSlots.map((slot) => {
@@ -258,6 +261,7 @@ export default function DateTimeStep({
                     key={slot}
                     type="button"
                     onClick={() => onSelectTime(slot)}
+                    aria-pressed={isActive}
                     className={[
                       'flex items-center justify-center py-3.5 px-3 rounded-xl border transition-all',
                       isActive
@@ -281,7 +285,7 @@ export default function DateTimeStep({
           <button
             type="button"
             onClick={onBack}
-            className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
+            className="font-body text-sm text-[#6F6B65] hover:text-[#1B4332] transition-colors"
           >
             &#8592; Back
           </button>

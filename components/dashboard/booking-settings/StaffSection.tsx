@@ -55,7 +55,7 @@ export default function StaffSection({
   return (
     <section>
       <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Staff</h2>
-      <p className="text-sm text-[#8A8680] mb-4">
+      <p className="text-sm text-[#6F6B65] mb-4">
         Add your team members. For each person, set the services they offer and
         their working hours so clients only see available slots.
       </p>
@@ -65,7 +65,7 @@ export default function StaffSection({
         {barbers.length === 0 && (
           <SectionCard>
             <div className="px-6 py-10 text-center">
-              <p className="text-sm text-[#8A8680]">No staff members yet. Add your first staff member below.</p>
+              <p className="text-sm text-[#6F6B65]">No staff members yet. Add your first staff member below.</p>
             </div>
           </SectionCard>
         )}

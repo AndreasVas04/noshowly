@@ -76,7 +76,7 @@ function BasicPlanCard({ isCurrent, hasBillingAccount }: BasicPlanCardProps) {
           <h2 className="font-heading text-2xl font-semibold text-[#1A1A1A]">
             Basic
           </h2>
-          <p className="text-sm text-[#8A8680] mt-1">
+          <p className="text-sm text-[#6F6B65] mt-1">
             Simple appointment reminders for small service businesses.
           </p>
 
@@ -85,7 +85,7 @@ function BasicPlanCard({ isCurrent, hasBillingAccount }: BasicPlanCardProps) {
             <span className="font-heading text-4xl font-bold text-[#1A1A1A]">
               ${PLAN_PRICES.basic}
             </span>
-            <span className="text-sm text-[#C8C8C8]">/month</span>
+            <span className="text-sm text-[#6F6B65]">/month</span>
           </div>
         </CardHeader>
 
@@ -118,7 +118,7 @@ function BasicPlanCard({ isCurrent, hasBillingAccount }: BasicPlanCardProps) {
           {/* CTA */}
           {isCurrent ? (
             <div className="space-y-3">
-              <div className="flex w-full items-center justify-center rounded-xl border border-[#C8C8C8]/40 bg-[#F9F9F9] px-4 py-3 text-sm font-medium text-[#C8C8C8]">
+              <div className="flex w-full items-center justify-center rounded-xl border border-[#C8C8C8]/40 bg-[#F9F9F9] px-4 py-3 text-sm font-medium text-[#6F6B65]">
                 Your current plan
               </div>
               {hasBillingAccount && (
@@ -130,7 +130,7 @@ function BasicPlanCard({ isCurrent, hasBillingAccount }: BasicPlanCardProps) {
           ) : (
             <>
               <CheckoutButton plan="basic" highlighted={true} />
-              <p className="mt-3 text-center text-xs text-[#8A8680]">
+              <p className="mt-3 text-center text-xs text-[#6F6B65]">
                 Billed monthly from the day you subscribe. Cancel any time in Settings.
               </p>
             </>

@@ -98,7 +98,7 @@ export default function BookingSidebar({
         {/* Live booking summary */}
         {hasSummary && (
           <div className="mt-6 pt-5 border-t border-white/10 space-y-2">
-            <p className="font-body text-[10px] text-white/30 uppercase tracking-widest">Your booking</p>
+            <p className="font-body text-[10px] text-white/60 uppercase tracking-widest">Your booking</p>
             {selectedService && (
               <div>
                 <p className="font-body text-white text-sm font-semibold leading-snug">
@@ -106,7 +106,7 @@ export default function BookingSidebar({
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
                   {selectedServiceDuration && (
-                    <span className="font-body text-white/40 text-[11px]">
+                    <span className="font-body text-white/60 text-[11px]">
                       {selectedServiceDuration} min
                     </span>
                   )}
@@ -119,7 +119,7 @@ export default function BookingSidebar({
               </div>
             )}
             {staffLabel && (
-              <p className="font-body text-white/50 text-[11px]">{staffLabel}</p>
+              <p className="font-body text-white/60 text-[11px]">{staffLabel}</p>
             )}
             {selectedDate && (
               <p className="font-body text-white/60 text-[11px]">{formatDateLong(selectedDate)}</p>
@@ -131,14 +131,15 @@ export default function BookingSidebar({
         )}
 
         {/* Vertical step list — pushed to bottom */}
-        <nav className="mt-auto pt-8">
+        <nav className="mt-auto pt-8" aria-label="Booking steps">
           <ol className="space-y-3.5">
             {FLOW_STEPS.map(({ id, label }) => {
               const status = stepStatus(id);
               return (
-                <li key={id} className="flex items-center gap-3">
+                <li key={id} className="flex items-center gap-3" aria-current={status === 'active' ? 'step' : undefined}>
                   {/* Step circle: complete = white filled + dark ✓, active = white + dark border, upcoming = empty grey ring */}
                   <div
+                    aria-hidden="true"
                     className={[
                       'w-[18px] h-[18px] rounded-full flex items-center justify-center shrink-0 transition-all',
                       status === 'active'   ? 'bg-transparent border-2 border-white'        :
@@ -152,11 +153,12 @@ export default function BookingSidebar({
                     className={[
                       'font-body text-[13px] transition-all',
                       status === 'active'   ? 'text-white font-medium'  :
-                      status === 'complete' ? 'text-white/40'           :
-                                             'text-white/20',
+                      status === 'complete' ? 'text-white/70'           :
+                                             'text-white/60',
                     ].join(' ')}
                   >
                     {label}
+                    {status === 'complete' && <span className="sr-only"> (done)</span>}
                   </span>
                 </li>
               );

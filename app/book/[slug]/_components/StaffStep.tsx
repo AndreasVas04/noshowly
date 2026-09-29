@@ -33,12 +33,12 @@ export default function StaffStep({ bookableBarbers, offerAnyStaff, onSelect }: 
         <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">
           Select a staff member
         </h2>
-        <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you&apos;d like to see</p>
+        <p className="font-body text-sm text-[#6F6B65] mt-1">Choose who you&apos;d like to see</p>
       </div>
 
       {bookableBarbers.length === 0 ? (
         <div className="p-6 text-center">
-          <p className="font-body text-sm text-[#8A8680]">
+          <p className="font-body text-sm text-[#6F6B65]">
             Online booking is not available right now. Please contact us directly.
           </p>
         </div>
@@ -55,9 +55,9 @@ export default function StaffStep({ bookableBarbers, offerAnyStaff, onSelect }: 
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-body text-sm font-semibold text-[#1A1A1A]">Any available staff</p>
-                <p className="font-body text-xs text-[#8A8680] mt-0.5">See every free time and we&apos;ll assign someone</p>
+                <p className="font-body text-xs text-[#6F6B65] mt-0.5">See every free time and we&apos;ll assign someone</p>
               </div>
-              <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
+              <span className="text-[#6F6B65] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
             </button>
           )}
           {bookableBarbers.map((b) => (
@@ -82,10 +82,10 @@ export default function StaffStep({ bookableBarbers, offerAnyStaff, onSelect }: 
               <div className="min-w-0 flex-1">
                 <p className="font-body text-sm font-semibold text-[#1A1A1A]">{b.name}</p>
                 {b.bio && (
-                  <p className="font-body text-xs text-[#8A8680] mt-0.5 line-clamp-2">{b.bio}</p>
+                  <p className="font-body text-xs text-[#6F6B65] mt-0.5 line-clamp-2">{b.bio}</p>
                 )}
               </div>
-              <span className="text-[#8A8680] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
+              <span className="text-[#6F6B65] group-hover:text-[#1B4332] transition-colors shrink-0">&#8594;</span>
             </button>
           ))}
         </div>

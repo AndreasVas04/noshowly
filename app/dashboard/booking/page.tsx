@@ -166,7 +166,7 @@ export default function BookingPage() {
   if (loadState === 'loading') {
     return (
       <div className="p-8 lg:p-12 flex items-center justify-center min-h-64">
-        <p className="text-sm text-[#8A8680]">Loading booking settings…</p>
+        <p className="text-sm text-[#6F6B65]">Loading booking settings…</p>
       </div>
     );
   }
@@ -210,7 +210,7 @@ export default function BookingPage() {
           {/* Page heading */}
           <div>
             <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">Online Booking</h1>
-            <p className="text-sm text-[#8A8680] mt-1.5">
+            <p className="text-sm text-[#6F6B65] mt-1.5">
               Set up your public booking page, staff, and availability.
             </p>
           </div>

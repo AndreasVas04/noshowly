@@ -338,7 +338,7 @@ export default function BookingFlow({
       />
 
       {/* ── MOBILE HERO ─────────────────────────────────────────────────────── */}
-      <div className="lg:hidden px-6 py-8" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
+      <header className="lg:hidden px-6 py-8" style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}>
         <h1 className="font-heading text-2xl font-bold text-white">
           {businessName}
         </h1>
@@ -347,7 +347,7 @@ export default function BookingFlow({
             {customIntro}
           </p>
         )}
-      </div>
+      </header>
 
       {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
       <main className="flex-1 bg-[#FAFAF8] min-h-screen">

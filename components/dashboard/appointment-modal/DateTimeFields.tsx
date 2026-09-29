@@ -91,7 +91,7 @@ export default function DateTimeFields({
           {fieldErrors.time && <p className="text-xs text-red-600">{fieldErrors.time}</p>}
         </div>
       </div>
-      <p className="text-xs text-[#8A8680] -mt-2">Times are in {formatTimeZoneLabel(timezone)} time.</p>
+      <p className="text-xs text-[#6F6B65] -mt-2">Times are in {formatTimeZoneLabel(timezone)} time.</p>
     </>
   );
 }

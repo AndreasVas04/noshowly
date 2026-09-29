@@ -50,9 +50,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Check } from 'lucide-react';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { isPastAppointment, weekCardClasses } from '@/lib/appointment-status';
+import { isPastAppointment, STATUS_LABELS, weekCardClasses } from '@/lib/appointment-status';
 import {
   addDaysToDate,
   browserTimeZone,
@@ -129,9 +130,11 @@ interface WeekCardProps {
 
 /**
  * Compact appointment card for the week grid.
- * Color-coded by status (lib/appointment-status.ts): confirmed green, pending
- * amber, cancelled red with a dashed border. Past appointments are greyed out
- * with a "Past" label so they are visually distinct from upcoming ones.
+ * Color-coded by status (lib/appointment-status.ts), with a cue that does not
+ * rely on colour: confirmed is green with a check mark, pending amber,
+ * cancelled red with a dashed border and the name struck through. Past
+ * appointments are greyed out with a "Past" label. The status is also part of
+ * the button's accessible name.
  *
  * @param props.apt     - The appointment data.
  * @param props.onClick - Opens the edit modal for this appointment.
@@ -155,11 +158,14 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
         weekCardClasses(apt.status, isPast),
       ].join(' ')}
     >
-      {/* Time + optional "Past" label for past unanswered */}
+      {/* Time + a check mark when confirmed, or a "Past" label for past unanswered */}
       <span className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
         {formatTimeInZone(apt.datetime, timezone)}
+        {!isPast && apt.status === 'confirmed' && (
+          <Check className="w-3 h-3 text-[#1B4332] shrink-0" strokeWidth={3} aria-hidden="true" />
+        )}
         {isPast && (
-          <span className="text-[9px] font-medium text-[#8A8680] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
+          <span className="text-[9px] font-medium text-[#6F6B65] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
             Past
           </span>
         )}
@@ -172,10 +178,13 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
 
       {/* Service — only if set */}
       {apt.service_type && (
-        <span className="block text-xs text-[#2D2D2D]/60 truncate leading-snug">
+        <span className="block text-xs text-[#2D2D2D]/75 truncate leading-snug">
           {apt.service_type}
         </span>
       )}
+
+      {/* Status for screen readers ("Past" is already visible) */}
+      {!isPast && <span className="sr-only">{STATUS_LABELS[apt.status]}</span>}
     </button>
   );
 }
@@ -231,7 +240,7 @@ function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick
         `}
       >
         <p className={`text-xs uppercase tracking-wide leading-none font-body
-          ${todayColumn ? 'text-[#1B4332] font-bold' : 'text-[#8A8680] font-semibold'}`}>
+          ${todayColumn ? 'text-[#1B4332] font-bold' : 'text-[#6F6B65] font-semibold'}`}>
           {formatDateOnly(day, { weekday: 'short' })}
         </p>
         <p className={`text-sm mt-0.5 leading-none font-body
@@ -246,7 +255,7 @@ function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick
         className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#FAFAF8] cursor-pointer"
       >
         {appointments.length === 0 && (
-          <p className="text-xs text-[#8A8680]/50 p-1 select-none">—</p>
+          <p className="text-xs text-[#6F6B65]/50 p-1 select-none">—</p>
         )}
 
         {appointments.map((apt) => (
@@ -626,7 +635,7 @@ export default function WeekView() {
             aria-label="Previous week"
             className="
               p-2 rounded-lg border border-[#E5E2DB] shrink-0
-              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+              text-[#6F6B65] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
               transition-colors
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
@@ -636,10 +645,11 @@ export default function WeekView() {
             </svg>
           </button>
 
-          {/* Week date range */}
-          <span className="text-base font-semibold text-[#1A1A1A] whitespace-nowrap font-body">
+          {/* Week date range — the page's heading */}
+          <h1 className="text-base font-semibold text-[#1A1A1A] whitespace-nowrap font-body">
+            <span className="sr-only">Week of </span>
             {weekLabel}
-          </span>
+          </h1>
 
           {/* Next week */}
           <button
@@ -647,7 +657,7 @@ export default function WeekView() {
             aria-label="Next week"
             className="
               p-2 rounded-lg border border-[#E5E2DB] shrink-0
-              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+              text-[#6F6B65] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
               transition-colors
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
@@ -703,6 +713,7 @@ export default function WeekView() {
           <button
             type="button"
             onClick={() => setSelectedBarberId(null)}
+            aria-pressed={selectedBarberId === null}
             className={staffPillClass(selectedBarberId === null)}
           >
             All
@@ -714,6 +725,7 @@ export default function WeekView() {
               key={b.id}
               type="button"
               onClick={() => setSelectedBarberId(b.id)}
+              aria-pressed={selectedBarberId === b.id}
               className={staffPillClass(selectedBarberId === b.id)}
             >
               {b.name}
@@ -725,6 +737,7 @@ export default function WeekView() {
             <button
               type="button"
               onClick={() => setSelectedBarberId('unassigned')}
+              aria-pressed={selectedBarberId === 'unassigned'}
               className={staffPillClass(selectedBarberId === 'unassigned')}
             >
               Unassigned
@@ -749,13 +762,13 @@ export default function WeekView() {
               aria-pressed={isSelected}
               className={`
                 flex flex-col items-center justify-center
-                flex-1 min-w-[42px] px-1 py-2 rounded-xl text-center transition-colors font-body
+                flex-1 min-w-0 px-1 py-2 rounded-xl text-center transition-colors font-body
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/30
                 ${isSelected
                   ? 'bg-[#1B4332] text-white shadow-sm'
                   : isCurrentDay
                     ? 'border border-[#1B4332]/30 text-[#1B4332] hover:bg-[#E8F2EC]/50'
-                    : 'text-[#8A8680] hover:bg-[#E5E2DB]/50'
+                    : 'text-[#6F6B65] hover:bg-[#E5E2DB]/50'
                 }
               `}
             >
@@ -858,7 +871,7 @@ export default function WeekView() {
 
             if (dayApts.length === 0) {
               return (
-                <p className="text-sm text-[#8A8680] py-4 font-body">No appointments this day</p>
+                <p className="text-sm text-[#6F6B65] py-4 font-body">No appointments this day</p>
               );
             }
 
@@ -888,11 +901,11 @@ export default function WeekView() {
                       {apt.client_name ?? 'Unknown client'}
                     </p>
                     {apt.service_type && (
-                      <p className="text-xs text-[#8A8680] mt-0.5 truncate font-body">{apt.service_type}</p>
+                      <p className="text-xs text-[#6F6B65] mt-0.5 truncate font-body">{apt.service_type}</p>
                     )}
                   </div>
                   {past && (
-                    <span className="text-xs font-medium text-[#8A8680] bg-[#F0EFED] px-2 py-0.5 rounded-full font-body shrink-0">
+                    <span className="text-xs font-medium text-[#6F6B65] bg-[#F0EFED] px-2 py-0.5 rounded-full font-body shrink-0">
                       Past
                     </span>
                   )}
@@ -907,7 +920,7 @@ export default function WeekView() {
             onClick={() => handleColumnClick(selectedDay)}
             className="
               w-full mt-2 py-2.5 rounded-xl border border-dashed border-[#E5E2DB]
-              text-sm text-[#8A8680] hover:border-[#1B4332]/30 hover:text-[#1B4332] hover:bg-[#E8F2EC]/30
+              text-sm text-[#6F6B65] hover:border-[#1B4332]/30 hover:text-[#1B4332] hover:bg-[#E8F2EC]/30
               transition-colors font-body
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "

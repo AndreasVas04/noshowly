@@ -69,7 +69,7 @@ export default function ReminderEmailPreview({
 
   return (
     <div className="mb-6">
-      <p className="text-sm text-[#8A8680] mb-3 font-body">
+      <p className="text-sm text-[#6F6B65] mb-3 font-body">
         Preview (updates as you type)
       </p>
 
@@ -77,7 +77,7 @@ export default function ReminderEmailPreview({
 
         {/* Email preview — matches the actual reminder email layout */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">Email · 24h before</p>
+          <p className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest font-body">Email · 24h before</p>
           <div className="border border-[#E5E2DB] rounded-lg overflow-hidden">
             {/* Black header with salon name */}
             <div className="bg-[#1A1A1A] rounded-t-lg px-5 py-4">
@@ -87,46 +87,46 @@ export default function ReminderEmailPreview({
             <div className="bg-white px-5 py-5 space-y-4">
               {/* Greeting */}
               <p className="text-sm text-[#1A1A1A] whitespace-pre-wrap break-words">
-                {emailGreeting.trim() ? previewEmailGreetingText : <span className="italic text-[#8A8680]">{applyTemplate(DEFAULT_EMAIL_GREETING, PREVIEW_VARS)}</span>}
+                {emailGreeting.trim() ? previewEmailGreetingText : <span className="italic text-[#6F6B65]">{applyTemplate(DEFAULT_EMAIL_GREETING, PREVIEW_VARS)}</span>}
               </p>
               {/* Body message */}
-              <p className="text-sm text-[#8A8680] leading-relaxed whitespace-pre-wrap break-words">
+              <p className="text-sm text-[#6F6B65] leading-relaxed whitespace-pre-wrap break-words">
                 {emailBody.trim() ? previewEmailBodyText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_BODY, PREVIEW_VARS)}</span>}
               </p>
               {/* Appointment details card */}
               <div className="bg-[#F5F3EF] rounded-lg p-4 space-y-3">
                 <div>
-                  <p className="text-[10px] text-[#8A8680] uppercase font-semibold tracking-wide">Service</p>
+                  <p className="text-[10px] text-[#6F6B65] uppercase font-semibold tracking-wide">Service</p>
                   <p className="text-sm text-[#1A1A1A] font-semibold">Haircut</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-[#8A8680] uppercase font-semibold tracking-wide">Date &amp; Time</p>
+                  <p className="text-[10px] text-[#6F6B65] uppercase font-semibold tracking-wide">Date &amp; Time</p>
                   <p className="text-sm text-[#1A1A1A] font-semibold">{PREVIEW_VARS.date} at {PREVIEW_VARS.time}</p>
                 </div>
               </div>
               {/* Confirm prompt + buttons */}
               {emailConfirmationEnabled && emailAllowed ? (
                 <>
-                  <p className="text-sm text-[#8A8680]">Please confirm or cancel your appointment below.</p>
+                  <p className="text-sm text-[#6F6B65]">Please confirm or cancel your appointment below.</p>
                   <div className="flex gap-3">
                     <span className="inline-block bg-[#1B4332] text-white rounded-lg px-4 py-2.5 text-sm font-semibold">YES, I&apos;ll be there</span>
                     <span className="inline-block bg-[#DC2626] text-white rounded-lg px-4 py-2.5 text-sm font-semibold">NO, cancel it</span>
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-[#8A8680] whitespace-pre-wrap break-words">
+                <p className="text-sm text-[#6F6B65] whitespace-pre-wrap break-words">
                   {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
                 </p>
               )}
               {/* Closing (shown when confirmation buttons are present) */}
               {emailConfirmationEnabled && emailAllowed && (
-                <p className="text-sm text-[#8A8680] whitespace-pre-wrap break-words">
+                <p className="text-sm text-[#6F6B65] whitespace-pre-wrap break-words">
                   {emailClosing.trim() ? previewEmailClosingText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_CLOSING, PREVIEW_VARS)}</span>}
                 </p>
               )}
               {/* Divider + footer */}
               <div className="border-t border-[#E5E2DB] pt-3">
-                <p className="text-xs text-[#8A8680] whitespace-pre-wrap break-words font-body">
+                <p className="text-xs text-[#6F6B65] whitespace-pre-wrap break-words font-body">
                   {emailFooter.trim() ? previewEmailFooterText : <span className="italic">{applyTemplate(DEFAULT_EMAIL_FOOTER, { business_name: previewBusiness })}</span>}
                 </p>
               </div>

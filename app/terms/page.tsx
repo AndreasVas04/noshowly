@@ -36,7 +36,7 @@ function Section({
   return (
     <section className="py-9 border-b border-[#E5E2DB] last:border-0 last:pb-3">
       <div className="flex items-baseline gap-3 mb-4">
-        <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-[#1B4332]/55 font-body shrink-0 select-none">
+        <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-[#1B4332]/80 font-body shrink-0 select-none">
           {number}
         </span>
         <h2 className="font-heading text-xl font-semibold text-[#1A1A1A]">{title}</h2>
@@ -58,6 +58,7 @@ export default function TermsPage() {
     <div className="min-h-screen bg-[#FAFAF8] font-body text-[#1A1A1A]">
       <LandingNav />
 
+      <main>
       {/* Forest green hero banner */}
       <div className="relative bg-[#1B4332] overflow-hidden">
         {/* Subtle dot pattern overlay — matches auth pages */}
@@ -70,7 +71,7 @@ export default function TermsPage() {
           aria-hidden="true"
         />
         <div className="relative mx-auto max-w-3xl px-6 py-20 md:py-28">
-          <p className="text-[10px] font-bold tracking-[0.4em] uppercase text-white/50 font-body mb-5">
+          <p className="text-[10px] font-bold tracking-[0.4em] uppercase text-white/60 font-body mb-5">
             Legal
           </p>
           <h1 className="font-heading text-4xl md:text-5xl font-bold text-white leading-tight">
@@ -94,7 +95,7 @@ export default function TermsPage() {
       </div>
 
       {/* Content */}
-      <main className="mx-auto max-w-3xl px-6 py-12 md:py-16">
+      <div className="mx-auto max-w-3xl px-6 py-12 md:py-16">
         {/* White content card — lifts the document off the warm background */}
         <div className="bg-white rounded-2xl border border-[#E5E2DB] shadow-sm px-8 md:px-12 py-2">
 
@@ -259,13 +260,14 @@ export default function TermsPage() {
 
         {/* Bottom navigation */}
         <div className="mt-10 flex flex-wrap gap-6 text-sm">
-          <Link href="/" className="text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body">
+          <Link href="/" className="text-[#6F6B65] hover:text-[#1A1A1A] transition-colors font-body">
             Home
           </Link>
-          <Link href="/privacy" className="text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body">
+          <Link href="/privacy" className="text-[#6F6B65] hover:text-[#1A1A1A] transition-colors font-body">
             Privacy Policy
           </Link>
         </div>
+      </div>
       </main>
 
       <LandingFooter />

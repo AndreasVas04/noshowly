@@ -48,10 +48,10 @@ export default function StaffServices({ barber, salonServices, assignments, curr
 
   return (
     <div>
-      <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-1">
+      <p className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest mb-1">
         Services this staff member can perform
       </p>
-      <p className="text-xs text-[#8A8680] mb-3">
+      <p className="text-xs text-[#6F6B65] mb-3">
         When checked, this staff member will be available for these services.
         Optionally override the price or duration per staff member.
       </p>
@@ -80,15 +80,15 @@ export default function StaffServices({ barber, salonServices, assignments, curr
               {/* Override fields — shown only when this service is assigned to this barber */}
               {isAssigned && assignment && (
                 <div className="ml-6 mt-1.5 grid grid-cols-2 gap-2 max-w-xs">
-                  <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
+                  <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8] focus-within:border-[#1B4332] transition-colors">
                     <label
                       htmlFor={`staff-${barber.id}-service-${svc.id}-price`}
-                      className="block text-[10px] font-medium text-[#8A8680] uppercase tracking-wider"
+                      className="block text-[10px] font-medium text-[#6F6B65] uppercase tracking-wider"
                     >
                       Price
                     </label>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-xs text-[#8A8680]">{currencySymbol}</span>
+                      <span className="text-xs text-[#6F6B65]">{currencySymbol}</span>
                       <input
                         id={`staff-${barber.id}-service-${svc.id}-price`}
                         type="number"
@@ -100,18 +100,18 @@ export default function StaffServices({ barber, salonServices, assignments, curr
                         }
                         onBlur={() => void runAssignmentSave(barber.id)}
                         placeholder={svc.price != null ? String(svc.price) : 'Same as service'}
-                        className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
+                        className="w-full text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#6F6B65] disabled:opacity-50"
                       />
                     </div>
                     {svc.price != null && (
-                      <p className="text-[10px] text-[#C8C8C8]">Default: {currencySymbol}{svc.price}</p>
+                      <p className="text-[10px] text-[#6F6B65]">Default: {currencySymbol}{svc.price}</p>
                     )}
                   </div>
 
-                  <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
+                  <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8] focus-within:border-[#1B4332] transition-colors">
                     <label
                       htmlFor={`staff-${barber.id}-service-${svc.id}-duration`}
-                      className="block text-[10px] font-medium text-[#8A8680] uppercase tracking-wider"
+                      className="block text-[10px] font-medium text-[#6F6B65] uppercase tracking-wider"
                     >
                       Duration (min)
                     </label>
@@ -127,10 +127,10 @@ export default function StaffServices({ barber, salonServices, assignments, curr
                       }
                       onBlur={() => void runAssignmentSave(barber.id)}
                       placeholder={svc.duration_minutes != null ? String(svc.duration_minutes) : 'Same as service'}
-                      className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#C8C8C8] disabled:opacity-50"
+                      className="w-16 text-sm text-[#1A1A1A] bg-transparent outline-none placeholder:text-[#6F6B65] disabled:opacity-50"
                     />
                     {svc.duration_minutes != null && (
-                      <p className="text-[10px] text-[#C8C8C8]">Default: {svc.duration_minutes} min</p>
+                      <p className="text-[10px] text-[#6F6B65]">Default: {svc.duration_minutes} min</p>
                     )}
                   </div>
                 </div>
@@ -140,7 +140,7 @@ export default function StaffServices({ barber, salonServices, assignments, curr
         })}
       </div>
       {savingAssignmentsFor[barber.id] && (
-        <p className="text-xs text-[#8A8680] mt-2">Saving…</p>
+        <p className="text-xs text-[#6F6B65] mt-2">Saving…</p>
       )}
       {!savingAssignmentsFor[barber.id] && assignmentErrors[barber.id] && (
         <p role="alert" className="text-xs text-red-600 mt-2">{assignmentErrors[barber.id]}</p>

@@ -5,7 +5,8 @@
  * clean, minimal pill labels using the brand palette.
  *
  * Mapping (lib/appointment-status.ts):
- *  - 'scheduled' → null (no badge shown — reduces visual noise for pending)
+ *  - 'scheduled' → no visible badge (reduces visual noise for pending); the
+ *    label is there for screen readers
  *  - 'confirmed' → "Confirmed" (dark green text)
  *  - 'cancelled' → "Cancelled" (muted red text)
  */
@@ -24,15 +25,15 @@ interface BadgeProps {
 }
 
 /**
- * Renders a minimal status pill for an appointment.
- * Returns null for 'scheduled' (pending) to avoid visual noise.
+ * Renders a minimal status pill for an appointment. Pending appointments get
+ * no visible pill, only the label for screen readers.
  *
  * @param props.status - The appointment status.
- * @returns A status pill, or null if status is 'scheduled'.
+ * @returns A status pill, or a visually hidden label for 'scheduled'.
  */
 export default function Badge({ status }: BadgeProps) {
   const colours = STATUS_BADGE_CLASSES[status];
-  if (!colours) return null;
+  if (!colours) return <span className="sr-only">{STATUS_LABELS[status]}</span>;
 
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${colours}`}>

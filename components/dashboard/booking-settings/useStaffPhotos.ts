@@ -4,7 +4,8 @@
  * State and handlers for staff photos on the booking settings page (StaffCard,
  * PhotoCropModal):
  *  - Choosing a file opens the Instagram-style crop modal: drag to
- *    reposition, scroll or pinch to zoom.
+ *    reposition, scroll or pinch to zoom; from the keyboard, the arrow keys
+ *    move and + / − zoom.
  *  - "Apply" crops the circle to a square JPEG, uploads it
  *    (POST /api/upload/staff-photo) and saves the new photo URL straight away
  *    (PUT /api/barbers/[id]), outside the profile auto-save.
@@ -294,6 +295,38 @@ export function useStaffPhotos(
     }
   }
 
+  /**
+   * Keyboard control of the crop, on the focusable photo area: the arrow keys
+   * move the photo 10 px (50 px with Shift), + and − zoom in and out. The
+   * photo always keeps covering the circle.
+   */
+  function handleCropKeyDown(e: React.KeyboardEvent): void {
+    if (!cropModal || cropUploading) return;
+    const step = e.shiftKey ? 50 : 10;
+    let x = cropXRef.current;
+    let y = cropYRef.current;
+    let scale = cropScaleRef.current;
+    switch (e.key) {
+      case 'ArrowLeft':  x -= step; break;
+      case 'ArrowRight': x += step; break;
+      case 'ArrowUp':    y -= step; break;
+      case 'ArrowDown':  y += step; break;
+      case '+': case '=': scale *= 1.08; break;
+      case '-': case '_': scale *= 0.92; break;
+      default: return;
+    }
+    e.preventDefault();
+    const { naturalW, naturalH } = cropModal;
+    scale = Math.max(getCropMinScale(naturalW, naturalH), Math.min(4, scale));
+    const clamped = clampCropPos(x, y, scale, naturalW, naturalH);
+    cropScaleRef.current = scale;
+    cropXRef.current = clamped.x;
+    cropYRef.current = clamped.y;
+    setCropScale(scale);
+    setCropX(clamped.x);
+    setCropY(clamped.y);
+  }
+
   /** Touch end — stop drag / pinch. */
   function handleCropTouchEnd(): void {
     dragRef.current = null;
@@ -475,6 +508,7 @@ export function useStaffPhotos(
     handleCropTouchStart,
     handleCropTouchMove,
     handleCropTouchEnd,
+    handleCropKeyDown,
     handleCropCancel,
     handleCropApply,
   };

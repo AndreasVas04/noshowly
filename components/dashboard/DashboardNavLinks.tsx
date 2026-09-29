@@ -55,6 +55,7 @@ export default function DashboardNavLinks() {
           <Link
             key={item.href}
             href={item.href}
+            aria-current={isActive ? 'page' : undefined}
             className={[
               'flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
               isActive
@@ -114,6 +115,7 @@ export function MobileBottomNav() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={isActive ? 'page' : undefined}
               className="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors"
               style={{ color: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.6)' }}
             >
