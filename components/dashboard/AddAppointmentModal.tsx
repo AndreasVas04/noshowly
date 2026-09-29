@@ -124,7 +124,10 @@ interface FormState {
   date: string;
   /** 'HH:MM' in the salon timezone. */
   time: string;
-  /** Selected service id; '' when none is selected or the service is free text. */
+  /**
+   * Service id picked in the form; '' when none is picked or the service is
+   * free text. An edited appointment's service is matched by name instead.
+   */
   serviceId: string;
   /** Service name (free text when the salon has no services). */
   serviceType: string;
@@ -217,7 +220,7 @@ export default function AddAppointmentModal({
 
   const [form, setForm] = useState<FormState>(getInitialState);
   /** The form as it was when the modal opened — used to send only changed fields. */
-  const initialFormRef = useRef<FormState>(form);
+  const [initialForm, setInitialForm] = useState<FormState>(form);
   /** True once the owner picks a status; otherwise the server decides (create mode). */
   const [statusTouched, setStatusTouched] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
@@ -227,9 +230,9 @@ export default function AddAppointmentModal({
   // ---------------------------------------------------------------------------
 
   const [barbers, setBarbers] = useState<Barber[]>([]);
-  const [isLoadingBarbers, setIsLoadingBarbers] = useState(false);
+  const [isLoadingBarbers, setIsLoadingBarbers] = useState(isOpen);
   const [services, setServices] = useState<Service[]>([]);
-  const [isLoadingServices, setIsLoadingServices] = useState(false);
+  const [isLoadingServices, setIsLoadingServices] = useState(isOpen);
   /** Barber/service assignments — used to filter the staff dropdown and show durations. */
   const [barberServices, setBarberServices] = useState<BarberService[]>([]);
   /** Salon opening hours as 'HH:MM', or null when not configured. */
@@ -255,81 +258,8 @@ export default function AddAppointmentModal({
    */
   const [warningDialog, setWarningDialog] = useState<string | null>(null);
 
-  /**
-   * Fetches the salon's staff list for the staff dropdown.
-   */
-  const fetchBarbers = useCallback(async (): Promise<void> => {
-    setIsLoadingBarbers(true);
-    try {
-      const res = await fetch('/api/barbers', { cache: 'no-store' });
-      if (res.ok) {
-        const payload = (await res.json()) as { barbers: Barber[] };
-        setBarbers(payload.barbers);
-      }
-    } catch (err) {
-      console.error('[AddAppointmentModal] Failed to load staff:', err);
-    } finally {
-      setIsLoadingBarbers(false);
-    }
-  }, []);
-
-  /**
-   * Fetches the salon's business hours (normalised to 'HH:MM' by the API).
-   * Only set when both times are configured and form a valid range.
-   */
-  const fetchSalonHours = useCallback(async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/salon', { cache: 'no-store' });
-      if (res.ok) {
-        const payload = (await res.json()) as {
-          salon: { opening_time: string | null; closing_time: string | null };
-        };
-        const opening = normaliseTime(payload.salon.opening_time);
-        const closing = normaliseTime(payload.salon.closing_time);
-        setSalonHours(opening && closing && opening < closing ? { opening, closing } : null);
-      }
-    } catch (err) {
-      console.error('[AddAppointmentModal] Failed to load salon hours:', err);
-    }
-  }, []);
-
-  /**
-   * Fetches the salon's custom service list.
-   * Falls back to free-text input if no services are configured.
-   */
-  const fetchServices = useCallback(async (): Promise<void> => {
-    setIsLoadingServices(true);
-    try {
-      const res = await fetch('/api/services', { cache: 'no-store' });
-      if (res.ok) {
-        const payload = (await res.json()) as { services: Service[] };
-        setServices(payload.services);
-      }
-    } catch (err) {
-      console.error('[AddAppointmentModal] Failed to load services:', err);
-    } finally {
-      setIsLoadingServices(false);
-    }
-  }, []);
-
-  /**
-   * Fetches barber/service assignments used to filter the staff dropdown
-   * when a service is selected, and to show per-staff durations.
-   */
-  const fetchBarberServices = useCallback(async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/barber-services', { cache: 'no-store' });
-      if (res.ok) {
-        const payload = (await res.json()) as { barberServices: BarberService[] };
-        setBarberServices(payload.barberServices);
-      }
-    } catch (err) {
-      console.error('[AddAppointmentModal] Failed to load barber service assignments:', err);
-    }
-  }, []);
-
   // ---------------------------------------------------------------------------
-  // Client autocomplete (create mode only)
+  // Client autocomplete state (create mode only)
   // ---------------------------------------------------------------------------
 
   const [suggestions, setSuggestions] = useState<Client[]>([]);
@@ -341,6 +271,69 @@ export default function AddAppointmentModal({
   const [clientFoundByPhone, setClientFoundByPhone] = useState(false);
   const [nameReadOnly, setNameReadOnly] = useState(false);
   const phoneSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Submit / error state
+  // ---------------------------------------------------------------------------
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({});
+
+  // ---------------------------------------------------------------------------
+  // State adjusted while rendering
+  // ---------------------------------------------------------------------------
+
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  /** The staff list the create-mode default below was last checked against. */
+  const [checkedBarbers, setCheckedBarbers] = useState<Barber[] | null>(null);
+
+  // The modal stays mounted while closed, so every opening starts a fresh form.
+  // Resetting here, during render, means the previous form is never painted.
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      const state = getInitialState();
+      setForm(state);
+      setInitialForm(state);
+      setStatusTouched(false);
+      setShowNotes(Boolean(appointment?.notes));
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setError(null);
+      setFieldErrors({});
+      setIsPhoneSearching(false);
+      setClientFoundByPhone(false);
+      setNameReadOnly(false);
+      setWarningDialog(null);
+      setSalonHours(null);
+      setTestReminderResult(null);
+      setIsLoadingBarbers(true);
+      setIsLoadingServices(true);
+      setCheckedBarbers(null);
+    }
+  }
+
+  // In create mode, once the staff list loads, keep the pre-selected
+  // (initialBarberId) or chosen staff member only when they are listed, and
+  // default to the first listed one otherwise. An inactive staff member (e.g.
+  // from the week view's filter) is not listed: keeping them would save them
+  // while the dropdown shows someone else. Checked once per loaded list, so a
+  // staff member cleared later (by picking another service) stays cleared.
+  if (!isEditMode && !isLoadingBarbers && checkedBarbers !== barbers) {
+    setCheckedBarbers(barbers);
+    const listed = barbers.filter((b) => b.active);
+    setForm((prev) => {
+      if (listed.some((b) => b.id === prev.barberId)) return prev;
+      const fallback = listed[0]?.id ?? '';
+      return prev.barberId === fallback ? prev : { ...prev, barberId: fallback };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Client lookups (create mode only)
+  // ---------------------------------------------------------------------------
 
   /**
    * Debounced client name search — fires 300 ms after the user stops typing.
@@ -410,42 +403,88 @@ export default function AddAppointmentModal({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Submit / error state
-  // ---------------------------------------------------------------------------
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({});
-
-  // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
 
-  // Re-initialize form when modal opens.
+  // Load the staff list, services, business hours and staff/service
+  // assignments each time the modal opens. Responses that arrive after it has
+  // closed again are ignored.
   useEffect(() => {
     if (!isOpen) return;
-    const state = getInitialState();
-    setForm(state);
-    initialFormRef.current = state;
-    setStatusTouched(false);
-    setShowNotes(Boolean(appointment?.notes));
-    setSuggestions([]);
-    setShowSuggestions(false);
-    setError(null);
-    setFieldErrors({});
-    setIsPhoneSearching(false);
-    setClientFoundByPhone(false);
-    setNameReadOnly(false);
-    setWarningDialog(null);
-    setSalonHours(null);
-    setTestReminderResult(null);
-    fetchBarbers();
-    fetchServices();
-    fetchSalonHours();
-    fetchBarberServices();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, appointment, fetchBarbers, fetchServices, fetchSalonHours, fetchBarberServices]);
+    let ignore = false;
+
+    /** The salon's staff list, for the staff dropdown. */
+    async function loadBarbers(): Promise<void> {
+      try {
+        const res = await fetch('/api/barbers', { cache: 'no-store' });
+        if (res.ok) {
+          const payload = (await res.json()) as { barbers: Barber[] };
+          if (!ignore) setBarbers(payload.barbers);
+        }
+      } catch (err) {
+        console.error('[AddAppointmentModal] Failed to load staff:', err);
+      } finally {
+        if (!ignore) setIsLoadingBarbers(false);
+      }
+    }
+
+    /** The salon's services. The form falls back to free text when there are none. */
+    async function loadServices(): Promise<void> {
+      try {
+        const res = await fetch('/api/services', { cache: 'no-store' });
+        if (res.ok) {
+          const payload = (await res.json()) as { services: Service[] };
+          if (!ignore) setServices(payload.services);
+        }
+      } catch (err) {
+        console.error('[AddAppointmentModal] Failed to load services:', err);
+      } finally {
+        if (!ignore) setIsLoadingServices(false);
+      }
+    }
+
+    /**
+     * The salon's business hours (normalised to 'HH:MM' by the API). Only set
+     * when both times are configured and form a valid range.
+     */
+    async function loadSalonHours(): Promise<void> {
+      try {
+        const res = await fetch('/api/salon', { cache: 'no-store' });
+        if (res.ok) {
+          const payload = (await res.json()) as {
+            salon: { opening_time: string | null; closing_time: string | null };
+          };
+          const opening = normaliseTime(payload.salon.opening_time);
+          const closing = normaliseTime(payload.salon.closing_time);
+          if (!ignore) setSalonHours(opening && closing && opening < closing ? { opening, closing } : null);
+        }
+      } catch (err) {
+        console.error('[AddAppointmentModal] Failed to load salon hours:', err);
+      }
+    }
+
+    /**
+     * Staff/service assignments, used to filter the staff dropdown when a
+     * service is selected and to show per-staff durations.
+     */
+    async function loadBarberServices(): Promise<void> {
+      try {
+        const res = await fetch('/api/barber-services', { cache: 'no-store' });
+        if (res.ok) {
+          const payload = (await res.json()) as { barberServices: BarberService[] };
+          if (!ignore) setBarberServices(payload.barberServices);
+        }
+      } catch (err) {
+        console.error('[AddAppointmentModal] Failed to load barber service assignments:', err);
+      }
+    }
+
+    loadBarbers();
+    loadServices();
+    loadSalonHours();
+    loadBarberServices();
+    return () => { ignore = true; };
+  }, [isOpen]);
 
   // Look up whether this is the public demo account (for the demo-only note).
   useEffect(() => {
@@ -456,16 +495,6 @@ export default function AddAppointmentModal({
       .catch(() => { /* Non-critical: the note simply stays hidden. */ });
     return () => { cancelled = true; };
   }, []);
-
-  // Edit mode: once services load, select the one matching the stored name.
-  useEffect(() => {
-    if (!isEditMode || services.length === 0) return;
-    setForm((prev) => {
-      if (prev.serviceId || !prev.serviceType) return prev;
-      const match = services.find((s) => sameName(s.name, prev.serviceType));
-      return match ? { ...prev, serviceId: match.id } : prev;
-    });
-  }, [isEditMode, services]);
 
   // Debounced client name search (create mode only).
   useEffect(() => {
@@ -487,22 +516,6 @@ export default function AddAppointmentModal({
   const selectableBarbers = barbers.filter(
     (b) => b.active || (isEditMode && b.id === appointment?.barber_id)
   );
-
-  // In create mode, once the list loads, keep the pre-selected (initialBarberId)
-  // or chosen staff member only when they are listed, and default to the first
-  // listed one otherwise. An inactive staff member (e.g. from the week view's
-  // filter) is not listed: keeping them would save them while the dropdown
-  // shows someone else. Uses the functional form of setForm so the list can be
-  // read without listing form.barberId as a dependency.
-  useEffect(() => {
-    if (isEditMode || isLoadingBarbers) return;
-    const listed = barbers.filter((b) => b.active);
-    setForm((prev) => {
-      if (listed.some((b) => b.id === prev.barberId)) return prev;
-      const fallback = listed[0]?.id ?? '';
-      return prev.barberId === fallback ? prev : { ...prev, barberId: fallback };
-    });
-  }, [barbers, isEditMode, isLoadingBarbers]);
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -604,13 +617,12 @@ export default function AddAppointmentModal({
   // Derived values
   // ---------------------------------------------------------------------------
 
-  /** The selected salon service, when the form's service is one. */
+  /** The selected salon service, when the form's service is one (matched by name when editing). */
   const selectedService: Service | null =
     services.find((s) => s.id === form.serviceId) ??
     (form.serviceType ? services.find((s) => sameName(s.name, form.serviceType)) : undefined) ??
     null;
 
-  const initialForm = initialFormRef.current;
   const serviceChanged = !sameName(form.serviceType, initialForm.serviceType);
   const barberChanged  = form.barberId !== initialForm.barberId;
 
@@ -961,17 +973,20 @@ export default function AddAppointmentModal({
   // Staff dropdown: when a service is selected, only staff eligible for it
   // (if the service has barber_services rows, only those staff members). The
   // current selection always stays listed so the select never shows another name.
-  const filteredBarbers = form.serviceId
+  const filteredBarbers = selectedService
     ? selectableBarbers.filter(
-        (b) => b.id === form.barberId || isBarberEligibleForService(form.serviceId, b.id, barberServices)
+        (b) => b.id === form.barberId || isBarberEligibleForService(selectedService.id, b.id, barberServices)
       )
     : selectableBarbers;
 
   // Whether the staff dropdown is filtered to a subset of barbers.
   const staffFiltered = filteredBarbers.length < selectableBarbers.length && selectableBarbers.length > 0;
 
-  /** Value of the service select: the service id, the stored free-text name, or none. */
-  const serviceSelectValue = form.serviceId || (form.serviceType ? CURRENT_SERVICE_OPTION : '');
+  /**
+   * Value of the service select: the selected service (in edit mode, the one
+   * matching the stored name), the stored free-text name, or none.
+   */
+  const serviceSelectValue = selectedService?.id ?? (form.serviceType ? CURRENT_SERVICE_OPTION : '');
 
   // Shared input class helpers
   const inputClass = (hasError?: boolean) =>

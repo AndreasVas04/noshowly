@@ -47,7 +47,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import { isPastAppointment, weekCardClasses } from '@/lib/appointment-status';
@@ -323,8 +323,11 @@ export default function WeekView() {
 
   /** All appointments for the visible week (unfiltered — filtering is client-side). */
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
-  const [isLoadingApts, setIsLoadingApts] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Incremented to refetch the week: after a save, on "Try again" and on realtime changes. */
+  const [refreshCount, setRefreshCount] = useState(0);
+  /** The request whose response `appointments` and `error` hold. */
+  const [loadedRequest, setLoadedRequest] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Modal state
@@ -352,6 +355,10 @@ export default function WeekView() {
   const weekEnd   = weekDays[6] ?? null;
   const isCurrentWeek = !today || weekStart === startOfWeekDate(today, 1);
 
+  /** Identifies the appointments request for the visible week; null until the week is known. */
+  const appointmentsRequest = weekStart ? `${weekStart}#${refreshCount}` : null;
+  const isLoadingApts = appointmentsRequest === null || loadedRequest !== appointmentsRequest;
+
   /** Human-readable week label, e.g. "Mar 30 – Apr 5". */
   const weekLabel = (() => {
     if (!weekStart || !weekEnd) return '';
@@ -365,93 +372,85 @@ export default function WeekView() {
   // Data fetching
   // -------------------------------------------------------------------------
 
-  /**
-   * Fetches the salon's staff list and timezone. Called once on mount; opens
-   * the current week in the salon's timezone once the timezone is known.
-   * Does NOT set a default staff — selection always starts at null ("All") so
-   * no appointments are hidden when the page loads.
-   */
-  const fetchBarbers = useCallback(async (): Promise<void> => {
-    setIsLoadingBarbers(true);
-    let timeZone: string | null = null;
-    try {
-      const [barbersRes, salonRes] = await Promise.all([
-        fetch('/api/barbers', { cache: 'no-store' }),
-        fetch('/api/salon',   { cache: 'no-store' }),
-      ]);
-      if (barbersRes.ok) {
-        const data = (await barbersRes.json()) as { barbers: Barber[] };
-        setBarbers(data.barbers);
-      } else {
-        setBarbers([]);
+  // Fetch the salon's staff list and timezone once on mount, then open the
+  // current week in the salon's timezone. The staff filter is left at null
+  // ("All"): never silently hide appointments by pre-selecting a staff member
+  // the user has not chosen.
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadSalon(): Promise<void> {
+      let staff: Barber[] = [];
+      let timeZone: string | null = null;
+      try {
+        const [barbersRes, salonRes] = await Promise.all([
+          fetch('/api/barbers', { cache: 'no-store' }),
+          fetch('/api/salon',   { cache: 'no-store' }),
+        ]);
+        if (barbersRes.ok) {
+          const data = (await barbersRes.json()) as { barbers: Barber[] };
+          staff = data.barbers;
+        }
+        if (salonRes.ok) {
+          const data = (await salonRes.json()) as { salon: Salon };
+          timeZone = resolveTimeZone(data.salon.timezone);
+        }
+      } catch (err) {
+        console.error('[WeekView] Failed to load staff and salon timezone:', err);
+        staff = [];
       }
-      if (salonRes.ok) {
-        const data = (await salonRes.json()) as { salon: Salon };
-        timeZone = resolveTimeZone(data.salon.timezone);
-      }
-      // Always default to null ("All") — never silently hide appointments by
-      // pre-selecting a specific staff member that the user has not chosen.
-      setSelectedBarberId(null);
-    } catch (err) {
-      console.error('[WeekView] fetchBarbers error:', err);
-      setBarbers([]);
-      setSelectedBarberId(null);
-    } finally {
+      if (ignore) return;
+
       const zone = timeZone ?? browserTimeZone();
       const todayDate = todayInZone(zone);
+      setBarbers(staff);
       setSalonTimezone(zone);
       setAnchor((a) => a ?? todayDate);
       setSelectedDay((d) => d ?? todayDate);
       setIsLoadingBarbers(false);
     }
+
+    loadSalon();
+    return () => { ignore = true; };
   }, []);
 
-  /**
-   * Fetches all appointments for the given Mon–Sun range in a single request.
-   * The dates are salon dates; the API applies the salon's timezone.
-   * Staff filtering is done client-side so switching staff pills is instant.
-   *
-   * @param start - Monday of the target week ('YYYY-MM-DD').
-   * @param end   - Sunday of the target week ('YYYY-MM-DD').
-   */
-  const fetchWeekAppointments = useCallback(async (start: string, end: string): Promise<void> => {
-    setIsLoadingApts(true);
-    setError(null);
-    try {
-      const url = `/api/appointments?start=${start}&end=${end}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+  // Fetch all appointments of the visible Mon–Sun week in one request (the
+  // dates are salon dates; the API applies the salon's timezone), again
+  // whenever a refresh is requested. A response for a week the owner has
+  // already moved away from is ignored. Staff filtering is done client-side
+  // so switching staff pills is instant.
+  useEffect(() => {
+    if (!appointmentsRequest || !weekStart || !weekEnd) return;
+    let ignore = false;
+
+    async function loadWeek(start: string, end: string, request: string): Promise<void> {
+      try {
+        const res = await fetch(`/api/appointments?start=${start}&end=${end}`, { cache: 'no-store' });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+        }
+        const data = (await res.json()) as { appointments: AppointmentWithDetails[] };
+        if (ignore) return;
+        setAppointments(data.appointments);
+        setError(null);
+      } catch (err) {
+        console.error('[WeekView] Failed to load appointments:', err);
+        if (!ignore) setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        if (!ignore) setLoadedRequest(request);
       }
-      const data = (await res.json()) as { appointments: AppointmentWithDetails[] };
-      setAppointments(data.appointments);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Something went wrong';
-      setError(msg);
-      console.error('[WeekView] fetchWeekAppointments error:', err);
-    } finally {
-      setIsLoadingApts(false);
     }
-  }, []);
 
-  // Fetch staff and the salon timezone on mount.
-  useEffect(() => {
-    fetchBarbers();
-  }, [fetchBarbers]);
-
-  // Fetch appointments whenever the visible week changes (and once the timezone is known).
-  useEffect(() => {
-    if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
+    loadWeek(weekStart, weekEnd, appointmentsRequest);
+    return () => { ignore = true; };
+  }, [appointmentsRequest, weekStart, weekEnd]);
 
   /**
    * Subscribes to appointment changes via Supabase Realtime.
    * Refetches the week on any INSERT, UPDATE, or DELETE so the grid stays current.
    */
   useEffect(() => {
-    if (!weekStart || !weekEnd) return;
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
@@ -460,7 +459,7 @@ export default function WeekView() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'appointments' },
         () => {
-          fetchWeekAppointments(weekStart, weekEnd);
+          setRefreshCount((count) => count + 1);
         },
       )
       .subscribe();
@@ -468,8 +467,7 @@ export default function WeekView() {
     return () => {
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, fetchWeekAppointments]);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Derived visibility flags
@@ -583,7 +581,7 @@ export default function WeekView() {
   function handleModalSaved(): void {
     setModalOpen(false);
     setEditingAppointment(null);
-    if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd);
+    setRefreshCount((count) => count + 1);
   }
 
   // -------------------------------------------------------------------------
@@ -811,7 +809,7 @@ export default function WeekView() {
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700">{error}</p>
           <button
-            onClick={() => { if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd); }}
+            onClick={() => setRefreshCount((count) => count + 1)}
             className="text-sm text-red-600 underline mt-1 hover:text-red-800"
           >
             Try again

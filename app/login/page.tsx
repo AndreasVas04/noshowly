@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useSyncExternalStore, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -54,6 +54,21 @@ const LOGIN_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([
     'Your email is confirmed, but we could not finish setting up your account. Please sign in to try again.'],
 ]);
 
+/** The page's URL does not change while it is open, so there is nothing to subscribe to. */
+function subscribeToNothing(): () => void {
+  return () => {};
+}
+
+/** The ?error= code of the current URL. */
+function readErrorCode(): string | null {
+  return new URLSearchParams(window.location.search).get('error');
+}
+
+/** There is no URL to read during the server render. */
+function noErrorCodeOnServer(): string | null {
+  return null;
+}
+
 /**
  * LoginPage renders a centered, premium email + password sign-in form.
  * Includes show/hide password and a forgot-password reset flow.
@@ -76,16 +91,19 @@ export default function LoginPage() {
   const [resetStatus, setResetStatus] = useState<ResetStatus>('idle');
   const [resetError, setResetError] = useState<string>('');
 
-  // Show the error the email confirmation callback redirected with, if any.
-  // Read from window.location so the page needs no Suspense boundary.
-  useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get('error');
-    const message = code ? LOGIN_ERROR_MESSAGES.get(code) : undefined;
+  // Show the error the email confirmation callback redirected with, if any,
+  // once the page has hydrated. Read from window.location so the page needs
+  // no Suspense boundary.
+  const callbackErrorCode = useSyncExternalStore(subscribeToNothing, readErrorCode, noErrorCodeOnServer);
+  const [callbackErrorShown, setCallbackErrorShown] = useState(false);
+  if (callbackErrorCode && !callbackErrorShown) {
+    setCallbackErrorShown(true);
+    const message = LOGIN_ERROR_MESSAGES.get(callbackErrorCode);
     if (message) {
       setStatus('error');
       setErrorMessage(message);
     }
-  }, []);
+  }
 
   /**
    * Updates a single sign-in form field and clears any displayed error.

@@ -23,7 +23,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 /** What the banner shows, decided by the dashboard layout. */
 export type PlanBannerState =
@@ -57,16 +57,18 @@ const TONE_CLASSES: Record<Tone, string> = {
  */
 export default function PlanBanner({ state }: PlanBannerProps) {
   const router = useRouter();
-  const [checkout, setCheckout] = useState<CheckoutState>('idle');
+  const searchParams = useSearchParams();
+  /** The Checkout session the owner has just returned from, if any. */
+  const checkoutSessionId =
+    searchParams.get('checkout') === 'success' ? searchParams.get('session_id') : null;
+  /** Result of the sync, once it has finished. */
+  const [syncResult, setSyncResult] = useState<CheckoutState | null>(null);
+  const checkout: CheckoutState = syncResult ?? (checkoutSessionId ? 'confirming' : 'idle');
 
   // After Stripe Checkout: sync the plan now instead of waiting for the webhook.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
-    if (params.get('checkout') !== 'success' || !sessionId) return;
-
+    if (!checkoutSessionId) return;
     let cancelled = false;
-    setCheckout('confirming');
 
     async function syncCheckout(id: string): Promise<void> {
       let next: CheckoutState = 'failed';
@@ -82,15 +84,15 @@ export default function PlanBanner({ state }: PlanBannerProps) {
         next = 'failed';
       }
       if (cancelled) return;
-      setCheckout(next);
+      setSyncResult(next);
       // Drop the query string and re-render the server components with the new plan.
       router.replace(window.location.pathname);
       router.refresh();
     }
 
-    void syncCheckout(sessionId);
+    void syncCheckout(checkoutSessionId);
     return () => { cancelled = true; };
-  }, [router]);
+  }, [router, checkoutSessionId]);
 
   // Checkout messages take the place of the trial banner.
   if (checkout !== 'idle') {

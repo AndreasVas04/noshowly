@@ -24,7 +24,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AppointmentCard from '@/components/dashboard/AppointmentCard';
@@ -49,7 +49,6 @@ export default function DayView({ title }: DayViewProps) {
   /** Salon date being shown ('YYYY-MM-DD'); null until the salon timezone is known. */
   const [currentDate, setCurrentDate] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const [barbers, setBarbers] = useState<Barber[]>([]);
@@ -61,69 +60,79 @@ export default function DayView({ title }: DayViewProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<AppointmentWithDetails | null>(null);
 
-  /**
-   * Fetches appointments for the given salon date.
-   *
-   * @param date - The salon calendar date ('YYYY-MM-DD') to load appointments for.
-   */
-  const fetchAppointments = useCallback(async (date: string): Promise<void> => {
-    setIsLoading(true);
-    setError(null);
+  /** Incremented to refetch the day: after a save, on "Try again" and on realtime changes. */
+  const [refreshCount, setRefreshCount] = useState(0);
+  /** The request whose response `appointments` and `error` hold. */
+  const [loadedRequest, setLoadedRequest] = useState<string | null>(null);
 
-    try {
-      const response = await fetch(`/api/appointments?date=${date}`, { cache: 'no-store' });
+  /** Identifies the appointments request for the current date; null until the date is known. */
+  const appointmentsRequest = currentDate ? `${currentDate}#${refreshCount}` : null;
+  const isLoading = appointmentsRequest === null || loadedRequest !== appointmentsRequest;
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
-      }
-
-      const payload = (await response.json()) as { appointments: AppointmentWithDetails[] };
-      setAppointments(payload.appointments);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Something went wrong';
-      setError(message);
-      console.error('[DayView] fetchAppointments error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // Fetch the salon's staff list and timezone once on mount, then open today
+  // in the salon's timezone.
   useEffect(() => {
-    if (currentDate) fetchAppointments(currentDate);
-  }, [currentDate, fetchAppointments]);
+    let ignore = false;
 
-  /**
-   * Fetches the salon's staff list and timezone once on mount, then opens
-   * today in the salon's timezone.
-   */
-  const fetchSalonData = useCallback(async (): Promise<void> => {
-    let timeZone: string | null = null;
-    try {
-      const [barbersRes, salonRes] = await Promise.all([
-        fetch('/api/barbers', { cache: 'no-store' }),
-        fetch('/api/salon',   { cache: 'no-store' }),
-      ]);
-      if (barbersRes.ok) {
-        const data = (await barbersRes.json()) as { barbers: Barber[] };
-        setBarbers(data.barbers);
+    async function loadSalon(): Promise<void> {
+      let timeZone: string | null = null;
+      try {
+        const [barbersRes, salonRes] = await Promise.all([
+          fetch('/api/barbers', { cache: 'no-store' }),
+          fetch('/api/salon',   { cache: 'no-store' }),
+        ]);
+        if (barbersRes.ok) {
+          const data = (await barbersRes.json()) as { barbers: Barber[] };
+          if (!ignore) setBarbers(data.barbers);
+        }
+        if (salonRes.ok) {
+          const data = (await salonRes.json()) as { salon: Salon };
+          timeZone = resolveTimeZone(data.salon.timezone);
+        }
+      } catch (err) {
+        console.error('[DayView] Failed to load staff and salon timezone:', err);
       }
-      if (salonRes.ok) {
-        const data = (await salonRes.json()) as { salon: Salon };
-        timeZone = resolveTimeZone(data.salon.timezone);
-      }
-    } catch (err) {
-      console.error('[DayView] fetchSalonData error:', err);
+      if (ignore) return;
+
+      const zone = timeZone ?? browserTimeZone();
+      setSalonTimezone(zone);
+      setCurrentDate((date) => date ?? todayInZone(zone));
     }
 
-    const zone = timeZone ?? browserTimeZone();
-    setSalonTimezone(zone);
-    setCurrentDate((date) => date ?? todayInZone(zone));
+    loadSalon();
+    return () => { ignore = true; };
   }, []);
 
+  // Fetch the date's appointments, again whenever a refresh is requested. A
+  // response that arrives after a newer request started is ignored.
   useEffect(() => {
-    fetchSalonData();
-  }, [fetchSalonData]);
+    if (!appointmentsRequest || !currentDate) return;
+    let ignore = false;
+
+    async function loadAppointments(date: string, request: string): Promise<void> {
+      try {
+        const response = await fetch(`/api/appointments?date=${date}`, { cache: 'no-store' });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+        }
+
+        const payload = (await response.json()) as { appointments: AppointmentWithDetails[] };
+        if (ignore) return;
+        setAppointments(payload.appointments);
+        setError(null);
+      } catch (err) {
+        console.error('[DayView] Failed to load appointments:', err);
+        if (!ignore) setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        if (!ignore) setLoadedRequest(request);
+      }
+    }
+
+    loadAppointments(currentDate, appointmentsRequest);
+    return () => { ignore = true; };
+  }, [appointmentsRequest, currentDate]);
 
   /**
    * Subscribes to appointment changes via Supabase Realtime.
@@ -132,7 +141,6 @@ export default function DayView({ title }: DayViewProps) {
    * RLS scopes events to the authenticated salon's appointments.
    */
   useEffect(() => {
-    if (!currentDate) return;
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
@@ -142,7 +150,7 @@ export default function DayView({ title }: DayViewProps) {
         { event: '*', schema: 'public', table: 'appointments' },
         () => {
           // Refetch the full list on any change — simple and correct.
-          fetchAppointments(currentDate);
+          setRefreshCount((count) => count + 1);
         },
       )
       .subscribe();
@@ -150,14 +158,14 @@ export default function DayView({ title }: DayViewProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentDate, fetchAppointments]);
+  }, []);
 
-  // Reset staff filter when navigating to a new day.
-  useEffect(() => {
+  /** Moves to the salon's current date (after midnight) and clears the staff filter. */
+  function handleToday(): void {
+    if (!salonTimezone) return;
+    setCurrentDate(todayInZone(salonTimezone));
     setSelectedBarberId(null);
-  }, [currentDate]);
-
-  function handleToday(): void { if (salonTimezone) setCurrentDate(todayInZone(salonTimezone)); }
+  }
 
   function handleOpenAddModal(): void {
     setEditingAppointment(null);
@@ -177,7 +185,7 @@ export default function DayView({ title }: DayViewProps) {
   function handleModalSaved(): void {
     setModalOpen(false);
     setEditingAppointment(null);
-    if (currentDate) fetchAppointments(currentDate);
+    setRefreshCount((count) => count + 1);
   }
 
   // Date labels — only computed once the salon timezone is known (client-side).
@@ -313,7 +321,7 @@ export default function DayView({ title }: DayViewProps) {
         <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700">{error}</p>
           <button
-            onClick={() => { if (currentDate) fetchAppointments(currentDate); }}
+            onClick={() => setRefreshCount((count) => count + 1)}
             className="text-sm text-red-600 underline mt-1 hover:text-red-800"
           >
             Try again

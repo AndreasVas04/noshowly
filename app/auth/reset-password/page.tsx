@@ -76,7 +76,7 @@ export default function ResetPasswordPage() {
       }
 
       // The session should already be in cookies from the callback redirect.
-      const { data: { session }, error } = await supabase.auth.getSession();
+      const { data: { session }, error } = await createBrowserSupabaseClient().auth.getSession();
 
       if (error || !session) {
         setExchangeError(
@@ -98,7 +98,6 @@ export default function ResetPasswordPage() {
     }
 
     checkSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**

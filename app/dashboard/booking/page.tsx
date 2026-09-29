@@ -1676,6 +1676,14 @@ export default function BookingPage() {
     }
   }
 
+  // Keep the latest save functions in refs for the debounce timers. This
+  // prevents stale-closure bugs when boolean state (toggles) changes and the
+  // timeout fires after a single-event onChange.
+  useEffect(() => {
+    doSaveBookingPageRef.current = doSaveBookingPage;
+    handleSaveBarberRef.current = handleSaveBarber;
+  });
+
   // -------------------------------------------------------------------------
   // Loading / error states
   // -------------------------------------------------------------------------
@@ -1700,14 +1708,6 @@ export default function BookingPage() {
       </div>
     );
   }
-
-  // -------------------------------------------------------------------------
-  // Keep latest function versions in refs for debounce timers.
-  // This prevents stale-closure bugs when boolean state (toggles) changes
-  // and the timeout fires after a single-event onChange.
-  // -------------------------------------------------------------------------
-  doSaveBookingPageRef.current  = doSaveBookingPage;
-  handleSaveBarberRef.current   = handleSaveBarber;
 
   // -------------------------------------------------------------------------
   // Barber service assignment handler
