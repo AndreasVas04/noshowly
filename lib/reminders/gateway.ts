@@ -33,7 +33,8 @@
  *     provider rejected, and keeps a reminder due through account problems.
  *
  * The public demo account (lib/demo.ts) never emails clients: anyone can sign
- * in to it, so its emails go to the demo account's own address instead.
+ * in to it, so its emails go to Resend's test inbox (DEMO_EMAIL_RECIPIENT)
+ * instead, which reports them delivered without delivering them to anyone.
  *
  * send() never throws; it returns sent | skipped:<reason> | failed:<reason>.
  * Privacy: client names and email addresses are never logged.
@@ -41,7 +42,7 @@
 
 import 'server-only';
 import { createAdminSupabaseClient, type AdminSupabaseClient } from '@/lib/supabase/admin';
-import { isDemoAccount } from '@/lib/demo';
+import { DEMO_EMAIL_RECIPIENT, isDemoAccount } from '@/lib/demo';
 import { getEntitlements } from '@/lib/entitlements';
 import { isEmailConfigured, sendEmail, type SendFailure } from '@/lib/resend';
 import {
@@ -108,8 +109,8 @@ export type SendResult =
       reminderId: string;
       /** Address the email went to. */
       recipient: string;
-      /** True when it went to the owner instead of the client (demo account). */
-      toOwner: boolean;
+      /** True for the demo account: it went to the demo test inbox, not to the client. */
+      demo: boolean;
     }
   | { status: 'skipped'; reason: SkipReason }
   | { status: 'failed'; reason: FailReason; message: string };
@@ -209,20 +210,20 @@ export function createEmailGateway(
   }
 
   /** Cache key of a recipient within a salon. */
-  function recipientKey(salonId: string, recipient: string, toOwner: boolean): string {
-    return toOwner ? `${salonId}|owner` : `${salonId}|${recipient.toLowerCase()}`;
+  function recipientKey(salonId: string, recipient: string, demo: boolean): string {
+    return demo ? `${salonId}|demo` : `${salonId}|${recipient.toLowerCase()}`;
   }
 
   /**
-   * Emails the salon sent to the recipient in the last 24 hours. When emails
-   * go to the owner (demo account), every email of the salon went there.
+   * Emails the salon sent to the recipient in the last 24 hours. For the demo
+   * account every email of the salon went to the same test inbox.
    */
-  async function recipientLastDay(salonId: string, recipient: string, toOwner: boolean, now: Date): Promise<number> {
-    const key = recipientKey(salonId, recipient, toOwner);
+  async function recipientLastDay(salonId: string, recipient: string, demo: boolean, now: Date): Promise<number> {
+    const key = recipientKey(salonId, recipient, demo);
     let count = recipientDayCounts.get(key);
     if (count === undefined) {
       const since = new Date(now.getTime() - DAY_MS);
-      count = toOwner
+      count = demo
         ? await countSalonEmailsSince(db, salonId, since)
         : await countEmailsToAddressSince(db, salonId, recipient, since);
       recipientDayCounts.set(key, count);
@@ -231,10 +232,10 @@ export function createEmailGateway(
   }
 
   /** Updates the cached counts after a send. */
-  function countSend(salonId: string, recipient: string, toOwner: boolean): void {
+  function countSend(salonId: string, recipient: string, demo: boolean): void {
     const hour = salonHourCounts.get(salonId);
     if (hour !== undefined) salonHourCounts.set(salonId, hour + 1);
-    const key = recipientKey(salonId, recipient, toOwner);
+    const key = recipientKey(salonId, recipient, demo);
     const day = recipientDayCounts.get(key);
     if (day !== undefined) recipientDayCounts.set(key, day + 1);
   }
@@ -281,16 +282,17 @@ export function createEmailGateway(
       const quota = checkEmailQuota(entitlements, owner.counter.used);
       if (quota !== 'ok') return skipped(log, quota);
 
-      // Step 5: Recipient. The public demo account only emails its own address.
-      const toOwner   = isDemoAccount(owner.email);
-      const recipient = toOwner ? owner.email : clientEmail;
+      // Step 5: Recipient. The public demo account never emails clients: its
+      // emails go to the demo test inbox (lib/demo.ts).
+      const demo      = isDemoAccount(owner.email);
+      const recipient = demo ? DEMO_EMAIL_RECIPIENT : clientEmail;
 
       // Step 6: Sending limits. The counts are read before this email's row
       // is inserted, so emails sent at the same moment can all pass and go
       // slightly over a limit (acceptable: these are fair-use and anti-abuse caps).
       const limit = evaluateSendLimits(kind, {
         salonLastHour:    await salonLastHour(context.salon.id, now),
-        recipientLastDay: await recipientLastDay(context.salon.id, recipient, toOwner, now),
+        recipientLastDay: await recipientLastDay(context.salon.id, recipient, demo, now),
         testsLastDay:     kind === 'email_test'
           ? await countSalonEmailsSince(db, context.salon.id, new Date(now.getTime() - DAY_MS), ['email_test'])
           : 0,
@@ -348,15 +350,15 @@ export function createEmailGateway(
       if (!result.success) {
         return await recordFailure(reminderId, result.failure, result.error, log);
       }
-      delivered = { status: 'sent', reminderId, recipient, toOwner };
+      delivered = { status: 'sent', reminderId, recipient, demo };
 
       // Step 10: Mark the row as sent and count the email. The email is out,
       // so failures here are logged but do not change the result.
       await recordSent(reminderId, log);
       await countEmail(owner, log);
-      countSend(context.salon.id, recipient, toOwner);
+      countSend(context.salon.id, recipient, demo);
 
-      console.log(`${log} SENT reminder=${reminderId}${toOwner ? ' (to the demo account owner)' : ''}`);
+      console.log(`${log} SENT reminder=${reminderId}${demo ? ' (demo account, to the test inbox)' : ''}`);
       return delivered;
 
     } catch (err) {
