@@ -2187,8 +2187,9 @@ export default function BookingPage() {
                         <div className="space-y-2">
                           <div className="grid grid-cols-3 gap-2">
                             <div className="col-span-1 space-y-1">
-                              <Label className="text-xs text-[#8A8680]">Name</Label>
+                              <Label htmlFor={`service-${svc.id}-name`} className="text-xs text-[#8A8680]">Name</Label>
                               <Input
+                                id={`service-${svc.id}-name`}
                                 value={svcEditForms[svc.id]?.name ?? ''}
                                 onChange={(e) => setSvcEditForms((prev) => ({ ...prev, [svc.id]: { ...prev[svc.id], name: e.target.value } }))}
                                 maxLength={50}
@@ -2196,8 +2197,9 @@ export default function BookingPage() {
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs text-[#8A8680]">Min</Label>
+                              <Label htmlFor={`service-${svc.id}-duration`} className="text-xs text-[#8A8680]">Min</Label>
                               <Input
+                                id={`service-${svc.id}-duration`}
                                 type="number"
                                 min={1}
                                 value={svcEditForms[svc.id]?.duration ?? ''}
@@ -2207,8 +2209,9 @@ export default function BookingPage() {
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs text-[#8A8680]">Price</Label>
+                              <Label htmlFor={`service-${svc.id}-price`} className="text-xs text-[#8A8680]">Price</Label>
                               <Input
+                                id={`service-${svc.id}-price`}
                                 type="number"
                                 min={0}
                                 step={0.01}
@@ -2297,8 +2300,9 @@ export default function BookingPage() {
                 <div className="space-y-2 pt-1">
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-1 space-y-1">
-                      <Label className="text-xs text-[#8A8680]">Name *</Label>
+                      <Label htmlFor="new-service-name" className="text-xs text-[#8A8680]">Name *</Label>
                       <Input
+                        id="new-service-name"
                         type="text"
                         value={addSvcForm.name}
                         onChange={(e) => { setAddSvcForm((prev) => ({ ...prev, name: e.target.value })); if (addSvcError) setAddSvcError(''); }}
@@ -2309,8 +2313,9 @@ export default function BookingPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-[#8A8680]">Min</Label>
+                      <Label htmlFor="new-service-duration" className="text-xs text-[#8A8680]">Min</Label>
                       <Input
+                        id="new-service-duration"
                         type="number"
                         min={1}
                         value={addSvcForm.duration}
@@ -2321,8 +2326,9 @@ export default function BookingPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-[#8A8680]">Price</Label>
+                      <Label htmlFor="new-service-price" className="text-xs text-[#8A8680]">Price</Label>
                       <Input
+                        id="new-service-price"
                         type="number"
                         min={0}
                         step={0.01}
@@ -2478,6 +2484,7 @@ export default function BookingPage() {
                       <input
                         ref={(el) => { photoInputRefs.current[barber.id] = el; }}
                         type="file"
+                        aria-label={`Photo of ${barber.name}`}
                         accept="image/jpeg,image/png,image/webp"
                         className="sr-only"
                         onChange={(e) => void handlePhotoUpload(barber.id, e)}
@@ -2487,8 +2494,9 @@ export default function BookingPage() {
                     {/* Profile fields */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Name</Label>
+                        <Label htmlFor={`staff-${barber.id}-name`} className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Name</Label>
                         <Input
+                          id={`staff-${barber.id}-name`}
                           value={form.name}
                           onChange={(e) => updateBarberField(barber.id, 'name', e.target.value)}
                           maxLength={50}
@@ -2496,8 +2504,9 @@ export default function BookingPage() {
                         />
                       </div>
                       <div className="sm:col-span-2 space-y-1.5">
-                        <Label className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Bio (optional)</Label>
+                        <Label htmlFor={`staff-${barber.id}-bio`} className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Bio (optional)</Label>
                         <textarea
+                          id={`staff-${barber.id}-bio`}
                           ref={(el) => { bioTextareaRefs.current[barber.id] = el; }}
                           value={form.bio}
                           onChange={(e) => updateBarberField(barber.id, 'bio', e.target.value)}
@@ -2549,10 +2558,16 @@ export default function BookingPage() {
                                 {isAssigned && assignment && (
                                   <div className="ml-6 mt-1.5 grid grid-cols-2 gap-2 max-w-xs">
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Price</p>
+                                      <label
+                                        htmlFor={`staff-${barber.id}-service-${svc.id}-price`}
+                                        className="block text-[10px] font-medium text-[#8A8680] uppercase tracking-wider"
+                                      >
+                                        Price
+                                      </label>
                                       <div className="flex items-baseline gap-1">
                                         <span className="text-xs text-[#8A8680]">{currencySymbol}</span>
                                         <input
+                                          id={`staff-${barber.id}-service-${svc.id}-price`}
                                           type="number"
                                           min={0}
                                           step={0.01}
@@ -2571,8 +2586,14 @@ export default function BookingPage() {
                                     </div>
 
                                     <div className="rounded-lg border border-[#E5E2DB] px-3 py-2 space-y-0.5 bg-[#FAFAF8]">
-                                      <p className="text-[10px] font-medium text-[#8A8680] uppercase tracking-wider">Duration (min)</p>
+                                      <label
+                                        htmlFor={`staff-${barber.id}-service-${svc.id}-duration`}
+                                        className="block text-[10px] font-medium text-[#8A8680] uppercase tracking-wider"
+                                      >
+                                        Duration (min)
+                                      </label>
                                       <input
+                                        id={`staff-${barber.id}-service-${svc.id}-duration`}
                                         type="number"
                                         min={MIN_DURATION_MINUTES}
                                         max={MAX_DURATION_MINUTES}
@@ -2645,6 +2666,7 @@ export default function BookingPage() {
                                       <div className="flex flex-row items-center gap-1.5">
                                         <input
                                           type="time"
+                                          aria-label={`${label} start time`}
                                           value={day.work_start}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_start', e.target.value)}
                                           style={{ width: '110px' }}
@@ -2653,6 +2675,7 @@ export default function BookingPage() {
                                         <span className="text-xs text-[#8A8680] shrink-0">to</span>
                                         <input
                                           type="time"
+                                          aria-label={`${label} end time`}
                                           value={day.work_end}
                                           onChange={(e) => setWorkTime(barber.id, dow, 'work_end', e.target.value)}
                                           style={{ width: '110px' }}
@@ -2669,6 +2692,7 @@ export default function BookingPage() {
                                           <div className="flex flex-row items-center gap-1.5">
                                             <input
                                               type="time"
+                                              aria-label={`${label} break ${i + 1} start time`}
                                               value={brk.start}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'start', e.target.value)}
                                               style={{ width: '110px' }}
@@ -2677,6 +2701,7 @@ export default function BookingPage() {
                                             <span className="text-xs text-[#8A8680] shrink-0">to</span>
                                             <input
                                               type="time"
+                                              aria-label={`${label} break ${i + 1} end time`}
                                               value={brk.end}
                                               onChange={(e) => setBreakTime(barber.id, dow, i, 'end', e.target.value)}
                                               style={{ width: '110px' }}
@@ -2735,11 +2760,15 @@ export default function BookingPage() {
             {/* Add staff member form */}
             <SectionCard>
               <form onSubmit={(e) => void handleAddBarber(e)} noValidate className="px-6 py-5">
-                <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">
+                <label
+                  htmlFor="new-staff-name"
+                  className="block text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3"
+                >
                   Add staff member
-                </p>
+                </label>
                 <div className="flex gap-3">
                   <Input
+                    id="new-staff-name"
                     type="text"
                     value={addBarberName}
                     onChange={(e) => { setAddBarberName(e.target.value); if (addBarberError) setAddBarberError(''); }}

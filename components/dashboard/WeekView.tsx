@@ -21,6 +21,8 @@
  *  - Staff pills switch which appointments are displayed. Default: "All".
  *  - Clicking a day column's empty area opens the add modal with that day
  *    and staff pre-filled (when a named staff member is currently selected).
+ *    Keyboard users reach the same through each column's "Add" button, which
+ *    is visually hidden until it has focus.
  *  - Clicking an appointment card opens the edit modal.
  *  - "Add appointment" button opens the add modal.
  *
@@ -139,21 +141,14 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
   const isPast      = isPastAppointment(apt);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       onClick={(e) => {
         e.stopPropagation(); // prevent column click from also firing
         onClick();
       }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.stopPropagation();
-          onClick();
-        }
-      }}
       className={[
-        'rounded-lg border px-2 py-1.5 space-y-0.5',
+        'block w-full text-left rounded-lg border px-2 py-1.5 space-y-0.5',
         'hover:brightness-95 transition-all cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30',
         isCancelled ? 'border-dashed' : '',
@@ -161,27 +156,27 @@ function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
       ].join(' ')}
     >
       {/* Time + optional "Past" label for past unanswered */}
-      <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
+      <span className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
         {formatTimeInZone(apt.datetime, timezone)}
         {isPast && (
           <span className="text-[9px] font-medium text-[#8A8680] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
             Past
           </span>
         )}
-      </p>
+      </span>
 
       {/* Client name */}
-      <p className={`text-xs font-semibold text-[#1A1A1A] truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
+      <span className={`block text-xs font-semibold text-[#1A1A1A] truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
         {apt.client_name ?? 'Unknown'}
-      </p>
+      </span>
 
       {/* Service — only if set */}
       {apt.service_type && (
-        <p className="text-xs text-[#2D2D2D]/60 truncate leading-snug">
+        <span className="block text-xs text-[#2D2D2D]/60 truncate leading-snug">
           {apt.service_type}
-        </p>
+        </span>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -211,7 +206,9 @@ interface DayColumnProps {
 /**
  * DayColumn renders a single day column in the desktop week grid.
  * The column header shows the day name and date (today is highlighted).
- * The empty body area is clickable to add a new appointment for that day.
+ * Clicking the empty body area adds an appointment on that day; keyboard and
+ * screen reader users get an "Add" button below the body instead, visually
+ * hidden until it has focus.
  *
  * @param props.day                - The calendar day this column represents.
  * @param props.appointments       - Appointments to display (already filtered).
@@ -245,9 +242,6 @@ function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick
 
       {/* Clickable body — clicking empty area opens add modal for this day */}
       <div
-        role="button"
-        tabIndex={-1}
-        aria-label={`Add appointment on ${formatDateOnly(day, { weekday: 'long', month: 'long', day: 'numeric' })}`}
         onClick={onColumnClick}
         className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#FAFAF8] cursor-pointer"
       >
@@ -264,6 +258,20 @@ function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick
           />
         ))}
       </div>
+
+      {/* The same action for keyboard and screen reader users, shown when focused */}
+      <button
+        type="button"
+        onClick={onColumnClick}
+        aria-label={`Add appointment on ${formatDateOnly(day, { weekday: 'long', month: 'long', day: 'numeric' })}`}
+        className="
+          sr-only focus-visible:not-sr-only
+          border-t border-[#E5E2DB] bg-white text-xs text-[#1B4332] font-body
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B4332]/30
+        "
+      >
+        <span className="block py-1.5">+ Add</span>
+      </button>
     </div>
   );
 }

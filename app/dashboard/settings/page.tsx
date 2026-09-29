@@ -882,6 +882,7 @@ export default function SettingsPage() {
               >
                 <input
                   type="checkbox"
+                  aria-labelledby="email-confirmation-label"
                   checked={emailConfirmationEnabled}
                   onChange={(e) => {
                     if (!emailAllowed) return;
@@ -895,7 +896,7 @@ export default function SettingsPage() {
                 <div className="w-10 h-6 bg-[#C8C8C8]/50 rounded-full peer peer-checked:bg-[#1B4332] after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:rounded-full after:h-[18px] after:w-[18px] after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
               </label>
               <div>
-                <p className="text-sm font-medium text-[#1A1A1A]">Request email confirmation (YES/NO)</p>
+                <p id="email-confirmation-label" className="text-sm font-medium text-[#1A1A1A]">Request email confirmation (YES/NO)</p>
                 {emailAllowed ? (
                   <p className="text-xs text-[#8A8680] mt-0.5 font-body">
                     When off, email reminders are sent without YES/NO buttons.
@@ -1217,6 +1218,7 @@ export default function SettingsPage() {
 
                 <Input
                   type="text"
+                  aria-label="Type DELETE to confirm"
                   value={deleteConfirmText}
                   onChange={(e) => {
                     setDeleteConfirmText(e.target.value);
