@@ -223,8 +223,8 @@ migration and the order to apply them in.
 
 ## Local development
 
-You need Node.js 20.9 or later (CI uses 22), and for a local database the
-Supabase CLI and Docker.
+You need Node.js 22.12 or later (CI uses 22, Vercel 24), and for a local
+database the Supabase CLI and Docker.
 
 ```bash
 git clone https://github.com/AndreasVas04/noshowly.git
