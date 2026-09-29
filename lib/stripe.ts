@@ -39,7 +39,9 @@ if (!STRIPE_SECRET_KEY) {
  */
 export const stripe = new Stripe(STRIPE_SECRET_KEY, {
   // Pin the API version so SDK type definitions stay in sync with the live API.
-  // This matches the version bundled with stripe@21. Update this when upgrading
-  // the stripe package and migrating the webhook endpoint in the Stripe dashboard.
-  apiVersion: '2026-03-25.dahlia',
+  // This is the version stripe@22.6 is built for. The webhook endpoint in the
+  // Stripe Dashboard stays on 2026-03-25.dahlia: versions of the same release
+  // (dahlia) only add fields, so its events still match these types. When the
+  // stripe package moves to the next release, migrate the endpoint as well.
+  apiVersion: '2026-08-26.dahlia',
 });
