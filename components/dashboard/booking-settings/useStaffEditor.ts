@@ -8,8 +8,9 @@
  * (DELETE /api/barbers/[id]) staff members.
  *
  * Profile and availability changes are auto-saved per staff member 800 ms
- * after the last change (PUT /api/barbers/[id], then
- * POST /api/staff-availability), one save at a time per staff member. The
+ * after the last change (PUT /api/barbers/[id] with the name and bio, then
+ * POST /api/staff-availability), one save at a time per staff member; the
+ * photo is saved by its own actions (useStaffPhotos). The
  * save is held back while a working day has impossible hours. When a save or
  * a removal fails, its message is shown in the staff member's card
  * (staffErrors), and a failed save can be run again (retryBarberSave).
@@ -405,14 +406,14 @@ export function useStaffEditor() {
     let savedOk = false;
 
     try {
-      // 1. Save profile fields (name, bio, photo_url).
+      // 1. Save profile fields (name, bio). The photo is saved by its own
+      //    actions (useStaffPhotos), so a save here never sends an older one.
       const profileRes = await fetch(`/api/barbers/${barberId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: trimmedName,
           bio: form.bio.trim() || null,
-          photo_url: form.photo_url.trim() || null,
         }),
       });
 
