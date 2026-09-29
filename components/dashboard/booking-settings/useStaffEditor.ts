@@ -428,8 +428,11 @@ export function useStaffEditor() {
     } finally {
       if (savedOk) {
         setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'saved' }));
+        // Only clears "Saved": a newer save of this staff member keeps its state.
         setTimeout(() => {
-          setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'idle' }));
+          setBarberSaveStatuses((prev) =>
+            prev[barberId] === 'saved' ? { ...prev, [barberId]: 'idle' } : prev
+          );
         }, 2000);
       } else {
         setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'idle' }));

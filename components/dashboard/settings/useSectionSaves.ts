@@ -25,6 +25,14 @@ import {
   type SaveStatus,
 } from '@/components/dashboard/settings/settings-helpers';
 
+/**
+ * Resets a section's "Saved" state to idle 2 s after a save. A newer save
+ * may have started in the meantime: its 'saving' (or 'error') state is kept.
+ */
+function keepUnlessSaved(status: SaveStatus): SaveStatus {
+  return status === 'saved' ? 'idle' : status;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -124,7 +132,7 @@ export function useBusinessInfoSave(): BusinessInfoSave {
       }
 
       setSalonInfoSaveStatus('saved');
-      setTimeout(() => setSalonInfoSaveStatus('idle'), 2000);
+      setTimeout(() => setSalonInfoSaveStatus(keepUnlessSaved), 2000);
     } catch {
       setSalonInfoError('Something went wrong. Please check your connection.');
       setSalonInfoSaveStatus('error');
@@ -203,7 +211,7 @@ export function useBusinessHoursSave(): BusinessHoursSave {
       }
 
       setHoursSaveStatus('saved');
-      setTimeout(() => setHoursSaveStatus('idle'), 2000);
+      setTimeout(() => setHoursSaveStatus(keepUnlessSaved), 2000);
     } catch {
       setHoursError('Something went wrong. Please check your connection.');
       setHoursSaveStatus('error');
@@ -271,7 +279,7 @@ export function useConfirmationSave(): ConfirmationSave {
       }
 
       setConfirmSaveStatus('saved');
-      setTimeout(() => setConfirmSaveStatus('idle'), 2000);
+      setTimeout(() => setConfirmSaveStatus(keepUnlessSaved), 2000);
     } catch {
       setConfirmError('Something went wrong. Please check your connection.');
       setConfirmSaveStatus('error');
@@ -349,7 +357,7 @@ export function useTemplatesSave(): TemplatesSave {
       }
 
       setTemplatesSaveStatus('saved');
-      setTimeout(() => setTemplatesSaveStatus('idle'), 2000);
+      setTimeout(() => setTemplatesSaveStatus(keepUnlessSaved), 2000);
     } catch {
       setTemplatesError('Something went wrong. Please check your connection.');
       setTemplatesSaveStatus('error');

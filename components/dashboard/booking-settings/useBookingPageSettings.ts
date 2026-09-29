@@ -148,7 +148,7 @@ export function useBookingPageSettings() {
       setRequirePhone(data.bookingPage.require_phone ?? true);
       setRequireEmail(data.bookingPage.require_email ?? true);
       setBookingSaveStatus('saved');
-      setTimeout(() => setBookingSaveStatus('idle'), 2000);
+      setTimeout(() => setBookingSaveStatus((status) => (status === 'saved' ? 'idle' : status)), 2000);
     } catch {
       setBookingError('Something went wrong. Please check your connection and try again.');
       setBookingSaveStatus('error');
@@ -256,7 +256,7 @@ export function useBookingPageSettings() {
       setRequirePhone((current) => (current === sent.require_phone ? (saved.require_phone ?? true) : current));
       setRequireEmail((current) => (current === sent.require_email ? (saved.require_email ?? true) : current));
       setBookingSaveStatus('saved');
-      setTimeout(() => setBookingSaveStatus('idle'), 2000);
+      setTimeout(() => setBookingSaveStatus((status) => (status === 'saved' ? 'idle' : status)), 2000);
     } catch {
       setBookingError('Something went wrong. Please check your connection and try again.');
       setBookingSaveStatus('error');
