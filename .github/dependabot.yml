@@ -10,8 +10,24 @@ updates:
         patterns:
           - next
           - eslint-config-next
+      # react and react-dom must always be on the same version.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      # The PostCSS plugin compiles with its own tailwindcss: keep both on one version.
+      tailwind:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/*"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
