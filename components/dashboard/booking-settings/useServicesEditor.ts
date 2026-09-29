@@ -5,21 +5,16 @@
  * (ServicesSection): the salon's service catalogue, active and inactive, with
  * adding (POST /api/services), inline editing and the "Available on booking
  * page" toggle (PUT /api/services/[id]), and removing
- * (DELETE /api/services/[id]).
+ * (DELETE /api/services/[id]). A failed change shows its message next to the
+ * service (serviceErrors) or in the add form (addSvcError).
  */
 
 'use client';
 
 import { useState, useCallback } from 'react';
-import { MAX_DURATION_MINUTES, MIN_DURATION_MINUTES } from '@/lib/availability';
+import { parseServiceForm, type ServiceFormState } from '@/components/dashboard/booking-settings/form-state';
+import { responseError } from '@/lib/utils';
 import type { BarberService, Service } from '@/types';
-
-/** In-memory form state for adding/editing a global service. */
-type ServiceEditForm = {
-  name: string;
-  duration: string;
-  price: string;
-};
 
 /**
  * Owns the salon's service catalogue and the add and edit forms of the
@@ -40,13 +35,33 @@ export function useServicesEditor(
   /** Salon-level services (from the services table) — used for assignment checkboxes. */
   const [salonServices, setSalonServices] = useState<Service[]>([]);
   const [showAddSvcForm, setShowAddSvcForm] = useState(false);
-  const [addSvcForm, setAddSvcForm] = useState<ServiceEditForm>({ name: '', duration: '', price: '' });
+  const [addSvcForm, setAddSvcForm] = useState<ServiceFormState>({ name: '', duration: '', price: '' });
   const [addingSvc, setAddingSvc] = useState(false);
   const [addSvcError, setAddSvcError] = useState('');
   const [editingSvcId, setEditingSvcId] = useState<string | null>(null);
-  const [svcEditForms, setSvcEditForms] = useState<Record<string, ServiceEditForm>>({});
+  const [svcEditForms, setSvcEditForms] = useState<Record<string, ServiceFormState>>({});
   const [savingSvcId, setSavingSvcId] = useState<string | null>(null);
   const [deletingSvcId, setDeletingSvcId] = useState<string | null>(null);
+  /** Per service: why its last edit, toggle or removal failed. */
+  const [serviceErrors, setServiceErrors] = useState<Record<string, string>>({});
+
+  /**
+   * Shows a message next to a service, or clears it with null.
+   *
+   * @param serviceId - UUID of the service.
+   * @param message   - What went wrong, or null.
+   */
+  const setServiceError = useCallback((serviceId: string, message: string | null): void => {
+    setServiceErrors((prev) => {
+      if (message === null) {
+        if (!(serviceId in prev)) return prev;
+        const next = { ...prev };
+        delete next[serviceId];
+        return next;
+      }
+      return { ...prev, [serviceId]: message };
+    });
+  }, []);
 
   /**
    * Sets the services loaded on mount.
@@ -65,21 +80,8 @@ export function useServicesEditor(
    * Adds a new global service via POST /api/services.
    */
   async function handleAddGlobalService(): Promise<void> {
-    const trimmedName = addSvcForm.name.trim();
-    if (!trimmedName) { setAddSvcError('Service name is required.'); return; }
-    if (trimmedName.length > 50) { setAddSvcError('Name must be 50 characters or fewer.'); return; }
-
-    const durationNum = addSvcForm.duration ? Number(addSvcForm.duration) : null;
-    if (
-      durationNum !== null &&
-      (!Number.isInteger(durationNum) || durationNum < MIN_DURATION_MINUTES || durationNum > MAX_DURATION_MINUTES)
-    ) {
-      setAddSvcError(`Duration must be a whole number of minutes between ${MIN_DURATION_MINUTES} and ${MAX_DURATION_MINUTES}.`); return;
-    }
-    const priceNum = addSvcForm.price ? parseFloat(addSvcForm.price) : null;
-    if (addSvcForm.price && (isNaN(priceNum!) || priceNum! < 0)) {
-      setAddSvcError('Price must be a non-negative number.'); return;
-    }
+    const parsed = parseServiceForm(addSvcForm);
+    if (!parsed.ok) { setAddSvcError(parsed.error); return; }
 
     setAddingSvc(true);
     setAddSvcError('');
@@ -88,12 +90,11 @@ export function useServicesEditor(
       const res = await fetch('/api/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, duration_minutes: durationNum, price: priceNum }),
+        body: JSON.stringify(parsed.values),
       });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        setAddSvcError(data.error ?? 'Failed to add service. Please try again.');
+        setAddSvcError(await responseError(res, 'Failed to add service. Please try again.'));
         return;
       }
 
@@ -117,34 +118,21 @@ export function useServicesEditor(
     const form = svcEditForms[serviceId];
     if (!form) return;
 
-    const trimmedName = form.name.trim();
-    if (!trimmedName) { alert('Service name is required.'); return; }
-    if (trimmedName.length > 50) { alert('Name must be 50 characters or fewer.'); return; }
+    const parsed = parseServiceForm(form);
+    if (!parsed.ok) { setServiceError(serviceId, parsed.error); return; }
 
-    const durationNum = form.duration ? Number(form.duration) : null;
-    if (
-      durationNum !== null &&
-      (!Number.isInteger(durationNum) || durationNum < MIN_DURATION_MINUTES || durationNum > MAX_DURATION_MINUTES)
-    ) {
-      alert(`Duration must be a whole number of minutes between ${MIN_DURATION_MINUTES} and ${MAX_DURATION_MINUTES}.`); return;
-    }
-    const priceNum = form.price ? parseFloat(form.price) : null;
-    if (form.price && (isNaN(priceNum!) || priceNum! < 0)) {
-      alert('Price must be a non-negative number.'); return;
-    }
-
+    setServiceError(serviceId, null);
     setSavingSvcId(serviceId);
 
     try {
       const res = await fetch(`/api/services/${serviceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, duration_minutes: durationNum, price: priceNum }),
+        body: JSON.stringify(parsed.values),
       });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to save. Please try again.');
+        setServiceError(serviceId, await responseError(res, 'Failed to save. Please try again.'));
         return;
       }
 
@@ -154,10 +142,38 @@ export function useServicesEditor(
       );
       setEditingSvcId(null);
     } catch {
-      alert('Something went wrong. Please try again.');
+      setServiceError(serviceId, 'Something went wrong. Please check your connection and try again.');
     } finally {
       setSavingSvcId(null);
     }
+  }
+
+  /**
+   * Turns a service's row into its edit form, filled with its saved values.
+   *
+   * @param service - The service to edit.
+   */
+  function startEditingService(service: Service): void {
+    setServiceError(service.id, null);
+    setEditingSvcId(service.id);
+    setSvcEditForms((prev) => ({
+      ...prev,
+      [service.id]: {
+        name: service.name,
+        duration: service.duration_minutes?.toString() ?? '',
+        price: service.price != null ? String(service.price) : '',
+      },
+    }));
+  }
+
+  /**
+   * Closes a service's edit form without saving.
+   *
+   * @param serviceId - UUID of the service.
+   */
+  function cancelEditingService(serviceId: string): void {
+    setServiceError(serviceId, null);
+    setEditingSvcId(null);
   }
 
   /**
@@ -167,6 +183,7 @@ export function useServicesEditor(
    * @param active    - New active state.
    */
   async function handleToggleGlobalService(serviceId: string, active: boolean): Promise<void> {
+    setServiceError(serviceId, null);
     try {
       const res = await fetch(`/api/services/${serviceId}`, {
         method: 'PUT',
@@ -175,15 +192,14 @@ export function useServicesEditor(
       });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to update. Please try again.');
+        setServiceError(serviceId, await responseError(res, 'Failed to update. Please try again.'));
         return;
       }
 
       const { service } = (await res.json()) as { service: Service };
       setSalonServices((prev) => prev.map((s) => (s.id === serviceId ? service : s)));
     } catch {
-      alert('Something went wrong. Please try again.');
+      setServiceError(serviceId, 'Something went wrong. Please check your connection and try again.');
     }
   }
 
@@ -196,20 +212,20 @@ export function useServicesEditor(
   async function handleDeleteGlobalService(serviceId: string, serviceName: string): Promise<void> {
     if (!window.confirm(`Remove "${serviceName}"? This cannot be undone.`)) return;
 
+    setServiceError(serviceId, null);
     setDeletingSvcId(serviceId);
 
     try {
       const res = await fetch(`/api/services/${serviceId}`, { method: 'DELETE' });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to remove. Please try again.');
+        setServiceError(serviceId, await responseError(res, 'Failed to remove. Please try again.'));
         return;
       }
       setSalonServices((prev) => prev.filter((s) => s.id !== serviceId));
       // Also clean up any barber_services assignments for this service from local state.
       updateBarberServiceAssignments((prev) => prev.filter((ba) => ba.service_id !== serviceId));
     } catch {
-      alert('Something went wrong. Please try again.');
+      setServiceError(serviceId, 'Something went wrong. Please check your connection and try again.');
     } finally {
       setDeletingSvcId(null);
     }
@@ -225,12 +241,14 @@ export function useServicesEditor(
     addSvcError,
     setAddSvcError,
     editingSvcId,
-    setEditingSvcId,
     svcEditForms,
     setSvcEditForms,
     savingSvcId,
     deletingSvcId,
+    serviceErrors,
     initServices,
+    startEditingService,
+    cancelEditingService,
     handleAddGlobalService,
     handleSaveGlobalServiceEdit,
     handleToggleGlobalService,

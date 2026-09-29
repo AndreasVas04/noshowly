@@ -3,7 +3,8 @@
  *
  * Unit tests for the display helpers shared by the dashboard and the booking
  * page: appointment status labels and colours (lib/appointment-status.ts),
- * currency symbols (lib/currency.ts) and initials (lib/utils.ts).
+ * currency symbols (lib/currency.ts), initials and API error messages
+ * (lib/utils.ts).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -15,7 +16,7 @@ import {
   weekCardClasses,
 } from '@/lib/appointment-status';
 import { getCurrencySymbol } from '@/lib/currency';
-import { getInitials } from '@/lib/utils';
+import { getInitials, responseError } from '@/lib/utils';
 
 const NOW = new Date('2026-10-06T10:00:00Z');
 
@@ -75,5 +76,28 @@ describe('getInitials', () => {
   it('returns ? without a name', () => {
     expect(getInitials(null)).toBe('?');
     expect(getInitials('   ')).toBe('?');
+  });
+});
+
+describe('responseError', () => {
+  const json = (body: unknown, status = 400) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  it("uses the response's error message", async () => {
+    expect(await responseError(json({ error: 'Name must be 50 characters or fewer.' }), 'Failed.'))
+      .toBe('Name must be 50 characters or fewer.');
+  });
+
+  it('falls back when the body has no usable message', async () => {
+    expect(await responseError(json({}), 'Failed.')).toBe('Failed.');
+    expect(await responseError(json({ error: '  ' }), 'Failed.')).toBe('Failed.');
+    expect(await responseError(json({ error: { code: 42 } }), 'Failed.')).toBe('Failed.');
+    expect(await responseError(json(null, 500), 'Failed.')).toBe('Failed.');
+  });
+
+  it('falls back when the body is not JSON', async () => {
+    const html = new Response('<html>Bad gateway</html>', { status: 502, headers: { 'Content-Type': 'text/html' } });
+    expect(await responseError(html, 'Failed.')).toBe('Failed.');
+    expect(await responseError(new Response(null, { status: 503 }), 'Failed.')).toBe('Failed.');
   });
 });

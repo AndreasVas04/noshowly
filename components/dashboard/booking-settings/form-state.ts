@@ -11,10 +11,13 @@
  *    for auto-save, the break hint and "Apply to all days".
  *  - applySavedText — applies a saved server value to a text field only when
  *    the owner has not changed it since the save request was sent.
+ *  - ServiceFormState / parseServiceForm — the add and edit forms of a
+ *    service and their check before sending.
  *
  * No imports from React, Next.js or Supabase, so this is safe to use anywhere.
  */
 
+import { isValidDuration, isValidPrice, MAX_DURATION_MINUTES, MIN_DURATION_MINUTES } from '@/lib/availability';
 import { normaliseBreaks, timeSlotsToWorkingDay, workingDayToTimeSlots } from '@/lib/schedule';
 import { normaliseTime } from '@/lib/time';
 import type { Barber, StaffAvailability } from '@/types';
@@ -193,4 +196,50 @@ export function applySavedText(current: string, sent: string, saved: string): st
   if (current !== sent) return current;
   if (current.trim() === saved.trim()) return current;
   return saved;
+}
+
+// ---------------------------------------------------------------------------
+// Services
+// ---------------------------------------------------------------------------
+
+/** The add or edit form of a service, as typed. */
+export type ServiceFormState = {
+  name: string;
+  duration: string;
+  price: string;
+};
+
+/** A service form checked before sending: the values, or the problem to show. */
+export type ParsedServiceForm =
+  | { ok: true; values: { name: string; duration_minutes: number | null; price: number | null } }
+  | { ok: false; error: string };
+
+/**
+ * Checks a service form before it is sent, with the rules the API applies:
+ * a name of 1–50 characters, and an optional duration in whole minutes and
+ * an optional price of 0 or more (an empty field means none).
+ *
+ * @param form - The form as typed.
+ */
+export function parseServiceForm(form: ServiceFormState): ParsedServiceForm {
+  const name = form.name.trim();
+  if (!name) return { ok: false, error: 'Service name is required.' };
+  if (name.length > 50) return { ok: false, error: 'Name must be 50 characters or fewer.' };
+
+  const durationText = form.duration.trim();
+  const duration = durationText === '' ? null : Number(durationText);
+  if (duration !== null && !isValidDuration(duration)) {
+    return {
+      ok: false,
+      error: `Duration must be a whole number of minutes between ${MIN_DURATION_MINUTES} and ${MAX_DURATION_MINUTES}.`,
+    };
+  }
+
+  const priceText = form.price.trim();
+  const price = priceText === '' ? null : Number(priceText);
+  if (price !== null && !isValidPrice(price)) {
+    return { ok: false, error: 'Price must be a number of 0 or more.' };
+  }
+
+  return { ok: true, values: { name, duration_minutes: duration, price } };
 }

@@ -4,8 +4,8 @@
  * Unit tests for the booking settings form helpers in
  * components/dashboard/booking-settings/form-state.ts: default days, building
  * a staff member's form from staff_availability rows (time_slots and the
- * legacy columns), the working hours and break checks, and applying saved
- * text to fields the owner may still be editing.
+ * legacy columns), the working hours and break checks, applying saved text
+ * to fields the owner may still be editing, and the service form check.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -15,6 +15,7 @@ import {
   getWorkingHoursError,
   isBreakIgnored,
   makeDefaultDayState,
+  parseServiceForm,
   sameBreaks,
   WEEK_DAYS,
   type DayState,
@@ -251,5 +252,48 @@ describe('applySavedText', () => {
   it('keeps surrounding whitespace the server trimmed, so typing is not disturbed', () => {
     expect(applySavedText('Hello ', 'Hello ', 'Hello')).toBe('Hello ');
     expect(applySavedText('  Hi', '  Hi', 'Hi')).toBe('  Hi');
+  });
+});
+
+describe('parseServiceForm', () => {
+  it('trims the name and turns empty fields into no duration or price', () => {
+    expect(parseServiceForm({ name: '  Haircut ', duration: '', price: ' ' })).toEqual({
+      ok: true,
+      values: { name: 'Haircut', duration_minutes: null, price: null },
+    });
+  });
+
+  it('reads the duration and price as numbers', () => {
+    expect(parseServiceForm({ name: 'Colour', duration: '90', price: '45.50' })).toEqual({
+      ok: true,
+      values: { name: 'Colour', duration_minutes: 90, price: 45.5 },
+    });
+    expect(parseServiceForm({ name: 'Free consult', duration: '15', price: '0' })).toEqual({
+      ok: true,
+      values: { name: 'Free consult', duration_minutes: 15, price: 0 },
+    });
+  });
+
+  it('requires a name of at most 50 characters', () => {
+    expect(parseServiceForm({ name: '   ', duration: '', price: '' }))
+      .toEqual({ ok: false, error: 'Service name is required.' });
+    expect(parseServiceForm({ name: 'x'.repeat(51), duration: '', price: '' }))
+      .toEqual({ ok: false, error: 'Name must be 50 characters or fewer.' });
+    expect(parseServiceForm({ name: 'x'.repeat(50), duration: '', price: '' }).ok).toBe(true);
+  });
+
+  it('rejects a duration that is not a whole number of minutes in range', () => {
+    const error = 'Duration must be a whole number of minutes between 1 and 480.';
+    for (const duration of ['0', '481', '30.5', 'abc', '-5']) {
+      expect(parseServiceForm({ name: 'Cut', duration, price: '' })).toEqual({ ok: false, error });
+    }
+    expect(parseServiceForm({ name: 'Cut', duration: '480', price: '' }).ok).toBe(true);
+  });
+
+  it('rejects a negative or unreadable price', () => {
+    const error = 'Price must be a number of 0 or more.';
+    for (const price of ['-1', '12abc', 'Infinity']) {
+      expect(parseServiceForm({ name: 'Cut', duration: '', price })).toEqual({ ok: false, error });
+    }
   });
 });

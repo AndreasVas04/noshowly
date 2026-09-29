@@ -33,7 +33,7 @@ interface PublishSectionProps {
  * @param props.hasAnyService - Whether at least one active service exists.
  */
 export default function PublishSection({ settings, bookingUrl, hasAnyService }: PublishSectionProps) {
-  const { bookingPage, handleBookingToggle } = settings;
+  const { bookingPage, togglingLive, toggleError, handleBookingToggle } = settings;
 
   return (
     <section>
@@ -68,11 +68,12 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
               )}
               <Button
                 type="button"
-                onClick={() => void handleBookingToggle(false)}
+                onClick={() => void handleBookingToggle(false, 'publish')}
+                disabled={togglingLive}
                 variant="outline"
                 className="border-[#E5E2DB] text-[#1A1A1A] hover:border-[#1A1A1A]/40 text-sm"
               >
-                Take offline
+                {togglingLive ? 'Taking offline…' : 'Take offline'}
               </Button>
             </>
           ) : (
@@ -90,11 +91,11 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
 
               <Button
                 type="button"
-                disabled={!bookingPage || !hasAnyService}
-                onClick={() => void handleBookingToggle(true)}
+                disabled={!bookingPage || !hasAnyService || togglingLive}
+                onClick={() => void handleBookingToggle(true, 'publish')}
                 className="bg-[#1B4332] hover:bg-[#16392A] text-white text-sm font-medium px-8 py-3 h-auto disabled:opacity-40"
               >
-                Publish booking page
+                {togglingLive ? 'Publishing…' : 'Publish booking page'}
               </Button>
 
               {bookingPage && hasAnyService && (
@@ -105,6 +106,10 @@ export default function PublishSection({ settings, bookingUrl, hasAnyService }: 
                 </p>
               )}
             </>
+          )}
+
+          {toggleError?.source === 'publish' && (
+            <p role="alert" className="text-sm text-red-600">{toggleError.message}</p>
           )}
 
         </div>

@@ -4,7 +4,8 @@
  * Section 2 of the booking settings page: the salon's service catalogue.
  * Each service shows its duration and price, an "Available on booking page"
  * checkbox and Edit / Remove actions; Edit turns the row into an inline form.
- * "+ Add service" opens the add form below the list.
+ * "+ Add service" opens the add form below the list. A failed change shows
+ * its message under the service or in the add form.
  *
  * State and handlers come from useServicesEditor.
  */
@@ -43,11 +44,13 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
     addSvcError,
     setAddSvcError,
     editingSvcId,
-    setEditingSvcId,
     svcEditForms,
     setSvcEditForms,
     savingSvcId,
     deletingSvcId,
+    serviceErrors,
+    startEditingService,
+    cancelEditingService,
     handleAddGlobalService,
     handleSaveGlobalServiceEdit,
     handleToggleGlobalService,
@@ -110,6 +113,9 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                           />
                         </div>
                       </div>
+                      {serviceErrors[svc.id] && (
+                        <p role="alert" className="text-xs text-red-600">{serviceErrors[svc.id]}</p>
+                      )}
                       <div className="flex items-center gap-2">
                         <Button
                           type="button"
@@ -121,7 +127,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                         </Button>
                         <button
                           type="button"
-                          onClick={() => setEditingSvcId(null)}
+                          onClick={() => cancelEditingService(svc.id)}
                           className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                         >
                           Cancel
@@ -153,17 +159,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingSvcId(svc.id);
-                            setSvcEditForms((prev) => ({
-                              ...prev,
-                              [svc.id]: {
-                                name: svc.name,
-                                duration: svc.duration_minutes?.toString() ?? '',
-                                price: svc.price != null ? String(svc.price) : '',
-                              },
-                            }));
-                          }}
+                          onClick={() => startEditingService(svc)}
                           className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
                         >
                           Edit
@@ -178,6 +174,9 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                         </button>
                       </div>
                     </div>
+                  )}
+                  {editingSvcId !== svc.id && serviceErrors[svc.id] && (
+                    <p role="alert" className="text-xs text-red-600 mt-1.5">{serviceErrors[svc.id]}</p>
                   )}
                 </li>
               ))}
@@ -228,7 +227,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                   />
                 </div>
               </div>
-              {addSvcError && <p className="text-xs text-red-600">{addSvcError}</p>}
+              {addSvcError && <p role="alert" className="text-xs text-red-600">{addSvcError}</p>}
               <div className="flex items-center gap-2">
                 <Button
                   type="button"

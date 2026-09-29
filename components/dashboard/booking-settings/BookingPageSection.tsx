@@ -55,7 +55,10 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
     bookingSaveStatus,
     bookingError,
     setBookingError,
+    togglingLive,
+    toggleError,
     copied,
+    copyFailed,
     customIntroRef,
     bookingDescRef,
     handleBookingSave,
@@ -120,10 +123,33 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                 )}
                 <Toggle
                   checked={bookingPage.is_active}
-                  onChange={(v) => void handleBookingToggle(v)}
+                  onChange={(v) => void handleBookingToggle(v, 'settings')}
                   label={bookingPage.is_active ? 'Take booking page offline' : 'Go live'}
+                  disabled={togglingLive}
                 />
               </div>
+            </div>
+          )}
+
+          {bookingPage && toggleError?.source === 'settings' && (
+            <p role="alert" className="text-xs text-red-600">{toggleError.message}</p>
+          )}
+
+          {/* The link to copy by hand when the browser does not allow copying */}
+          {bookingPage?.is_active && bookingUrl && copyFailed && (
+            <div className="space-y-1.5">
+              <label htmlFor="booking-link-copy" className="block text-xs text-[#8A8680]">
+                This browser did not allow copying. Select the link and copy it:
+              </label>
+              <input
+                id="booking-link-copy"
+                type="text"
+                readOnly
+                autoFocus
+                value={bookingUrl}
+                onFocus={(e) => e.currentTarget.select()}
+                className="w-full h-9 rounded-lg border border-[#E5E2DB] px-3 font-mono text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332]"
+              />
             </div>
           )}
 

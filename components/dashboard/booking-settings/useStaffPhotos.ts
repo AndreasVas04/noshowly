@@ -9,6 +9,9 @@
  *    (POST /api/upload/staff-photo) and saves the new photo URL straight away
  *    (PUT /api/barbers/[id]), outside the profile auto-save.
  *  - "Remove photo" clears the photo URL (PUT /api/barbers/[id]).
+ * A file that cannot be read or a failed removal shows its message in the
+ * staff member's card (photoErrors); a failed upload shows it in the crop
+ * modal (cropError), which stays open so Apply can be tried again.
  */
 
 'use client';
@@ -21,6 +24,7 @@ import {
   getCropMinScale,
   getTouchDist,
 } from '@/components/dashboard/booking-settings/photo-crop';
+import { responseError } from '@/lib/utils';
 
 /** State for the Instagram-style photo crop modal. */
 type CropModalState = {
@@ -43,6 +47,8 @@ export function useStaffPhotos(
 ) {
   /** Photo remove state: barberId whose photo is being removed, or null. */
   const [removingPhotoForId, setRemovingPhotoForId] = useState<string | null>(null);
+  /** Per staff member: why the chosen file could not be used or the photo not removed. */
+  const [photoErrors, setPhotoErrors] = useState<Record<string, string>>({});
   const photoInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // ── Crop modal ──────────────────────────────────────────────────────────────
@@ -55,6 +61,8 @@ export function useStaffPhotos(
   const [cropScale, setCropScale] = useState(1);
   /** True while the cropped image is being uploaded. */
   const [cropUploading, setCropUploading] = useState(false);
+  /** Why the last Apply failed; shown in the crop modal. */
+  const [cropError, setCropError] = useState('');
   /** True while the user is actively dragging the image. */
   const [isDragging, setIsDragging] = useState(false);
 
@@ -91,6 +99,24 @@ export function useStaffPhotos(
   }
 
   /**
+   * Shows a photo message in a staff member's card, or clears it with null.
+   *
+   * @param barberId - UUID of the barber.
+   * @param message  - What went wrong, or null.
+   */
+  function setPhotoError(barberId: string, message: string | null): void {
+    setPhotoErrors((prev) => {
+      if (message === null) {
+        if (!(barberId in prev)) return prev;
+        const next = { ...prev };
+        delete next[barberId];
+        return next;
+      }
+      return { ...prev, [barberId]: message };
+    });
+  }
+
+  /**
    * Opens the file picker of a staff member's photo input.
    *
    * @param barberId - UUID of the barber.
@@ -113,6 +139,7 @@ export function useStaffPhotos(
     // Always reset the input immediately so the same file can be re-selected.
     const input = photoInputRefs.current[barberId];
     if (input) input.value = '';
+    setPhotoError(barberId, null);
 
     // Create an object URL and load the image to obtain natural dimensions.
     const src = URL.createObjectURL(file);
@@ -137,10 +164,11 @@ export function useStaffPhotos(
       setCropX(0);
       setCropY(0);
       setCropScale(minS);
+      setCropError('');
       setCropModal({ barberId, src, naturalW: nW, naturalH: nH });
     } catch {
       URL.revokeObjectURL(src);
-      alert('Could not load the selected image. Please try another file.');
+      setPhotoError(barberId, 'Could not read the selected image. Please choose a JPEG, PNG or WebP photo.');
     }
   }
 
@@ -151,6 +179,7 @@ export function useStaffPhotos(
    * @param barberId - UUID of the barber whose photo should be removed.
    */
   async function handleRemovePhoto(barberId: string): Promise<void> {
+    setPhotoError(barberId, null);
     setRemovingPhotoForId(barberId);
     try {
       const res = await fetch(`/api/barbers/${barberId}`, {
@@ -160,15 +189,14 @@ export function useStaffPhotos(
       });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to remove photo. Please try again.');
+        setPhotoError(barberId, await responseError(res, 'Failed to remove photo. Please try again.'));
         return;
       }
 
       // Clear photo from form state so the avatar reverts to initials immediately.
       updateBarberField(barberId, 'photo_url', '');
     } catch {
-      alert('Something went wrong. Please try again.');
+      setPhotoError(barberId, 'Something went wrong. Please check your connection and try again.');
     } finally {
       setRemovingPhotoForId(null);
     }
@@ -277,6 +305,7 @@ export function useStaffPhotos(
   function handleCropCancel(): void {
     if (cropModal) URL.revokeObjectURL(cropModal.src);
     setCropModal(null);
+    setCropError('');
     setIsDragging(false);
     dragRef.current = null;
     pinchRef.current = null;
@@ -290,6 +319,7 @@ export function useStaffPhotos(
   async function handleCropApply(): Promise<void> {
     if (!cropModal) return;
     setCropUploading(true);
+    setCropError('');
 
     try {
       const { src, naturalW, naturalH, barberId } = cropModal;
@@ -349,8 +379,7 @@ export function useStaffPhotos(
 
       const res = await fetch('/api/upload/staff-photo', { method: 'POST', body: formData });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to upload photo. Please try again.');
+        setCropError(await responseError(res, 'Failed to upload photo. Please try again.'));
         return;
       }
 
@@ -367,18 +396,18 @@ export function useStaffPhotos(
       });
 
       if (!saveRes.ok) {
-        const errData = (await saveRes.json()) as { error?: string };
-        alert(errData.error ?? 'Photo uploaded but failed to save. Please try again.');
+        setCropError(await responseError(saveRes, 'Photo uploaded but failed to save. Please try again.'));
         return;
       }
 
       // Update local state only after DB confirm — keeps UI in sync with reality.
       updateBarberField(barberId, 'photo_url', url);
+      setPhotoError(barberId, null);
       URL.revokeObjectURL(src);
       setCropModal(null);
     } catch (err) {
       console.error('[CropModal] handleCropApply error:', err);
-      alert('Something went wrong while cropping. Please try again.');
+      setCropError('Something went wrong while cropping. Please check your connection and try again.');
     } finally {
       setCropUploading(false);
     }
@@ -428,6 +457,7 @@ export function useStaffPhotos(
 
   return {
     removingPhotoForId,
+    photoErrors,
     registerPhotoInput,
     openPhotoPicker,
     cropModal,
@@ -435,6 +465,7 @@ export function useStaffPhotos(
     cropY,
     cropScale,
     cropUploading,
+    cropError,
     isDragging,
     handlePhotoUpload,
     handleRemovePhoto,

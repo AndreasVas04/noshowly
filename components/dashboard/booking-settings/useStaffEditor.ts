@@ -10,7 +10,9 @@
  * Profile and availability changes are auto-saved per staff member 800 ms
  * after the last change (PUT /api/barbers/[id], then
  * POST /api/staff-availability), one save at a time per staff member. The
- * save is held back while a working day has impossible hours.
+ * save is held back while a working day has impossible hours. When a save or
+ * a removal fails, its message is shown in the staff member's card
+ * (staffErrors), and a failed save can be run again (retryBarberSave).
  */
 
 'use client';
@@ -27,6 +29,7 @@ import {
   type SaveStatus,
 } from '@/components/dashboard/booking-settings/form-state';
 import { normaliseBreaks, workingDayToTimeSlots } from '@/lib/schedule';
+import { responseError } from '@/lib/utils';
 import type { Barber, StaffAvailability } from '@/types';
 
 /**
@@ -50,6 +53,8 @@ export function useStaffEditor() {
   /** Per-barber message when auto-save is held back because working hours are invalid. */
   const [availabilityErrors, setAvailabilityErrors] = useState<Record<string, string>>({});
   const [deletingBarberId, setDeletingBarberId] = useState<string | null>(null);
+  /** Per staff member: why their last save or removal failed. */
+  const [staffErrors, setStaffErrors] = useState<Record<string, string>>({});
   /** Refs to bio textarea elements, keyed by barberId — used for auto-resize on data load. */
   const bioTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
@@ -86,6 +91,24 @@ export function useStaffEditor() {
    */
   function registerBioTextarea(barberId: string, el: HTMLTextAreaElement | null): void {
     bioTextareaRefs.current[barberId] = el;
+  }
+
+  /**
+   * Shows a message in a staff member's card, or clears it with null.
+   *
+   * @param barberId - UUID of the barber.
+   * @param message  - What went wrong, or null.
+   */
+  function setStaffError(barberId: string, message: string | null): void {
+    setStaffErrors((prev) => {
+      if (message === null) {
+        if (!(barberId in prev)) return prev;
+        const next = { ...prev };
+        delete next[barberId];
+        return next;
+      }
+      return { ...prev, [barberId]: message };
+    });
   }
 
   /**
@@ -147,6 +170,15 @@ export function useStaffEditor() {
         void runBarberSave(barberId);
       }
     }
+  }
+
+  /**
+   * Runs a staff member's save again after it failed ("Try again" in the card).
+   *
+   * @param barberId - UUID of the barber to save.
+   */
+  function retryBarberSave(barberId: string): void {
+    void runBarberSave(barberId);
   }
 
   // -------------------------------------------------------------------------
@@ -368,6 +400,7 @@ export function useStaffEditor() {
     });
     if (hoursProblem) return;
 
+    setStaffError(barberId, null);
     setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'saving' }));
     let savedOk = false;
 
@@ -384,8 +417,7 @@ export function useStaffEditor() {
       });
 
       if (!profileRes.ok) {
-        const data = (await profileRes.json()) as { error?: string };
-        alert(data.error ?? 'Failed to save staff member. Please try again.');
+        setStaffError(barberId, await responseError(profileRes, 'Failed to save staff member. Please try again.'));
         return;
       }
 
@@ -411,8 +443,7 @@ export function useStaffEditor() {
       });
 
       if (!availRes.ok) {
-        const data = (await availRes.json()) as { error?: string };
-        alert(data.error ?? 'Failed to save availability. Please try again.');
+        setStaffError(barberId, await responseError(availRes, 'Failed to save availability. Please try again.'));
         return;
       }
 
@@ -424,7 +455,7 @@ export function useStaffEditor() {
       ]);
       savedOk = true;
     } catch {
-      alert('Something went wrong. Please try again.');
+      setStaffError(barberId, 'Something went wrong. Please check your connection and try again.');
     } finally {
       if (savedOk) {
         setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'saved' }));
@@ -435,7 +466,7 @@ export function useStaffEditor() {
           );
         }, 2000);
       } else {
-        setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'idle' }));
+        setBarberSaveStatuses((prev) => ({ ...prev, [barberId]: 'error' }));
       }
     }
   }
@@ -491,13 +522,13 @@ export function useStaffEditor() {
   async function handleDeleteBarber(barberId: string, barberName: string): Promise<void> {
     if (!window.confirm(`Remove "${barberName}" from your team? All their services and availability will also be removed. This cannot be undone.`)) return;
 
+    setStaffError(barberId, null);
     setDeletingBarberId(barberId);
 
     try {
       const res = await fetch(`/api/barbers/${barberId}`, { method: 'DELETE' });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to remove staff member. Please try again.');
+        setStaffError(barberId, await responseError(res, 'Failed to remove staff member. Please try again.'));
         return;
       }
       setBarbers((prev) => prev.filter((b) => b.id !== barberId));
@@ -507,8 +538,9 @@ export function useStaffEditor() {
         return next;
       });
       setStaffAvailability((prev) => prev.filter((a) => a.barber_id !== barberId));
+      setStaffError(barberId, null);
     } catch {
-      alert('Something went wrong. Please try again.');
+      setStaffError(barberId, 'Something went wrong. Please check your connection and try again.');
     } finally {
       setDeletingBarberId(null);
     }
@@ -532,6 +564,8 @@ export function useStaffEditor() {
     barberSaveStatuses,
     availabilityErrors,
     deletingBarberId,
+    staffErrors,
+    retryBarberSave,
     registerBioTextarea,
     initStaff,
     updateBarberField,
