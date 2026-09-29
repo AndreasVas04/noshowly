@@ -9,8 +9,13 @@
  *
  * Validations:
  *  - Auth required — only authenticated salon owners can upload.
+ *  - Write access required — an ended trial or an inactive subscription is
+ *    read-only (lib/access.ts).
  *  - File must be an image (image/jpeg, image/png, image/webp).
  *  - Maximum file size: 5 MB.
+ *
+ * Files are stored under `<userId>/`; deleting the account removes that
+ * folder (lib/account.ts removeStaffPhotos).
  *
  * Security:
  *  - Service role key is used server-side only to bypass RLS for storage uploads.
@@ -19,24 +24,16 @@
  *    processing, because the user ID becomes part of the storage path.
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { requireUser } from '@/lib/auth';
+import { requireWriteAccess } from '@/lib/access';
+import { STAFF_PHOTO_BUCKET } from '@/lib/account';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 
 /** Allowed MIME types for staff photo uploads. */
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 /** Maximum allowed file size in bytes (5 MB). */
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-
-/** Supabase Storage bucket name for staff photos. */
-const BUCKET = 'staff-photos';
-
-// Service role client for storage uploads — bypasses RLS.
-// Only instantiated on the server; never exposed to the browser.
-const adminSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 /**
  * Handles staff photo uploads. Validates, uploads, and returns the public URL.
@@ -45,6 +42,7 @@ const adminSupabase = createClient(
  * @returns 200 { url: string } — public URL of the uploaded photo.
  * @returns 400 { error: string } — validation failure.
  * @returns 401 { error: "Unauthorized" } — not authenticated.
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive).
  * @returns 500 { error: string } — upload failure.
  */
 export async function POST(request: Request): Promise<Response> {
@@ -52,6 +50,10 @@ export async function POST(request: Request): Promise<Response> {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
   const userId = auth.user.id;
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(auth.supabase, userId);
+  if (!access.ok) return access.response;
 
   // Step 2: Parse the multipart form data.
   let formData: FormData;
@@ -91,9 +93,10 @@ export async function POST(request: Request): Promise<Response> {
   // Step 6: Upload to Supabase Storage using the service role key.
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer);
+  const adminSupabase = createAdminSupabaseClient();
 
   const { error: uploadError } = await adminSupabase.storage
-    .from(BUCKET)
+    .from(STAFF_PHOTO_BUCKET)
     .upload(fileName, uint8, {
       contentType: file.type,
       upsert: false,
@@ -105,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Step 7: Retrieve the public URL.
-  const { data: urlData } = adminSupabase.storage.from(BUCKET).getPublicUrl(fileName);
+  const { data: urlData } = adminSupabase.storage.from(STAFF_PHOTO_BUCKET).getPublicUrl(fileName);
 
   return Response.json({ url: urlData.publicUrl }, { status: 200 });
 }

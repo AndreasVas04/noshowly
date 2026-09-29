@@ -8,12 +8,15 @@
  *
  * Security:
  *  - The caller is verified with Supabase Auth (requireUser) first.
+ *  - Write access is checked next: an ended trial or an inactive
+ *    subscription is read-only (lib/access.ts).
  *  - Only the RLS-scoped client is used; the update is also scoped to the
  *    caller's salon, so another salon's client id returns 404.
  *  - All inputs are validated before touching the database.
  */
 
 import { requireUser } from '@/lib/auth';
+import { requireWriteAccess } from '@/lib/access';
 import { parseClientFields } from '@/lib/clients';
 import type { Client } from '@/types';
 
@@ -42,6 +45,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * @returns 200 { client: Client }
  * @returns 400 { error: string }             — validation failure
  * @returns 401 { error: "Unauthorized" }
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Client not found" } — no such client in this salon
  * @returns 500 { error: string }
  */
@@ -52,6 +56,10 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
   const { user, supabase } = auth;
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, user.id);
+  if (!access.ok) return access.response;
 
   if (!UUID_PATTERN.test(id)) {
     return Response.json({ error: 'Client not found' }, { status: 404 });

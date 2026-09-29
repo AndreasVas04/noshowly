@@ -5,11 +5,23 @@ BEGIN;
 
 DO $$
 DECLARE
-  v_tables text[] := ARRAY['users', 'salons', 'barbers', 'clients', 'appointments', 'reminders',
-                           'services', 'booking_pages', 'staff_availability', 'barber_services'];
-  v_name   text;
-  v_extra  text;
-  r        record;
+  v_tables   text[] := ARRAY['users', 'salons', 'barbers', 'clients', 'appointments', 'reminders',
+                             'services', 'booking_pages', 'staff_availability', 'barber_services'];
+  v_name     text;
+  v_extra    text;
+  v_missing  text;
+  r          record;
+  -- The owner policies: table, name, command.
+  v_expected text := $q$
+    SELECT 'users' AS tbl, 'users: owner select' AS pol, 'SELECT' AS cmd
+    UNION ALL SELECT 'salons', 'salons: owner select', 'SELECT'
+    UNION ALL SELECT 'salons', 'salons: owner update', 'UPDATE'
+    UNION ALL SELECT 'reminders', 'reminders: owner select', 'SELECT'
+    UNION ALL
+    SELECT t, t || ': owner ' || lower(c), c
+    FROM unnest(ARRAY['barbers', 'services', 'clients', 'appointments', 'booking_pages',
+                      'staff_availability', 'barber_services']) AS t,
+         unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) AS c$q$;
 BEGIN
   -- Unused objects dropped; the counter the cron route still writes is kept.
   PERFORM tests.expect('staff_services is dropped', to_regclass('public.staff_services') IS NULL);
@@ -100,19 +112,23 @@ BEGIN
   END LOOP;
 
   -- Policies: exactly the owner policies, for signed-in users only, with
-  -- auth.uid() evaluated once per query.
-  SELECT string_agg(format('%s: %s', tablename, policyname), ', ') INTO v_extra
-  FROM pg_policies
-  WHERE schemaname = 'public'
-    AND (tablename, policyname) NOT IN (
-      ('users', 'users: owner select'), ('salons', 'salons: owner all'),
-      ('barbers', 'barbers: owner all'), ('clients', 'clients: owner all'),
-      ('appointments', 'appointments: owner all'), ('reminders', 'reminders: owner all'),
-      ('services', 'Users own services'), ('booking_pages', 'Users own booking page'),
-      ('barber_services', 'Owner can manage barber_services'),
-      ('staff_availability', 'Users own staff availability'));
+  -- auth.uid() evaluated once per query. Owners read their own rows; on the
+  -- tables of 20260929120000_read_only_accounts.sql, inserts, updates and
+  -- deletes also need owner_has_write_access(). The owner can always update
+  -- their salon, and only the server writes users and reminders.
+  EXECUTE format($q$
+    SELECT string_agg(p.tablename || ': ' || p.policyname || ' (' || p.cmd || ')', ', ')
+    FROM pg_policies p
+    WHERE p.schemaname = 'public' AND (p.tablename, p.policyname, p.cmd) NOT IN (%s)$q$, v_expected)
+  INTO v_extra;
   PERFORM tests.expect(format('only owner policies remain (extra: %s)', v_extra), v_extra IS NULL);
-  PERFORM tests.expect_rows('ten owner policies', 10, $q$SELECT 1 FROM pg_policies WHERE schemaname = 'public'$q$);
+  EXECUTE format($q$
+    SELECT string_agg(e.tbl || ': ' || e.pol || ' (' || e.cmd || ')', ', ')
+    FROM (%s) e
+    WHERE (e.tbl, e.pol, e.cmd) NOT IN (
+      SELECT tablename, policyname, cmd FROM pg_policies WHERE schemaname = 'public')$q$, v_expected)
+  INTO v_missing;
+  PERFORM tests.expect(format('every owner policy exists (missing: %s)', v_missing), v_missing IS NULL);
   PERFORM tests.expect_rows('owner policies apply to authenticated only', 0, $q$
     SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND roles <> '{authenticated}'::name[]$q$);
   PERFORM tests.expect_rows('auth.uid() is always wrapped in a sub-select', 0, $q$
@@ -120,6 +136,12 @@ BEGIN
     WHERE schemaname = 'public'
       AND regexp_count(coalesce(qual, '') || coalesce(with_check, ''), 'auth\.uid\(\)')
        <> regexp_count(coalesce(qual, '') || coalesce(with_check, ''), 'SELECT auth\.uid\(\)')$q$);
+  PERFORM tests.expect_rows('every write policy but the salon update needs write access', 0, $q$
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND cmd <> 'SELECT'
+      AND policyname <> 'salons: owner update'
+      AND coalesce(CASE cmd WHEN 'DELETE' THEN qual ELSE with_check END, '') NOT LIKE '%owner_has_write_access(%'$q$);
 
   -- Anonymous visitors: nothing but salons.id (keep-alive).
   PERFORM tests.expect_rows('anon has no table privileges', 0, $q$
@@ -130,17 +152,32 @@ BEGIN
     WHERE grantee = 'anon' AND table_schema = 'public'$q$);
   PERFORM tests.expect('anon can select salons.id', has_column_privilege('anon', 'public.salons', 'id', 'SELECT'));
 
-  -- Signed-in owners cannot write billing fields or delete salons.
+  -- Signed-in owners cannot write billing fields or reminders, or create or
+  -- delete salons.
   PERFORM tests.expect('authenticated cannot update users',
     NOT has_table_privilege('authenticated', 'public.users', 'UPDATE'));
-  PERFORM tests.expect('authenticated cannot delete salons',
-    NOT has_table_privilege('authenticated', 'public.salons', 'DELETE'));
+  PERFORM tests.expect('authenticated cannot create or delete salons',
+    NOT has_table_privilege('authenticated', 'public.salons', 'INSERT, DELETE, TRUNCATE'));
+  PERFORM tests.expect('authenticated can update salons',
+    has_table_privilege('authenticated', 'public.salons', 'UPDATE'));
+  PERFORM tests.expect('authenticated cannot write reminders',
+    NOT has_table_privilege('authenticated', 'public.reminders', 'INSERT, UPDATE, DELETE, TRUNCATE'));
+  PERFORM tests.expect('authenticated can read reminders',
+    has_table_privilege('authenticated', 'public.reminders', 'SELECT'));
 
   -- Functions.
   PERFORM tests.expect('salon_is_bookable() is dropped',
     to_regprocedure('public.salon_is_bookable(uuid)') IS NULL);
   PERFORM tests.expect('appt_period() is immutable',
     (SELECT provolatile FROM pg_proc WHERE oid = to_regprocedure('public.appt_period(timestamptz,integer)')) = 'i');
+  PERFORM tests.expect('owner_has_write_access() is stable, security definer, with an empty search_path',
+    EXISTS (SELECT 1 FROM pg_proc
+            WHERE oid = to_regprocedure('public.owner_has_write_access(uuid)')
+              AND provolatile = 's' AND prosecdef AND proconfig = ARRAY['search_path=""']));
+  PERFORM tests.expect('only signed-in users and the server can call owner_has_write_access()',
+    has_function_privilege('authenticated', 'public.owner_has_write_access(uuid)', 'EXECUTE')
+    AND has_function_privilege('service_role', 'public.owner_has_write_access(uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.owner_has_write_access(uuid)', 'EXECUTE'));
   PERFORM tests.expect('demo account trigger exists',
     EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'protect_demo_account' AND tgrelid = 'auth.users'::regclass));
 END $$;

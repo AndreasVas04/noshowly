@@ -14,12 +14,15 @@
  *
  * Security:
  *  - Authentication required on every request.
+ *  - POST/PUT need write access: an ended trial or an inactive subscription
+ *    is read-only (lib/access.ts).
  *  - Ownership verified via salon_id derived from session — never from client.
  *  - Barber must belong to the authenticated user's salon.
  *  - RLS provides a second enforcement layer.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireWriteAccess } from '@/lib/access';
 import { validateTimeSlots } from '@/lib/schedule';
 import type { StaffAvailability, TimeSlot } from '@/types';
 
@@ -133,6 +136,7 @@ export async function GET(_request: Request): Promise<Response> {
  * @returns 400 { error: string }                     — validation failure
  * @returns 401 { error: "Unauthorized" }             — no valid session
  * @returns 403 { error: "Forbidden" }                — barber not owned
+ * @returns 403 { error: string, code: string }       — read-only account (trial ended / inactive)
  * @returns 404 { error: "Salon not found" }
  * @returns 500 { error: string }                     — unexpected DB error
  */
@@ -147,11 +151,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Step 2: Plan check — trial and cancelled users cannot update availability.
-  const { data: userData } = await supabase.from('users').select('plan').eq('id', session.user.id).single();
-  if (!userData || userData.plan === 'trial' || userData.plan === 'cancelled') {
-    return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
-  }
+  // Step 2: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   // Step 3: Parse request body.
   let body: unknown;

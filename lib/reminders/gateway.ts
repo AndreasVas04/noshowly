@@ -13,9 +13,11 @@
  *  2. checks the client has an email address;
  *  3. checks the configuration: an absolute NEXT_PUBLIC_APP_URL when the email
  *     has YES/NO links (never relative links), and RESEND_API_KEY;
- *  4. loads the salon owner's plan and monthly counter, resets the counter
- *     when a new month has started, and refuses when the plan has no email or
- *     the monthly fair-use cap is reached (lib/reminders/quota.ts);
+ *  4. loads the salon owner's plan, trial end date and monthly counter,
+ *     resets the counter when a new month has started, and refuses when the
+ *     account cannot send email (an ended trial or an inactive subscription,
+ *     lib/entitlements.ts) or its monthly cap is reached: the trial's small
+ *     cap or the paid plan's fair-use cap (lib/reminders/quota.ts);
  *  5. applies the sending limits (lib/reminders/rules.ts): per recipient
  *     address, per salon per hour (burst guard, logged as an error) and test
  *     sends per day;
@@ -40,6 +42,7 @@
 import 'server-only';
 import { createAdminSupabaseClient, type AdminSupabaseClient } from '@/lib/supabase/admin';
 import { isDemoAccount } from '@/lib/demo';
+import { getEntitlements } from '@/lib/entitlements';
 import { isEmailConfigured, sendEmail, type SendFailure } from '@/lib/resend';
 import {
   renderConfirmationEmail,
@@ -119,8 +122,14 @@ export type EmailGateway = {
   preloadOwners(userIds: readonly string[]): Promise<void>;
 };
 
-/** Cached owner: plan, address and monthly counter. */
-type OwnerState = { id: string; email: string; plan: string; counter: CounterSnapshot };
+/** Cached owner: plan, trial end, address and monthly counter. */
+type OwnerState = {
+  id: string;
+  email: string;
+  plan: string;
+  trialEndsAt: string | null;
+  counter: CounterSnapshot;
+};
 
 // ---------------------------------------------------------------------------
 // Gateway
@@ -157,10 +166,11 @@ export function createEmailGateway(
     for (const id of ids) {
       const row = loaded.get(id);
       owners.set(id, row ? {
-        id:      row.id,
-        email:   row.email,
-        plan:    row.plan,
-        counter: { used: row.email_reminders_used_this_month ?? 0, resetAt: row.reminders_reset_at },
+        id:          row.id,
+        email:       row.email,
+        plan:        row.plan,
+        trialEndsAt: row.trial_ends_at ?? null,
+        counter:     { used: row.email_reminders_used_this_month ?? 0, resetAt: row.reminders_reset_at },
       } : null);
     }
   }
@@ -259,14 +269,16 @@ export function createEmailGateway(
       }
       if (!isEmailConfigured()) return failed(log, 'config', 'RESEND_API_KEY is not set');
 
-      // Step 4: The owner's plan must include email and the monthly fair-use
-      // cap must not be reached (internal limit — never shown publicly).
-      // Like the limits in Step 6, the cap is checked before the email is
-      // recorded and counted, so sends at the same moment can end slightly
-      // over it; acceptable for fair-use caps.
+      // Step 4: The owner's account must be able to send email (a paid plan,
+      // or a trial that has not ended) and its monthly cap must not be
+      // reached (internal limits — never shown publicly). Like the limits in
+      // Step 6, the cap is checked before the email is recorded and counted,
+      // so sends at the same moment can end slightly over it; acceptable for
+      // fair-use caps.
       const owner = await currentOwner(context.salon.user_id, now);
       if (!owner) return failed(log, 'database', 'salon owner not found');
-      const quota = checkEmailQuota(owner.plan, owner.counter.used);
+      const entitlements = getEntitlements({ plan: owner.plan, trial_ends_at: owner.trialEndsAt }, now);
+      const quota = checkEmailQuota(entitlements, owner.counter.used);
       if (quota !== 'ok') return skipped(log, quota);
 
       // Step 5: Recipient. The public demo account only emails its own address.

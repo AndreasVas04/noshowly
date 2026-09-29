@@ -40,7 +40,7 @@ The account includes sample staff, services, and bookings.
 - **Appointment dashboard** — today view and week view with staff filtering and live status updates
 - **Client management** — phone-deduped client records with notes and appointment history
 - **Staff and services** — manage team members, service catalogue (name, duration, price), and per-staff availability
-- **Stripe billing** — monthly subscription (Basic plan) with Apple Pay and Google Pay support
+- **Stripe billing** — 14-day free trial without a card, then a monthly subscription (Basic plan) with Apple Pay and Google Pay support, managed and cancelled in the Stripe customer portal
 - **Double-booking prevention** — server-side, duration-aware conflict checks for both clients and staff; the booking page only offers times that fit each staff member's hours, in the business's timezone
 
 ---
@@ -93,7 +93,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 npm test
 ```
 
-Unit tests (Vitest) cover the timezone, scheduling, client de-duplication and reminder email helpers in `lib/`.
+Unit tests (Vitest) cover the timezone, scheduling, client de-duplication, reminder email, plan and billing helpers in `lib/`.
 
 ---
 
@@ -116,6 +116,9 @@ RESEND_FROM_ADDRESS=
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_BASIC_PRICE_ID=
+# Optional: prices of the internal Pro and Business plans, if any subscription uses them
+STRIPE_PRO_PRICE_ID=
+STRIPE_BUSINESS_PRICE_ID=
 
 # App
 # Absolute URL of the app, used for the links in emails
@@ -135,6 +138,22 @@ CRON_SECRET=
 - **Test email** from the appointment's "Send reminder" button, marked as a test; its buttons never change anything.
 
 Every email goes through `lib/reminders/gateway.ts`, which applies the plan and usage checks and the anti-abuse limits, and records each email in the `reminders` table before sending it. A reminder that fails to send is retried by later runs, at most 3 times in 24 hours; an email the provider rejects as invalid (for example the address) is not retried. If the provider refuses the account itself (API key, sender domain, quota), the run stops and the reminders stay due.
+
+---
+
+## Trial and Billing
+
+Every new account starts on a 14-day free trial (`users.trial_ends_at`) with full access and a small monthly email allowance. When the trial ends, or a subscription is no longer active, the account becomes read-only: data and settings stay visible and business settings can still be saved, but staff, services, availability, clients, appointments and the booking page cannot be changed, no emails are sent, and the public booking page stops taking bookings. The rules are in `lib/entitlements.ts`.
+
+The Basic plan is sold with Stripe Checkout and managed in the Stripe customer portal (Settings → Billing → Manage billing). `/api/webhooks/stripe` keeps `users.plan` up to date: on every event it reads all of the customer's subscriptions from Stripe and derives the plan from them, so the order of events and retries do not matter. A `past_due` subscription keeps its plan while Stripe retries the payment.
+
+Stripe setup, in test and in live mode:
+
+- **Webhook** to `https://<your app>/api/webhooks/stripe` with the events `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid` and `invoice.payment_failed`. Its signing secret is `STRIPE_WEBHOOK_SECRET`.
+- **Customer portal** (Settings → Billing → Customer portal): turn it on and allow customers to update payment methods, see invoices and cancel subscriptions (at the end of the billing period).
+- **Failed payments** (Settings → Billing → Subscriptions and emails → manage failed payments): after the last retry, cancel the subscription or mark it unpaid, so an unpaid account ends up read-only.
+
+Switching from test to live keys: Stripe customers stored while testing do not exist in live mode. The next checkout replaces such a customer, and Manage billing forgets it, so nobody gets stuck. Plans set by test subscriptions are not changed, though: no live webhook will ever update them, so set those accounts back to `trial` or `cancelled` before going live.
 
 ---
 

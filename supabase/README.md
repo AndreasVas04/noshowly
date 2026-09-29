@@ -12,6 +12,7 @@ Each file runs in a single transaction and is safe to run again.
 | `20260928130000_data_integrity.sql` | CHECK constraints, same-salon foreign keys (replacing the single-column ones, so PostgREST embeds still find one relationship), no double booking, one salon per owner, unique slugs and Stripe customers, indexes, faster owner policies, and removes unused tables and columns. |
 | `20260928140000_private_booking_reads.sql` | Removes anonymous read access to every table. **Apply only after the release in which the public booking page reads through the server with the service-role key.** |
 | `20260928150000_reminders_exactly_once.sql` | At most one pending or sent 24-hour reminder per appointment. **Apply only after the reminders release** (the cron sends the queued reminder instead of inserting a second row, and test sends use the type `email_test`). |
+| `20260929120000_read_only_accounts.sql` | Read-only accounts in the database, not only in the dashboard API: when the trial has ended or the subscription is inactive, the owner can still read everything and edit the salon's settings, but cannot change anything else, also not straight through the Supabase API (`public.owner_has_write_access()`, the same rule as `lib/entitlements.ts`). Owners no longer write reminders or create salons themselves; the server does, with the service-role key. **Apply only after the billing release** (the one with the free trial and read-only accounts). |
 
 The migrations need PostgreSQL 15 or later (every Supabase project has it).
 
@@ -37,8 +38,8 @@ A project built with the old files already has everything in the baseline.
 Apply only the files it has not had yet, in order.
 
 **SQL Editor.** Paste each file and run it. The SQL Editor does not show
-notices, so `platform_setup`, `data_integrity` and `reminders_exactly_once`
-end with a result table listing what each step did. In `data_integrity`, rows
+notices, so `platform_setup`, `data_integrity`, `reminders_exactly_once` and
+`read_only_accounts` end with a result table listing what each step did. In `data_integrity`, rows
 with a `rows_to_fix` query come first: a rule that existing rows break was
 added but is not validated yet (or, for unique rules and double booking, not
 added). Run the query, fix those rows, and run the file again.
@@ -54,7 +55,7 @@ supabase db push --dry-run
 supabase db push
 ```
 
-`db push` applies every file that is not recorded yet, including the two that
+`db push` applies every file that is not recorded yet, including the ones that
 wait for a release. Until those releases are live, run the other files in the
 SQL Editor and record each one with `supabase migration repair --status
 applied <version>`.
@@ -75,16 +76,20 @@ harmless: it only reports what is there). It still needs, in order:
    booking page reads through the server is live.
 4. `20260928150000_reminders_exactly_once.sql`, once the reminders release is
    live.
+5. `20260929120000_read_only_accounts.sql`, any time after the billing release
+   is live. Its result table shows how many accounts can make changes and how
+   many are read-only.
 
-Files 3 and 4 do not depend on each other; apply each when its release is
-live.
+Files 3, 4 and 5 do not depend on each other; apply each when its release is
+live. Running `data_integrity` again puts the owner policies that file 5
+replaces back, so run file 5 again after it.
 
 ## Tests
 
 `scripts/test-db.sh` builds throwaway databases from the migrations and runs
-the SQL checks in `tests/db` (Row Level Security, tenant isolation,
-constraints, double booking, reminders, the demo account, idempotency, and a
-run over rows with the problems the live data can have). It needs `psql` and
+the SQL checks in `tests/db` (Row Level Security, tenant isolation, read-only
+accounts, constraints, double booking, reminders, the demo account,
+idempotency, and a run over rows with the problems the live data can have). It needs `psql` and
 a PostgreSQL 15+ server with the `btree_gist` extension (part of contrib, so
 the official Docker image has it), reached through the usual `PGHOST`,
 `PGPORT`, `PGUSER` and `PGPASSWORD` variables:

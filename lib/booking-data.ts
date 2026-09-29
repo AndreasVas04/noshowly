@@ -11,10 +11,16 @@
  * ignored staff/service assignments. These reads use the service-role client
  * instead, always scoped to one booking page's salon and always with explicit
  * column lists. Client ids, names, contact details and notes are never read.
+ *
+ * An active booking page only takes bookings while its owner's account can
+ * (salonAcceptsBookings()): a paid plan or a trial that has not ended. Pages
+ * of an ended trial or an inactive subscription show "not accepting online
+ * bookings", exactly like a page the owner switched off.
  */
 
 import 'server-only';
 import type { AdminSupabaseClient } from '@/lib/supabase/admin';
+import { getEntitlements } from '@/lib/entitlements';
 import { MAX_DURATION_MINUTES } from '@/lib/availability';
 import { dayRangeUtc, normaliseTime, resolveTimeZone } from '@/lib/time';
 import type {
@@ -61,9 +67,49 @@ export type PublicBookingData = {
 /** Slugs are 3–60 lowercase letters, digits and hyphens (see /api/booking-page). */
 const SLUG_PATTERN = /^[a-z0-9-]{1,60}$/;
 
+/** Shown to visitors when the owner's account does not take bookings (never says why). */
+export const NOT_ACCEPTING_BOOKINGS_MESSAGE =
+  'We are not accepting online bookings right now. Please contact the business directly.';
+
 // ---------------------------------------------------------------------------
 // Loaders
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the salon's owner can take online bookings: a paid plan,
+ * or a trial that has not ended (lib/entitlements.ts canWrite). A salon or
+ * owner that cannot be found does not take bookings.
+ *
+ * @param supabase - Service-role client.
+ * @param salonId  - Salon of the booking page.
+ * @param now      - Current instant.
+ * @throws Error   On a database error.
+ */
+export async function salonAcceptsBookings(
+  supabase: AdminSupabaseClient,
+  salonId: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const { data: salon, error: salonError } = await supabase
+    .from('salons')
+    .select('user_id')
+    .eq('id', salonId)
+    .maybeSingle();
+
+  if (salonError) throw new Error(`Failed to load the salon owner: ${salonError.message}`);
+  if (!salon) return false;
+
+  const { data: owner, error: ownerError } = await supabase
+    .from('users')
+    .select('plan, trial_ends_at')
+    .eq('id', salon.user_id)
+    .maybeSingle();
+
+  if (ownerError) throw new Error(`Failed to load the owner's plan: ${ownerError.message}`);
+  if (!owner) return false;
+
+  return getEntitlements(owner, now).canWrite;
+}
 
 /**
  * Looks up a booking page by slug, whether it is active or not.

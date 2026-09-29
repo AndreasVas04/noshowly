@@ -19,6 +19,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { TRIAL_LENGTH_DAYS } from '@/lib/plans';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -162,11 +163,13 @@ export default function RegisterPage() {
       });
 
       if (!res.ok) {
+        // The account exists; signing in finishes the setup (the dashboard
+        // creates whatever is missing).
         await supabase.auth.signOut();
         setStatus('error');
         setErrorMessage(
           'Your account was created but setup could not be completed. ' +
-            'Please try again or contact support.'
+            'Please sign in to finish setting it up.'
         );
         return;
       }
@@ -265,7 +268,7 @@ export default function RegisterPage() {
             Create your account
           </h2>
           <p className="text-sm text-[#8A8680] font-body mb-7">
-            Set up your business in minutes.
+            Set up your business in minutes. {TRIAL_LENGTH_DAYS}-day free trial, no card required.
           </p>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">

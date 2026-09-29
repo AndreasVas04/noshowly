@@ -3,12 +3,14 @@
  *
  * Unit tests for the monthly email counter and plan checks in
  * lib/reminders/quota.ts against an in-memory CounterStore: plan and cap
- * decisions, the lazy monthly reset and the optimistic increment (with its
- * random backoff) under concurrent updates.
+ * decisions (from lib/entitlements.ts, trial expiry included), the lazy
+ * monthly reset and the optimistic increment (with its random backoff) under
+ * concurrent updates.
  */
 
 import { describe, expect, it } from 'vitest';
-import { PLAN_LIMITS, getPlanEmailLimit, planAllowsEmail, type PlanType } from '@/lib/plans';
+import { PLAN_LIMITS, TRIAL_EMAIL_LIMIT, getPlanEmailLimit, type PlanType } from '@/lib/plans';
+import { getEntitlements } from '@/lib/entitlements';
 import {
   COUNTER_UPDATE_ATTEMPTS,
   checkEmailQuota,
@@ -87,24 +89,44 @@ describe('nextMonthlyResetAt / isResetDue', () => {
 });
 
 describe('checkEmailQuota', () => {
-  it('follows lib/plans.ts for each plan', () => {
+  /** Entitlements of a plan whose trial (if any) ends a week after NOW. */
+  const entitlementsOf = (plan: string, trialEndsAt = '2026-10-12T12:00:00Z') =>
+    getEntitlements({ plan, trial_ends_at: trialEndsAt }, NOW);
+
+  it('lets every plan in force send, within its cap from lib/plans.ts', () => {
     for (const plan of Object.keys(PLAN_LIMITS) as PlanType[]) {
-      const expected = planAllowsEmail(plan) ? 'ok' : 'plan';
-      expect(checkEmailQuota(plan, 0)).toBe(expected);
+      const cap = getPlanEmailLimit(plan);
+      expect(checkEmailQuota(entitlementsOf(plan), 0)).toBe('ok');
+      expect(checkEmailQuota(entitlementsOf(plan), cap - 1)).toBe('ok');
     }
-    expect(checkEmailQuota('cancelled', 0)).toBe('plan');
+    expect(checkEmailQuota(entitlementsOf('cancelled'), 0)).toBe('plan');
   });
 
   it('refuses once the monthly cap is reached', () => {
     const cap = getPlanEmailLimit('basic');
-    expect(checkEmailQuota('basic', cap - 1)).toBe('ok');
-    expect(checkEmailQuota('basic', cap)).toBe('monthly_cap');
-    expect(checkEmailQuota('basic', cap + 10)).toBe('monthly_cap');
+    expect(checkEmailQuota(entitlementsOf('basic'), cap - 1)).toBe('ok');
+    expect(checkEmailQuota(entitlementsOf('basic'), cap)).toBe('monthly_cap');
+    expect(checkEmailQuota(entitlementsOf('basic'), cap + 10)).toBe('monthly_cap');
   });
 
-  it('treats a plan lib/plans.ts does not know as a plan without email', () => {
-    expect(checkEmailQuota('solo-sms', 0)).toBe('plan');
-    expect(checkEmailQuota('', 0)).toBe('plan');
+  it('gives a running trial its own small cap', () => {
+    expect(checkEmailQuota(entitlementsOf('trial'), TRIAL_EMAIL_LIMIT - 1)).toBe('ok');
+    expect(checkEmailQuota(entitlementsOf('trial'), TRIAL_EMAIL_LIMIT)).toBe('trial_cap');
+  });
+
+  it('refuses an ended trial, whatever the counter says', () => {
+    const ended = entitlementsOf('trial', '2026-10-05T11:59:59Z');
+    expect(checkEmailQuota(ended, 0)).toBe('plan');
+  });
+
+  it('treats a plan that is not known as a plan without email', () => {
+    expect(checkEmailQuota(entitlementsOf('gold'), 0)).toBe('plan');
+    expect(checkEmailQuota(entitlementsOf(''), 0)).toBe('plan');
+  });
+
+  it('reads legacy plan names as their current plan', () => {
+    expect(checkEmailQuota(entitlementsOf('solo-sms'), 0)).toBe('ok');
+    expect(checkEmailQuota(entitlementsOf('starter'), getPlanEmailLimit('basic'))).toBe('monthly_cap');
   });
 });
 

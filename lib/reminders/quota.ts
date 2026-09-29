@@ -4,8 +4,9 @@
  * The salon owner's monthly email counter (users.email_reminders_used_this_month)
  * and plan checks, for the send gateway (lib/reminders/gateway.ts).
  *
- *  - Plan rules come from lib/plans.ts (planAllowsEmail, getPlanEmailLimit);
- *    no plan is named here.
+ *  - Plan rules come from lib/entitlements.ts (canSendEmail and
+ *    emailMonthlyLimit, which honour the trial end date); no plan is named
+ *    here.
  *  - Monthly reset: when users.reminders_reset_at has passed, both counters
  *    (email_reminders_used_this_month and the legacy reminders_used_this_month)
  *    go back to 0 and the reset moves to the first day of the next month, UTC.
@@ -29,7 +30,7 @@
  * tested without a database.
  */
 
-import { getPlanEmailLimit, planAllowsEmail, type UserPlan } from '@/lib/plans';
+import type { Entitlements } from '@/lib/entitlements';
 
 // ---------------------------------------------------------------------------
 // Types and constants
@@ -66,8 +67,12 @@ export interface CounterStore {
   compareAndSet(userId: string, expected: number, next: number): Promise<boolean>;
 }
 
-/** Result of checkEmailQuota(). */
-export type QuotaCheck = 'ok' | 'plan' | 'monthly_cap';
+/**
+ * Result of checkEmailQuota(): 'plan' when the account cannot send email
+ * (ended trial or inactive subscription), 'trial_cap' / 'monthly_cap' when
+ * the trial's or the paid plan's monthly cap is reached.
+ */
+export type QuotaCheck = 'ok' | 'plan' | 'trial_cap' | 'monthly_cap';
 
 /** Result of incrementEmailCounter(). */
 export type IncrementResult =
@@ -91,23 +96,21 @@ export type IncrementOptions = {
 /**
  * Checks whether the owner may send another email this month.
  *
- * A plan name lib/plans.ts does not know is treated as a plan without email.
- * The cap is an internal fair-use limit and must never be shown publicly.
+ * An ended trial, an inactive subscription and a plan name that is not
+ * known (read as 'cancelled' by parsePlan()) cannot send email. The caps are
+ * internal limits and must never be shown publicly.
  *
- * @param plan - users.plan
- * @param used - Emails sent this month.
+ * @param entitlements - The owner's entitlements (getEntitlements()).
+ * @param used         - Emails sent this month.
  */
-export function checkEmailQuota(plan: string, used: number): QuotaCheck {
-  let allowed: boolean;
-  let limit: number;
-  try {
-    allowed = planAllowsEmail(plan as UserPlan);
-    limit   = getPlanEmailLimit(plan as UserPlan);
-  } catch {
-    return 'plan';
-  }
-  if (!allowed || typeof limit !== 'number' || Number.isNaN(limit)) return 'plan';
-  return used >= limit ? 'monthly_cap' : 'ok';
+export function checkEmailQuota(
+  entitlements: Pick<Entitlements, 'canSendEmail' | 'emailMonthlyLimit' | 'isTrial'>,
+  used: number,
+): QuotaCheck {
+  const limit = entitlements.emailMonthlyLimit;
+  if (!entitlements.canSendEmail || !Number.isFinite(limit) || limit <= 0) return 'plan';
+  if (used < limit) return 'ok';
+  return entitlements.isTrial ? 'trial_cap' : 'monthly_cap';
 }
 
 // ---------------------------------------------------------------------------

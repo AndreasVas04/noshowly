@@ -8,19 +8,23 @@
  *  2. Business hours — opening and closing time. Auto-saves (skipped on invalid range).
  *  3. Reminder settings — email confirmation toggle, plan-gated. Auto-saves.
  *  4. Message templates — full email template customisation. Auto-saves.
- *  5. Delete account — typed confirmation.
+ *  5. Billing — plan, trial end or renewal date, Upgrade / Manage billing
+ *     (components/dashboard/BillingSection.tsx).
+ *  6. Delete account — typed confirmation.
  *
  * Every section saves independently; there are no "Save changes" buttons.
  * A subtle "Saving…" → "Saved ✓" indicator appears in the top-right of each
  * section header while the request is in flight / just completed.
  *
- * The email confirmation toggle is plan-gated:
- *  - Email: disabled on trial (email reminders require a paid plan).
+ * The email confirmation toggle is plan-gated: it is disabled when the
+ * account cannot send email (an ended trial or an inactive subscription).
+ * Business settings (PUT /api/salon) can always be saved, even on a
+ * read-only account.
  *
  * Team, Services, and Online Booking are managed in /dashboard/booking.
  *
  * Security: all mutations go through API routes — never direct Supabase calls.
- * Plan data is fetched via the browser Supabase client with RLS (read-only).
+ * Plan and billing data come from GET /api/billing.
  */
 
 'use client';
@@ -29,12 +33,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { isDemoAccount } from '@/lib/demo';
-import { planAllowsEmail } from '@/lib/plans';
+import BillingSection from '@/components/dashboard/BillingSection';
 import { normaliseTime } from '@/lib/time';
-import type { UserPlan } from '@/lib/plans';
-import type { Salon } from '@/types';
+import type { BillingOverview, Salon } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -209,9 +210,9 @@ export default function SettingsPage() {
   const [loadState, setLoadState] = useState<LoadState>('loading');
 
   // -------------------------------------------------------------------------
-  // Plan — fetched from users table via browser Supabase client (RLS, read-only)
+  // Plan, trial and subscription — GET /api/billing (null until loaded or on error)
   // -------------------------------------------------------------------------
-  const [plan, setPlan] = useState<UserPlan>('trial');
+  const [billing, setBilling] = useState<BillingOverview | null>(null);
 
   // -------------------------------------------------------------------------
   // Section 1: Business info
@@ -264,29 +265,27 @@ export default function SettingsPage() {
   const hoursTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -------------------------------------------------------------------------
-  // Section 5: Account deletion (section number unchanged for consistency)
+  // Section 6: Account deletion
   // -------------------------------------------------------------------------
   const [showDeleteDialog, setShowDeleteDialog]   = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState('');
-  /** The public demo account cannot be deleted (the API also refuses it). */
-  const [isDemo, setIsDemo] = useState(false);
 
   // -------------------------------------------------------------------------
   // Initial data load
   // -------------------------------------------------------------------------
 
   /**
-   * Fetches salon data from the API and the user's plan via the browser
-   * Supabase client with RLS-enforced read access.
+   * Fetches the salon and the billing overview (plan, trial, subscription)
+   * in parallel. The page still works when billing cannot be loaded.
    */
   useEffect(() => {
     async function loadData() {
       try {
-        // Fetch salon info and plan in parallel.
-        const [salonRes] = await Promise.all([
+        const [salonRes, billingRes] = await Promise.all([
           fetch('/api/salon'),
+          fetch('/api/billing'),
         ]);
 
         if (!salonRes.ok) { setLoadState('error'); return; }
@@ -306,22 +305,14 @@ export default function SettingsPage() {
         setOpeningTime(normaliseTime(salon.opening_time) ?? '09:00');
         setClosingTime(normaliseTime(salon.closing_time) ?? '20:00');
 
-        // Fetch the user's plan from users table via browser Supabase client.
-        // RLS ensures only the authenticated user's own row is accessible.
-        try {
-          const supabase = createBrowserSupabaseClient();
-          const { data: { user: authUser } } = await supabase.auth.getUser();
-          if (authUser) {
-            setIsDemo(isDemoAccount(authUser.email));
-            const { data: userData } = await supabase
-              .from('users')
-              .select('plan')
-              .eq('id', authUser.id)
-              .single();
-            if (userData?.plan) setPlan(userData.plan as UserPlan);
+        // Billing overview. On failure `billing` stays null: email settings
+        // stay disabled (most restrictive) and the Billing section says so.
+        if (billingRes.ok) {
+          try {
+            setBilling((await billingRes.json()) as BillingOverview);
+          } catch {
+            // Unreadable response — treated like a failed request.
           }
-        } catch {
-          // Plan fetch failed — keep default 'trial' (most restrictive; safe fallback).
         }
 
         setLoadState('ready');
@@ -725,8 +716,10 @@ export default function SettingsPage() {
   const previewEmailFooterText   = renderPreview(activeEmailFooter,   { business_name: previewBusiness });
   const previewEmailClosingText  = renderPreview(activeEmailClosing,  PREVIEW_VARS);
 
-  // Plan-gated feature availability.
-  const emailAllowed = planAllowsEmail(plan);
+  // Plan-gated feature availability (an ended trial or an inactive subscription sends no email).
+  const emailAllowed = billing?.canSendEmail ?? false;
+  /** The public demo account cannot be deleted (the API also refuses it). */
+  const isDemo = billing?.isDemo ?? false;
 
   // -------------------------------------------------------------------------
   // Main render
@@ -930,7 +923,7 @@ export default function SettingsPage() {
                   </p>
                 ) : (
                   <p className="text-xs text-amber-600 mt-0.5">
-                    Upgrade to any paid plan to enable email reminders.
+                    Upgrade to send email reminders.
                   </p>
                 )}
               </div>
@@ -1203,13 +1196,18 @@ export default function SettingsPage() {
         </section>
 
         {/* ================================================================
-            SECTION 5: Delete account
+            SECTION 5: Billing
+        ================================================================ */}
+        <BillingSection billing={billing} />
+
+        {/* ================================================================
+            SECTION 6: Delete account
         ================================================================ */}
         <section>
           <h2 className="text-base font-semibold text-red-600 mb-1">Delete account</h2>
           <p className="text-sm text-[#8A8680] mb-4 font-body">
-            Permanently deletes your business data, all appointments, all clients, and all reminders.
-            This cannot be undone.
+            Permanently deletes your business data, all appointments, all clients, and all reminders,
+            and cancels your subscription. This cannot be undone.
           </p>
 
           <div className="bg-white rounded-2xl border border-red-100 p-6">
@@ -1234,8 +1232,8 @@ export default function SettingsPage() {
             ) : (
               <div className="space-y-4">
                 <p className="text-sm text-[#1A1A1A]">
-                  This will permanently delete your business data, all appointments, all clients, and all reminders.
-                  This cannot be undone. Type <strong>DELETE</strong> to confirm.
+                  This will cancel your subscription and permanently delete your business data, all appointments,
+                  all clients, and all reminders. This cannot be undone. Type <strong>DELETE</strong> to confirm.
                 </p>
 
                 <Input

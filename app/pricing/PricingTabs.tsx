@@ -12,9 +12,9 @@
 'use client';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import ManageBillingButton from '@/components/billing/ManageBillingButton';
 import CheckoutButton from './CheckoutButton';
 import { PLAN_PRICES } from '@/lib/plans';
-import type { UserPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Plan configuration
@@ -33,45 +33,27 @@ const BASIC_FEATURES: string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Maps legacy plan names to the equivalent public plan key.
- * Used to correctly show the "Current plan" badge for users on legacy plans.
- *
- * @param plan - The user's current plan from the database.
- * @returns The equivalent public plan key string.
- */
-function normalizePlan(plan: UserPlan): string {
-  if (plan === 'starter')      return 'basic';
-  if (plan === 'professional') return 'basic'; // professional maps to basic for badge display
-  if (plan === 'pro')          return 'basic'; // pro maps to basic for badge display
-  return plan;
-}
-
-// ---------------------------------------------------------------------------
 // BasicPlanCard
 // ---------------------------------------------------------------------------
 
 /** Props for the Basic plan card. */
 interface BasicPlanCardProps {
-  /** The user's current plan — used to highlight the current plan badge. */
-  currentPlan: UserPlan;
+  /** The account has a paid plan (Basic, or an internal plan). */
+  isCurrent: boolean;
+  /** The account has a Stripe customer, so "Manage billing" can open the portal. */
+  hasBillingAccount: boolean;
 }
 
 /**
  * Renders the Basic plan card with price, features, and CTA.
  *
- * - Current plan: shows "Your current plan" label instead of a CTA button.
- * - Unpaid user: shows "Most popular" badge with forest green border.
+ * - Current plan: shows "Your current plan" and "Manage billing" instead of a CTA.
+ * - Otherwise: the checkout button; billing starts on the day the owner subscribes.
  *
- * @param props - currentPlan.
+ * @param props - isCurrent, hasBillingAccount.
  * @returns The Basic plan card JSX element.
  */
-function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
-  const isCurrent = normalizePlan(currentPlan) === 'basic';
-
+function BasicPlanCard({ isCurrent, hasBillingAccount }: BasicPlanCardProps) {
   return (
     <div className="relative max-w-sm w-full mx-auto">
 
@@ -135,11 +117,23 @@ function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
 
           {/* CTA */}
           {isCurrent ? (
-            <div className="flex w-full items-center justify-center rounded-xl border border-[#C8C8C8]/40 bg-[#F9F9F9] px-4 py-3 text-sm font-medium text-[#C8C8C8]">
-              Your current plan
+            <div className="space-y-3">
+              <div className="flex w-full items-center justify-center rounded-xl border border-[#C8C8C8]/40 bg-[#F9F9F9] px-4 py-3 text-sm font-medium text-[#C8C8C8]">
+                Your current plan
+              </div>
+              {hasBillingAccount && (
+                <div className="flex justify-center">
+                  <ManageBillingButton />
+                </div>
+              )}
             </div>
           ) : (
-            <CheckoutButton plan="basic" highlighted={true} />
+            <>
+              <CheckoutButton plan="basic" highlighted={true} />
+              <p className="mt-3 text-center text-xs text-[#8A8680]">
+                Billed monthly from the day you subscribe. Cancel any time in Settings.
+              </p>
+            </>
           )}
         </CardContent>
       </Card>
@@ -153,21 +147,23 @@ function BasicPlanCard({ currentPlan }: BasicPlanCardProps) {
 
 /** Props passed from the server component pricing page. */
 interface PricingTabsProps {
-  /** The authenticated user's current plan — used to highlight the current plan. */
-  currentPlan: UserPlan;
+  /** The account has a paid plan — the card shows "Current plan". */
+  isCurrent: boolean;
+  /** The account has a Stripe customer. */
+  hasBillingAccount: boolean;
 }
 
 /**
  * Single-plan pricing layout: Basic only.
  * Pro and Business are hidden from public UI.
  *
- * @param props - currentPlan from the server component.
+ * @param props - Plan state from the server component.
  * @returns The pricing section JSX.
  */
-export default function PricingTabs({ currentPlan }: PricingTabsProps) {
+export default function PricingTabs({ isCurrent, hasBillingAccount }: PricingTabsProps) {
   return (
     <div className="flex justify-center">
-      <BasicPlanCard currentPlan={currentPlan} />
+      <BasicPlanCard isCurrent={isCurrent} hasBillingAccount={hasBillingAccount} />
     </div>
   );
 }

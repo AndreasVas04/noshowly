@@ -10,6 +10,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import LandingNav from '@/components/landing/LandingNav';
 import LandingFooter from '@/components/landing/LandingFooter';
+import { TRIAL_LENGTH_DAYS } from '@/lib/plans';
 
 export const metadata: Metadata = {
   title: 'Terms of Service - Noshowly',
@@ -76,7 +77,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="mt-4 text-white/60 font-body text-sm tracking-wide">
-            Last updated: April 2026
+            Last updated: September 2026
           </p>
           <div className="mt-7 w-10 h-px bg-white/25" />
           <p className="mt-6 text-white/65 font-body text-sm">
@@ -166,11 +167,26 @@ export default function TermsPage() {
               </li>
             </ul>
             <p>
-              All prices are in US dollars.
+              All prices are in US dollars. Payments are processed by Stripe.
             </p>
             <p>
-              Subscriptions renew automatically. You may cancel at any time. Cancellation takes effect
-              at the end of your current billing period. No partial refunds are issued.
+              New accounts start with a {TRIAL_LENGTH_DAYS}-day free trial. No payment card is needed for the trial.
+              When the trial ends, your account becomes read-only until you subscribe: you can still
+              see your data and settings, but you cannot add or change appointments, clients, staff
+              or services, your online booking page stops taking bookings, and no reminders are sent.
+            </p>
+            <p>
+              Subscriptions renew automatically. You may cancel at any time in Settings, under
+              Manage billing. Cancellation takes effect at the end of your current billing period.
+              No partial refunds are issued. When your subscription ends, your account becomes
+              read-only in the same way.
+            </p>
+            <p>
+              If a renewal payment fails, your plan stays active while the payment is retried. If it
+              cannot be collected, your subscription ends.
+            </p>
+            <p>
+              Deleting your account cancels your subscription immediately.
             </p>
             <p>
               We may change prices with 30 days notice. If you do not agree to a price change, you

@@ -41,7 +41,8 @@ BEGIN
     $s$UPDATE public.barbers SET name = 'Hijacked' WHERE id = %L$s$, tests.id('barber_b1')));
   PERFORM tests.expect_changed('owner A: cancel appointment B1', 0, format(
     $s$UPDATE public.appointments SET status = 'cancelled' WHERE id = %L$s$, tests.id('appointment_b1')));
-  PERFORM tests.expect_changed('owner A: mark reminder B1 sent', 0, format(
+  -- Owners cannot write reminders at all (the server does).
+  PERFORM tests.expect_error('owner A: mark reminder B1 sent', '42501', format(
     $s$UPDATE public.reminders SET status = 'sent' WHERE id = %L$s$, tests.id('reminder_b1')));
   PERFORM tests.expect_changed('owner A: take over booking page B', 0, format(
     $s$UPDATE public.booking_pages SET slug = 'mine' WHERE id = %L$s$, tests.id('page_b')));
@@ -104,8 +105,9 @@ BEGIN
     $s$INSERT INTO public.barber_services (salon_id, barber_id, service_id) VALUES (%L, %L, %L)$s$,
     tests.id('salon_a'), tests.id('barber_a2'), tests.id('service_b')));
 
-  -- One salon per owner, and only the server deletes salons.
-  PERFORM tests.expect_error('owner A: create a second salon', '23505', format(
+  -- Only the server creates and deletes salons (one per owner, see
+  -- test_checks.sql).
+  PERFORM tests.expect_error('owner A: create a second salon', '42501', format(
     $s$INSERT INTO public.salons (user_id, name) VALUES (%L, 'Second salon')$s$, tests.id('owner_a')));
   PERFORM tests.expect_error('owner A: delete own salon', '42501', format(
     $s$DELETE FROM public.salons WHERE id = %L$s$, tests.id('salon_a')));

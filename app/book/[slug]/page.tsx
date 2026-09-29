@@ -9,9 +9,13 @@
  * multi-step appointment UI.
  *
  * States:
- *  - Slug not found          → Next.js 404 page
- *  - Slug found + is_active  → Renders BookingFlow with data
- *  - Slug found + inactive   → "Not accepting online bookings" message
+ *  - Slug not found                         → Next.js 404 page
+ *  - Slug found + is_active                 → Renders BookingFlow with data
+ *  - Slug found + inactive                  → "Not accepting online bookings" message
+ *  - Slug found + owner's trial has ended
+ *    or subscription is inactive            → the same message (lib/booking-data.ts
+ *                                              salonAcceptsBookings); the reason is
+ *                                              never shown to visitors
  *
  * Reads use the service-role client via lib/booking-data.ts: anonymous
  * visitors cannot read staff/service links through RLS, and the page must not
@@ -29,6 +33,7 @@ import {
   getBookingPageBySlug,
   getPublicSalon,
   loadPublicBookingData,
+  salonAcceptsBookings,
 } from '@/lib/booking-data';
 
 // Force dynamic rendering on every request so clients always see the latest
@@ -71,6 +76,42 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 // ---------------------------------------------------------------------------
+// Not accepting bookings
+// ---------------------------------------------------------------------------
+
+/**
+ * The page shown when the business does not take online bookings: the owner
+ * switched the page off, or their account is read-only.
+ *
+ * @param title - Page title or salon name.
+ * @param phone - Salon phone number, shown as a call link when set.
+ */
+function NotAcceptingBookings({ title, phone }: { title: string; phone: string | null }) {
+  return (
+    <div className="min-h-screen bg-[#F4F4F5] flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-white rounded-2xl p-8 text-center shadow-sm">
+        <p className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
+          {title}
+        </p>
+        <p className="font-body text-base text-[#1A1A1A] mb-2">
+          We are not accepting online bookings right now.
+        </p>
+        <p className="font-body text-sm text-[#8A8680]">
+          Please contact the business directly to schedule an appointment.
+        </p>
+        {phone && (
+          <p className="font-body text-sm font-medium text-[#1A1A1A] mt-3">
+            <a href={`tel:${phone}`} className="underline underline-offset-2">
+              {phone}
+            </a>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
 
@@ -93,34 +134,19 @@ export default async function BookPage({ params }: PageProps) {
 
   const supabase = createAdminSupabaseClient();
 
-  if (!bp.is_active) {
-    // Booking page exists but the owner has turned it off.
+  // Step 2: The owner turned the page off, or their account does not take
+  // bookings (trial ended or subscription inactive).
+  if (!bp.is_active || !(await salonAcceptsBookings(supabase, bp.salon_id))) {
     const salon = await getPublicSalon(supabase, bp.salon_id);
     return (
-      <div className="min-h-screen bg-[#F4F4F5] flex items-center justify-center px-4">
-        <div className="max-w-md w-full bg-white rounded-2xl p-8 text-center shadow-sm">
-          <p className="font-heading text-xl font-semibold text-[#1A1A1A] mb-2">
-            {bp.custom_title ?? salon?.name ?? 'Online booking'}
-          </p>
-          <p className="font-body text-base text-[#1A1A1A] mb-2">
-            We are not accepting online bookings right now.
-          </p>
-          <p className="font-body text-sm text-[#8A8680]">
-            Please contact the business directly to schedule an appointment.
-          </p>
-          {salon?.phone && (
-            <p className="font-body text-sm font-medium text-[#1A1A1A] mt-3">
-              <a href={`tel:${salon.phone}`} className="underline underline-offset-2">
-                {salon.phone}
-              </a>
-            </p>
-          )}
-        </div>
-      </div>
+      <NotAcceptingBookings
+        title={bp.custom_title ?? salon?.name ?? 'Online booking'}
+        phone={salon?.phone ?? null}
+      />
     );
   }
 
-  // Step 2: Salon, active staff, active services, staff/service links, availability.
+  // Step 3: Salon, active staff, active services, staff/service links, availability.
   const data = await loadPublicBookingData(supabase, bp.salon_id);
 
   if (!data) {

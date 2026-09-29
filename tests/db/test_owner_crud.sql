@@ -54,13 +54,14 @@ BEGIN
   PERFORM tests.expect_changed('owner A: confirm an appointment', 1, format(
     $s$UPDATE public.appointments SET status = 'confirmed', notes = 'Called' WHERE id = %L$s$,
     tests.id('appointment_a3')));
-  PERFORM tests.expect_changed('owner A: record a test reminder', 1, format(
+  -- Reminders are written by the server with the service-role key (the email
+  -- gateway); the owner reads them.
+  PERFORM tests.as_service_role();
+  PERFORM tests.expect_changed('server: record a test reminder', 1, format(
     $s$INSERT INTO public.reminders (appointment_id, type, send_at, sent_at, status, token)
        VALUES (%L, 'email_test', now(), now(), 'sent', 'token-test-a3')$s$,
     tests.id('appointment_a3')));
-  PERFORM tests.expect_changed('owner A: cancel pending reminders', 0, format(
-    $s$UPDATE public.reminders SET status = 'cancelled' WHERE appointment_id = %L AND status = 'pending'$s$,
-    tests.id('appointment_a3')));
+  PERFORM tests.sign_in('owner_a');
   PERFORM tests.expect_rows('owner A: reads own reminders', 2, 'SELECT * FROM public.reminders');
   PERFORM tests.expect_changed('owner A: delete an appointment', 1, format(
     $s$DELETE FROM public.appointments WHERE id = %L$s$, tests.id('appointment_a3')));

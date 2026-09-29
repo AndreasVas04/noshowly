@@ -24,11 +24,14 @@
  *    never supplies it, preventing cross-salon data access.
  *  - RLS on the appointments table provides a second enforcement layer.
  *  - All inputs are validated before touching the database.
+ *  - POST needs write access: an ended trial or an inactive subscription is
+ *    read-only (lib/access.ts).
  */
 
 import { after } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
+import { requireWriteAccess } from '@/lib/access';
 import type {
   Appointment,
   AppointmentWithDetails,
@@ -239,6 +242,7 @@ export async function GET(request: Request): Promise<Response> {
  * @returns 201 { appointment: Appointment }
  * @returns 400 { error: string }               — validation failure
  * @returns 401 { error: "Unauthorized" }       — no valid session
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Salon not found" }    — user has no salon record
  * @returns 500 { error: string }               — unexpected DB error
  */
@@ -249,11 +253,9 @@ export async function POST(request: Request): Promise<Response> {
   if (!auth.ok) return auth.response;
   const { user: authUser, supabase } = auth;
 
-  // Step 2: Plan check — trial and cancelled users cannot create appointments.
-  const { data: userData } = await supabase.from('users').select('plan, email_reminders_used_this_month').eq('id', authUser.id).single();
-  if (!userData || userData.plan === 'trial' || userData.plan === 'cancelled') {
-    return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
-  }
+  // Step 2: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, authUser.id);
+  if (!access.ok) return access.response;
 
   // Step 3: Parse and validate the request body.
   let body: unknown;

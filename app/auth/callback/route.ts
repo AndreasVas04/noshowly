@@ -6,10 +6,16 @@
  * After a user confirms their email, Supabase redirects them to this route
  * with a one-time `code` query parameter. This handler:
  *  1. Exchanges the code for a real session (PKCE flow) and sets the session cookie.
- *  2. Creates the `users` and `salons` DB records using the service-role key.
- *     These records are NOT created during signUp when email confirmation is required
- *     (because there is no session until the user clicks the link).
- *  3. Redirects to /dashboard on success, or /login on failure.
+ *  2. Creates the `users` and `salons` DB records if they do not exist yet
+ *     (lib/account.ts ensureAccount, the same helper /api/auth/register uses).
+ *  3. Redirects to /dashboard on success. On failure it redirects to /login
+ *     with an error the login page explains, instead of landing on a broken
+ *     dashboard:
+ *      - ?error=link_invalid  — no code, or the code could not be exchanged;
+ *      - ?error=setup_failed  — the records could not be created. The user is
+ *        signed out first (middleware would otherwise send a signed-in user
+ *        from /login back to /dashboard); signing in again retries, because
+ *        the dashboard layout completes a half-created account.
  *
  * The salon name and timezone are read from user_metadata (set during signUp
  * via options.data). If the name is missing we fall back to "My Salon", and an
@@ -24,7 +30,8 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { isValidTimeZone } from '@/lib/time';
+import { accountSetupFromMetadata, ensureAccount } from '@/lib/account';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { Database } from '@/types';
 
 export async function GET(request: Request) {
@@ -34,7 +41,7 @@ export async function GET(request: Request) {
   if (!code) {
     // No code in URL — likely a stale or malformed link.
     console.error('[auth/callback] No code in query string');
-    return NextResponse.redirect(`${origin}/login`);
+    return NextResponse.redirect(`${origin}/login?error=link_invalid`);
   }
 
   // ---------------------------------------------------------------------------
@@ -62,7 +69,7 @@ export async function GET(request: Request) {
   if (exchangeError || !session) {
     // Log server-side only — never expose details to the client.
     console.error('[auth/callback] Code exchange failed:', exchangeError?.message ?? 'no session returned');
-    return NextResponse.redirect(`${origin}/login`);
+    return NextResponse.redirect(`${origin}/login?error=link_invalid`);
   }
 
   // ---------------------------------------------------------------------------
@@ -77,75 +84,24 @@ export async function GET(request: Request) {
   // Security: service-role key bypasses RLS intentionally for this one-time
   //   initial insert. It is only used server-side and never exposed to the client.
   // ---------------------------------------------------------------------------
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) {
-    console.error('[auth/callback] Missing SUPABASE_SERVICE_ROLE_KEY — cannot create DB records');
-    // Session is valid — redirect to dashboard. It may show "salon not found" but
-    // that is better than a broken redirect loop. The owner can contact support.
-    return NextResponse.redirect(`${origin}/dashboard`);
+  let setupError: string | null = null;
+  try {
+    const result = await ensureAccount(
+      createAdminSupabaseClient(),
+      session.user,
+      accountSetupFromMetadata(session.user),
+    );
+    if (!result.ok) setupError = `${result.step}: ${result.message}`;
+  } catch (err) {
+    // e.g. SUPABASE_SERVICE_ROLE_KEY missing.
+    setupError = err instanceof Error ? err.message : String(err);
   }
 
-  const adminSupabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey,
-    {
-      cookies: {
-        // Admin client authenticates via key, not cookies.
-        getAll: () => [],
-        setAll: () => {},
-      },
-    }
-  );
-
-  // Read the salon name stored in user metadata during signUp.
-  // Falls back to "My Salon" if metadata was not set (e.g. manual auth flows).
-  const salonName: string =
-    (session.user.user_metadata?.salon_name as string | undefined)?.trim() ||
-    'My Salon';
-
-  // The owner's browser timezone, stored during signUp. Validated because
-  // user metadata is supplied by the client.
-  const metadataTimezone: unknown = session.user.user_metadata?.timezone;
-  const timezone = isValidTimeZone(metadataTimezone) ? metadataTimezone : 'UTC';
-
-  // Create `users` record (idempotent — skip if it already exists).
-  const { data: existingUser, error: userCheckError } = await adminSupabase
-    .from('users')
-    .select('id')
-    .eq('id', session.user.id)
-    .maybeSingle();
-
-  if (userCheckError) {
-    console.error('[auth/callback] Failed to check users table:', userCheckError.message);
-  } else if (!existingUser) {
-    const { error: insertUserError } = await adminSupabase.from('users').insert({
-      id: session.user.id,
-      email: session.user.email!,
-      plan: 'trial',
-    });
-    if (insertUserError) {
-      console.error('[auth/callback] Failed to insert users row:', insertUserError.message);
-    }
-  }
-
-  // Create `salons` record (idempotent — skip if one already exists for this user).
-  const { data: existingSalon, error: salonCheckError } = await adminSupabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
-
-  if (salonCheckError) {
-    console.error('[auth/callback] Failed to check salons table:', salonCheckError.message);
-  } else if (!existingSalon) {
-    const { error: insertSalonError } = await adminSupabase.from('salons').insert({
-      user_id: session.user.id,
-      name: salonName,
-      timezone,
-    });
-    if (insertSalonError) {
-      console.error('[auth/callback] Failed to insert salons row:', insertSalonError.message);
-    }
+  if (setupError) {
+    console.error(`[auth/callback] Account setup failed for user=${session.user.id}:`, setupError);
+    // Sign out so /login shows the error instead of redirecting to /dashboard.
+    await supabase.auth.signOut();
+    return NextResponse.redirect(`${origin}/login?error=setup_failed`);
   }
 
   // Session is set in cookies — send the user into the app.

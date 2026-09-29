@@ -25,7 +25,10 @@ if (!STRIPE_SECRET_KEY) {
  *
  * Used by:
  *  - app/api/stripe/checkout/route.ts   — create Checkout sessions
+ *  - app/api/stripe/sync/route.ts       — read a completed Checkout session
  *  - app/api/webhooks/stripe/route.ts   — verify webhook signatures
+ *  - lib/billing/server.ts              — list and cancel subscriptions, read and
+ *                                         create customers, create portal sessions
  *
  * @example
  * ```ts

@@ -13,9 +13,13 @@
  *  - salon_id is always derived from the session — never supplied by the client.
  *  - Slug uniqueness enforced by DB unique constraint (PGRST is caught and mapped).
  *  - RLS provides a second enforcement layer.
+ *  - POST and PUT need write access: an ended trial or an inactive
+ *    subscription is read-only (lib/access.ts), and its public page stops
+ *    taking bookings (lib/booking-data.ts salonAcceptsBookings).
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireWriteAccess } from '@/lib/access';
 import type { BookingPage } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -84,6 +88,7 @@ export async function GET(): Promise<Response> {
  * @returns 201 { bookingPage: BookingPage }
  * @returns 400 { error: string }
  * @returns 401 { error: "Unauthorized" }
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Salon not found" }
  * @returns 409 { error: "This URL is already taken" }
  * @returns 500 { error: string }
@@ -98,11 +103,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Plan check — trial and cancelled users cannot create booking pages.
-  const { data: userData } = await supabase.from('users').select('plan').eq('id', session.user.id).single();
-  if (!userData || userData.plan === 'trial' || userData.plan === 'cancelled') {
-    return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
-  }
+  // Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   let body: unknown;
   try {
@@ -258,6 +261,7 @@ export async function POST(request: Request): Promise<Response> {
  * @returns 200 { bookingPage: BookingPage }
  * @returns 400 { error: string }
  * @returns 401 { error: "Unauthorized" }
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Booking page not found" } — or salon not found
  * @returns 409 { error: "This URL is already taken" }
  * @returns 500 { error: string }
@@ -272,11 +276,9 @@ export async function PUT(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Plan check — trial and cancelled users cannot update booking pages.
-  const { data: userDataPut } = await supabase.from('users').select('plan').eq('id', session.user.id).single();
-  if (!userDataPut || userDataPut.plan === 'trial' || userDataPut.plan === 'cancelled') {
-    return Response.json({ error: 'Please upgrade to a paid plan to use this feature.' }, { status: 403 });
-  }
+  // Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   let body: unknown;
   try {

@@ -10,11 +10,14 @@
  *
  * Security:
  *  - Authentication checked first on every request.
+ *  - Write access checked next: an ended trial or an inactive subscription is
+ *    read-only (lib/access.ts).
  *  - Ownership verified via salon_id derived from session — never from client.
  *  - RLS provides a second enforcement layer.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireWriteAccess } from '@/lib/access';
 import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { Service } from '@/types';
 
@@ -39,6 +42,7 @@ import type { Service } from '@/types';
  * @returns 200 { service: Service }            — updated
  * @returns 400 { error: string }               — validation failure
  * @returns 401 { error: "Unauthorized" }       — no valid session
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Service not found" }  — service doesn't exist or not owned
  * @returns 500 { error: string }               — unexpected DB error
  */
@@ -55,6 +59,10 @@ export async function PUT(
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   // Step 2: Await route params.
   const { id: serviceId } = await params;
@@ -173,6 +181,7 @@ export async function PUT(
  *
  * @returns 200 { success: true }               — deleted
  * @returns 401 { error: "Unauthorized" }       — no valid session
+ * @returns 403 { error: string, code: string } — read-only account (trial ended / inactive)
  * @returns 404 { error: "Service not found" }  — service doesn't exist or not owned
  * @returns 500 { error: string }               — unexpected DB error
  */
@@ -189,6 +198,10 @@ export async function DELETE(
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
+  const access = await requireWriteAccess(supabase, session.user.id);
+  if (!access.ok) return access.response;
 
   // Step 2: Await the route params (Next.js 15+ params are async).
   const { id: serviceId } = await params;
