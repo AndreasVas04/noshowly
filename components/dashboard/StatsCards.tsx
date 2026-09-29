@@ -15,6 +15,11 @@
  * Fetches today's appointments from GET /api/appointments?date=YYYY-MM-DD,
  * where "today" is the current date in the salon's timezone (from /api/salon).
  * Response shape: { appointments: AppointmentWithDetails[] }
+ *
+ * Like the list below it, the counts reload whenever an appointment changes
+ * (Supabase Realtime, scoped to the salon by RLS), so confirming or cancelling
+ * an appointment here or on another device updates the cards. A response that
+ * arrives after a newer request started is ignored.
  */
 
 'use client';
@@ -24,6 +29,7 @@ import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Clock, XCircle } from 'lucide-react';
 import { STATUS_LABELS } from '@/lib/appointment-status';
+import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import { resolveTimeZone, todayInZone } from '@/lib/time';
 import type { AppointmentWithDetails, Salon } from '@/types';
 
@@ -108,29 +114,73 @@ function StatCard({ label, count, icon, loading, accentClass }: StatConfig) {
 export default function StatsCards() {
   const [stats, setStats] = useState<DayStats>({ confirmed: 0, pending: 0, cancelled: 0 });
   const [loading, setLoading] = useState(true);
+  /** Salon timezone; null until loaded (or when the salon could not be loaded). */
+  const [timezone, setTimezone] = useState<string | null>(null);
+  /** Incremented to reload the counts (an appointment changed). */
+  const [refreshCount, setRefreshCount] = useState(0);
 
+  // Load the salon's timezone once: "today" is the salon's date, not the browser's.
   useEffect(() => {
-    async function loadStats(): Promise<void> {
-      try {
-        // "Today" is the salon's date, not the browser's.
-        const salonRes = await fetch('/api/salon', { cache: 'no-store' });
-        if (!salonRes.ok) return;
-        const { salon } = (await salonRes.json()) as { salon: Salon };
-        const today = todayInZone(resolveTimeZone(salon.timezone));
+    let ignore = false;
 
-        const res = await fetch(`/api/appointments?date=${today}`, { cache: 'no-store' });
-        if (!res.ok) return;
-        // API returns { appointments: AppointmentWithDetails[] } — destructure accordingly.
-        const payload = (await res.json()) as { appointments: AppointmentWithDetails[] };
-        setStats(computeStats(payload.appointments));
+    async function loadSalon(): Promise<void> {
+      try {
+        const salonRes = await fetch('/api/salon', { cache: 'no-store' });
+        if (!salonRes.ok) throw new Error(`HTTP ${salonRes.status}`);
+        const { salon } = (await salonRes.json()) as { salon: Salon };
+        if (!ignore) setTimezone(resolveTimeZone(salon.timezone));
       } catch {
         // Silently fail — stats are non-critical display only.
-      } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     }
 
-    void loadStats();
+    void loadSalon();
+    return () => { ignore = true; };
+  }, []);
+
+  // Load today's counts, again on every refresh. A response that arrives
+  // after a newer request started is ignored.
+  useEffect(() => {
+    if (!timezone) return;
+    let ignore = false;
+
+    async function loadStats(zone: string): Promise<void> {
+      try {
+        const res = await fetch(`/api/appointments?date=${todayInZone(zone)}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        // API returns { appointments: AppointmentWithDetails[] } — destructure accordingly.
+        const payload = (await res.json()) as { appointments: AppointmentWithDetails[] };
+        if (!ignore) setStats(computeStats(payload.appointments));
+      } catch {
+        // Silently fail — stats are non-critical display only.
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    }
+
+    void loadStats(timezone);
+    return () => { ignore = true; };
+  }, [timezone, refreshCount]);
+
+  // Reload when any of the salon's appointments is created, changed or deleted.
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+
+    const channel = supabase
+      .channel('stats-appointments-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        () => {
+          setRefreshCount((count) => count + 1);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const cards: StatConfig[] = [
