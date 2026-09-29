@@ -25,8 +25,8 @@ Sign in at [noshowly.vercel.app/login](https://noshowly.vercel.app/login):
 
 The account has sample staff, services and bookings. It is shared, so its
 email and password cannot be changed, it cannot be deleted or subscribed, and
-the emails it triggers go to its own address rather than to clients. Whatever
-visitors change is put back every night.
+the emails it triggers go to Resend's test inbox (`delivered@resend.dev`)
+rather than to clients. Whatever visitors change is put back every night.
 
 ## Features
 
@@ -151,8 +151,8 @@ flowchart LR
   (`lib/staff-photos.ts`).
 - **Demo account:** a database trigger blocks changes to its email and
   password, the API refuses to delete it or start billing for it, and its
-  emails go to its own address. A nightly pg_cron job restores it from a
-  snapshot (`supabase/README.md`).
+  emails go to Resend's test inbox, never to clients or a real mailbox. A
+  nightly pg_cron job restores it from a snapshot (`supabase/README.md`).
 - **HTTP headers:** `X-Content-Type-Options`, `Referrer-Policy`,
   `X-Frame-Options`, `Permissions-Policy` and `Strict-Transport-Security` on
   every response (`next.config.ts`). The confirmation page adds its own strict

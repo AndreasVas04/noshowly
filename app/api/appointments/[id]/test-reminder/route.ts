@@ -116,13 +116,13 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
  */
 function testSendResponse(result: SendResult): Response {
   if (result.status === 'sent') {
-    const where = result.toOwner
-      ? `${result.recipient} (demo mode: emails go to the demo account, not to clients)`
-      : result.recipient;
+    const sent = result.demo
+      ? 'Test email sent to the demo test inbox (demo mode: emails never go to clients)'
+      : `Test email sent to ${result.recipient}`;
     return Response.json(
       {
         success: true,
-        message: `Test email sent to ${where}. It is marked as a test and its buttons do not change the appointment.`,
+        message: `${sent}. It is marked as a test and its buttons do not change the appointment.`,
       },
       { status: 200 }
     );
