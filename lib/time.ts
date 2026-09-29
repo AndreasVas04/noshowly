@@ -45,10 +45,10 @@ const TIME_ZONE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/
 // ---------------------------------------------------------------------------
 
 /** Numeric parts of a 'YYYY-MM-DD' date. `month` is 1–12. */
-export type DateParts = { year: number; month: number; day: number };
+type DateParts = { year: number; month: number; day: number };
 
 /** Numeric parts of an 'HH:MM' time. */
-export type TimeParts = { hour: number; minute: number };
+type TimeParts = { hour: number; minute: number };
 
 /** An instant expressed as wall-clock values in a timezone. */
 export type ZonedParts = {
@@ -61,7 +61,7 @@ export type ZonedParts = {
 };
 
 /** Why a wall-clock time could not be converted to an instant. */
-export type ZonedTimeError =
+type ZonedTimeError =
   | 'invalid_date'
   | 'invalid_time'
   | 'invalid_timezone'
@@ -122,7 +122,7 @@ function toEpochMs(value: string | Date | number): number {
  * @param value - Candidate date string.
  * @returns     Numeric parts, or null when invalid.
  */
-export function parseDateOnly(value: unknown): DateParts | null {
+function parseDateOnly(value: unknown): DateParts | null {
   if (typeof value !== 'string') return null;
   const match = DATE_PATTERN.exec(value);
   if (!match) return null;
@@ -151,7 +151,7 @@ export function isValidDateString(value: unknown): value is string {
  * @param value - Candidate time string.
  * @returns     Numeric parts, or null when invalid.
  */
-export function parseTime(value: unknown): TimeParts | null {
+function parseTime(value: unknown): TimeParts | null {
   if (typeof value !== 'string') return null;
   const match = TIME_PATTERN.exec(value);
   if (!match) return null;
@@ -239,6 +239,28 @@ export function isValidTimeZone(value: unknown): value is string {
  */
 export function resolveTimeZone(value: unknown): string {
   return isValidTimeZone(value) ? value : 'UTC';
+}
+
+/**
+ * Returns the browser's timezone, or 'UTC' when it is not a valid IANA name.
+ * The dashboard only uses it when the salon's timezone cannot be loaded.
+ */
+export function browserTimeZone(): string {
+  try {
+    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Formats a timezone name for display.
+ *
+ * @param timeZone - IANA timezone.
+ * @returns        The name with spaces, e.g. 'America/New_York' → 'America/New York'.
+ */
+export function formatTimeZoneLabel(timeZone: string): string {
+  return timeZone.replace(/_/g, ' ');
 }
 
 // ---------------------------------------------------------------------------

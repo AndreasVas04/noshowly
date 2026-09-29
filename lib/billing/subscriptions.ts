@@ -71,7 +71,7 @@ export type CheckoutDecision =
   | { allowed: false; reason: 'already_paid' };
 
 /** Statuses of a subscription that is still running: it gives (or keeps) a paid plan. */
-export const LIVE_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set(['active', 'trialing', 'past_due']);
+const LIVE_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set(['active', 'trialing', 'past_due']);
 
 /** Statuses paid up for the current period. */
 const PAID_UP_STATUSES: ReadonlySet<string> = new Set(['active', 'trialing']);

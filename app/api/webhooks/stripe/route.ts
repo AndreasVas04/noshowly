@@ -5,7 +5,7 @@
  *
  * Keeps users.plan in step with Stripe subscriptions.
  *
- * Events handled (lib/billing/sync.ts BILLING_EVENT_TYPES):
+ * Events handled (readBillingEvent() in lib/billing/sync.ts):
  *  - checkout.session.completed      — links the Stripe customer to the user
  *                                      (client_reference_id / metadata user_id)
  *                                      if it is not linked yet

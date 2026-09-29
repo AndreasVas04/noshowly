@@ -42,52 +42,13 @@ import {
   findAppointmentService,
   findEligibleBarbers,
   resolveAppointmentDuration,
+  toAppointmentWithDetails,
+  type AppointmentRowWithRelations,
 } from '@/lib/appointment-helpers';
 import { isBarberEligibleForService, isValidDuration } from '@/lib/availability';
+import { isUuid } from '@/lib/postgrest';
 import { dayRangeUtc, isValidDateString, resolveTimeZone } from '@/lib/time';
 import { sendAppointmentEmail } from '@/lib/reminders/gateway';
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-/**
- * Raw row shape returned by Supabase when using the nested-select join syntax.
- * The `clients` and `barbers` keys hold the joined sub-rows (or null if the
- * related record was deleted / never set).
- */
-type RawAppointmentRow = Omit<Appointment, 'client_id' | 'barber_id'> & {
-  client_id: string | null;
-  barber_id: string | null;
-  clients: { name: string; phone: string | null; email: string | null } | null;
-  barbers: { name: string } | null;
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Transforms a raw Supabase joined row into the flat AppointmentWithDetails
- * shape consumed by frontend components.
- *
- * @param row - Raw row from Supabase with nested clients/barbers objects.
- * @returns Flattened AppointmentWithDetails with client_name, client_phone,
- *          and barber_name at the top level.
- */
-function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetails {
-  const { clients, barbers, ...rest } = row;
-  return {
-    ...rest,
-    client_name: clients?.name ?? null,
-    client_phone: clients?.phone ?? null,
-    client_email: clients?.email ?? null,
-    barber_name: barbers?.name ?? null,
-  };
-}
-
-/** Matches a UUID, so malformed ids are rejected before reaching the database. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // GET — list appointments for a day or date range
@@ -206,7 +167,7 @@ export async function GET(request: Request): Promise<Response> {
   // Cast through unknown because our Database type has Relationships: [] —
   // the Supabase TS client can't infer the join shape, but the SQL foreign
   // keys are defined so the data is correct at runtime.
-  const appointments: AppointmentWithDetails[] = (rows as unknown as RawAppointmentRow[]).map(
+  const appointments: AppointmentWithDetails[] = (rows as unknown as AppointmentRowWithRelations[]).map(
     toAppointmentWithDetails
   );
 
@@ -290,7 +251,7 @@ export async function POST(request: Request): Promise<Response> {
   if (raw.barber_id !== undefined && raw.barber_id !== null && typeof raw.barber_id !== 'string') {
     return Response.json({ error: 'barber_id must be a string or null' }, { status: 400 });
   }
-  if (typeof raw.barber_id === 'string' && raw.barber_id !== '' && !UUID_PATTERN.test(raw.barber_id)) {
+  if (typeof raw.barber_id === 'string' && raw.barber_id !== '' && !isUuid(raw.barber_id)) {
     return Response.json({ error: 'barber_id is not a valid id' }, { status: 400 });
   }
 
@@ -298,7 +259,7 @@ export async function POST(request: Request): Promise<Response> {
   if (raw.service_id !== undefined && raw.service_id !== null && typeof raw.service_id !== 'string') {
     return Response.json({ error: 'service_id must be a string or null' }, { status: 400 });
   }
-  if (typeof raw.service_id === 'string' && raw.service_id !== '' && !UUID_PATTERN.test(raw.service_id)) {
+  if (typeof raw.service_id === 'string' && raw.service_id !== '' && !isUuid(raw.service_id)) {
     return Response.json({ error: 'Service not found' }, { status: 400 });
   }
 

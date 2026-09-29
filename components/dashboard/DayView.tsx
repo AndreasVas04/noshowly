@@ -1,12 +1,12 @@
 /**
  * components/dashboard/DayView.tsx
  *
- * Interactive day view that displays all appointments for a selected date.
+ * The dashboard's "Today" view: every appointment of the salon's current day.
  *
  * Features:
- *  - Optional title prop: renders an h1 heading with the title and date subtitle.
- *  - Prev / Next day navigation buttons.
- *  - "Today" shortcut button — visible only when NOT already on today.
+ *  - An h1 heading (the title prop) with the date as subtitle.
+ *  - "Today" shortcut button — shown only when the salon's date has changed
+ *    since the page was opened (after midnight).
  *  - "Add appointment" button that opens the AddAppointmentModal.
  *  - Clicking an existing appointment card opens the modal in edit mode.
  *  - Fetches appointments from GET /api/appointments?date=YYYY-MM-DD.
@@ -24,47 +24,31 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AppointmentCard from '@/components/dashboard/AppointmentCard';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { addDaysToDate, formatDateOnly, resolveTimeZone, todayInZone } from '@/lib/time';
+import { isPastAppointment } from '@/lib/appointment-status';
+import { browserTimeZone, formatDateOnly, resolveTimeZone, todayInZone } from '@/lib/time';
 import type { AppointmentWithDetails, Barber, Salon } from '@/types';
-
-/** Returns the browser's timezone, used only if the salon's cannot be loaded. */
-function browserTimeZone(): string {
-  try {
-    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  } catch {
-    return 'UTC';
-  }
-}
 
 /** Props accepted by DayView. */
 interface DayViewProps {
-  /** Starting salon date ('YYYY-MM-DD'); defaults to today in the salon's timezone. */
-  initialDate?: string;
-  /**
-   * Optional static heading (e.g. "Today"). When provided, DayView renders
-   * an h1 with this text and the navigated date as subtitle.
-   */
-  title?: string;
+  /** Page heading (e.g. "Today"), shown with the date as subtitle. */
+  title: string;
 }
 
 /**
- * DayView renders navigation, an appointment list, and the Add/Edit modal
- * for a selected calendar day.
+ * DayView renders the day's appointment list and the Add/Edit modal.
  *
- * @param props.initialDate - Starting salon date; defaults to today in the salon's timezone.
- * @param props.title       - Optional fixed page heading.
+ * @param props.title - Page heading.
  */
-export default function DayView({ initialDate, title }: DayViewProps) {
+export default function DayView({ title }: DayViewProps) {
   /** Salon date being shown ('YYYY-MM-DD'); null until the salon timezone is known. */
   const [currentDate, setCurrentDate] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const [barbers, setBarbers] = useState<Barber[]>([]);
@@ -76,69 +60,79 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<AppointmentWithDetails | null>(null);
 
-  /**
-   * Fetches appointments for the given salon date.
-   *
-   * @param date - The salon calendar date ('YYYY-MM-DD') to load appointments for.
-   */
-  const fetchAppointments = useCallback(async (date: string): Promise<void> => {
-    setIsLoading(true);
-    setError(null);
+  /** Incremented to refetch the day: after a save, on "Try again" and on realtime changes. */
+  const [refreshCount, setRefreshCount] = useState(0);
+  /** The request whose response `appointments` and `error` hold. */
+  const [loadedRequest, setLoadedRequest] = useState<string | null>(null);
 
-    try {
-      const response = await fetch(`/api/appointments?date=${date}`, { cache: 'no-store' });
+  /** Identifies the appointments request for the current date; null until the date is known. */
+  const appointmentsRequest = currentDate ? `${currentDate}#${refreshCount}` : null;
+  const isLoading = appointmentsRequest === null || loadedRequest !== appointmentsRequest;
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+  // Fetch the salon's staff list and timezone once on mount, then open today
+  // in the salon's timezone.
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadSalon(): Promise<void> {
+      let timeZone: string | null = null;
+      try {
+        const [barbersRes, salonRes] = await Promise.all([
+          fetch('/api/barbers', { cache: 'no-store' }),
+          fetch('/api/salon',   { cache: 'no-store' }),
+        ]);
+        if (barbersRes.ok) {
+          const data = (await barbersRes.json()) as { barbers: Barber[] };
+          if (!ignore) setBarbers(data.barbers);
+        }
+        if (salonRes.ok) {
+          const data = (await salonRes.json()) as { salon: Salon };
+          timeZone = resolveTimeZone(data.salon.timezone);
+        }
+      } catch (err) {
+        console.error('[DayView] Failed to load staff and salon timezone:', err);
       }
+      if (ignore) return;
 
-      const payload = (await response.json()) as { appointments: AppointmentWithDetails[] };
-      setAppointments(payload.appointments);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Something went wrong';
-      setError(message);
-      console.error('[DayView] fetchAppointments error:', err);
-    } finally {
-      setIsLoading(false);
+      const zone = timeZone ?? browserTimeZone();
+      setSalonTimezone(zone);
+      setCurrentDate((date) => date ?? todayInZone(zone));
     }
+
+    loadSalon();
+    return () => { ignore = true; };
   }, []);
 
+  // Fetch the date's appointments, again whenever a refresh is requested. A
+  // response that arrives after a newer request started is ignored.
   useEffect(() => {
-    if (currentDate) fetchAppointments(currentDate);
-  }, [currentDate, fetchAppointments]);
+    if (!appointmentsRequest || !currentDate) return;
+    let ignore = false;
 
-  /**
-   * Fetches the salon's staff list and timezone once on mount, then opens
-   * the starting date (today in the salon's timezone by default).
-   */
-  const fetchSalonData = useCallback(async (): Promise<void> => {
-    let timeZone: string | null = null;
-    try {
-      const [barbersRes, salonRes] = await Promise.all([
-        fetch('/api/barbers', { cache: 'no-store' }),
-        fetch('/api/salon',   { cache: 'no-store' }),
-      ]);
-      if (barbersRes.ok) {
-        const data = (await barbersRes.json()) as { barbers: Barber[] };
-        setBarbers(data.barbers);
+    async function loadAppointments(date: string, request: string): Promise<void> {
+      try {
+        const response = await fetch(`/api/appointments?date=${date}`, { cache: 'no-store' });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+        }
+
+        const payload = (await response.json()) as { appointments: AppointmentWithDetails[] };
+        if (ignore) return;
+        setAppointments(payload.appointments);
+        setError(null);
+      } catch (err) {
+        console.error('[DayView] Failed to load appointments:', err);
+        if (!ignore) setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        if (!ignore) setLoadedRequest(request);
       }
-      if (salonRes.ok) {
-        const data = (await salonRes.json()) as { salon: Salon };
-        timeZone = resolveTimeZone(data.salon.timezone);
-      }
-    } catch (err) {
-      console.error('[DayView] fetchSalonData error:', err);
     }
 
-    const zone = timeZone ?? browserTimeZone();
-    setSalonTimezone(zone);
-    setCurrentDate((date) => date ?? initialDate ?? todayInZone(zone));
-  }, [initialDate]);
-
-  useEffect(() => {
-    fetchSalonData();
-  }, [fetchSalonData]);
+    loadAppointments(currentDate, appointmentsRequest);
+    return () => { ignore = true; };
+  }, [appointmentsRequest, currentDate]);
 
   /**
    * Subscribes to appointment changes via Supabase Realtime.
@@ -147,7 +141,6 @@ export default function DayView({ initialDate, title }: DayViewProps) {
    * RLS scopes events to the authenticated salon's appointments.
    */
   useEffect(() => {
-    if (!currentDate) return;
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
@@ -157,7 +150,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
         { event: '*', schema: 'public', table: 'appointments' },
         () => {
           // Refetch the full list on any change — simple and correct.
-          fetchAppointments(currentDate);
+          setRefreshCount((count) => count + 1);
         },
       )
       .subscribe();
@@ -165,16 +158,14 @@ export default function DayView({ initialDate, title }: DayViewProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentDate, fetchAppointments]);
+  }, []);
 
-  // Reset staff filter when navigating to a new day.
-  useEffect(() => {
+  /** Moves to the salon's current date (after midnight) and clears the staff filter. */
+  function handleToday(): void {
+    if (!salonTimezone) return;
+    setCurrentDate(todayInZone(salonTimezone));
     setSelectedBarberId(null);
-  }, [currentDate]);
-
-  function handlePrevDay(): void { setCurrentDate((d) => (d ? addDaysToDate(d, -1) : d)); }
-  function handleNextDay(): void { setCurrentDate((d) => (d ? addDaysToDate(d, 1) : d)); }
-  function handleToday(): void { if (salonTimezone) setCurrentDate(todayInZone(salonTimezone)); }
+  }
 
   function handleOpenAddModal(): void {
     setEditingAppointment(null);
@@ -194,7 +185,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   function handleModalSaved(): void {
     setModalOpen(false);
     setEditingAppointment(null);
-    if (currentDate) fetchAppointments(currentDate);
+    setRefreshCount((count) => count + 1);
   }
 
   // Date labels — only computed once the salon timezone is known (client-side).
@@ -223,11 +214,10 @@ export default function DayView({ initialDate, title }: DayViewProps) {
   //     greyed out (AppointmentCard handles the visual, sort order communicates priority)
   //  3. Cancelled: shown last with strikethrough
   const now = new Date();
-  const isPastScheduled = (a: AppointmentWithDetails) =>
-    a.status !== 'cancelled' && new Date(a.datetime) < now;
+  const isPast = (a: AppointmentWithDetails) => isPastAppointment(a, now);
 
-  const upcomingActive    = filteredAppointments.filter((a) => a.status !== 'cancelled' && !isPastScheduled(a));
-  const pastUnanswered    = filteredAppointments.filter(isPastScheduled);
+  const upcomingActive    = filteredAppointments.filter((a) => a.status !== 'cancelled' && !isPast(a));
+  const pastUnanswered    = filteredAppointments.filter(isPast);
   const cancelledAppointments = filteredAppointments.filter((a) => a.status === 'cancelled');
   const sortedAppointments = [...upcomingActive, ...pastUnanswered, ...cancelledAppointments];
 
@@ -246,111 +236,43 @@ export default function DayView({ initialDate, title }: DayViewProps) {
     <div>
 
       {/* ===================================================================
-          Optional page heading
+          Page heading
       =================================================================== */}
-      {title && (
-        <div className="mb-5">
-          <h1 className="font-heading text-4xl font-bold text-[#1A1A1A]">{title}</h1>
-          <p className="text-sm text-[#8A8680] mt-1 font-body">{fullDateLabel}</p>
-        </div>
-      )}
+      <div className="mb-5">
+        <h1 className="font-heading text-4xl font-bold text-[#1A1A1A]">{title}</h1>
+        <p className="text-sm text-[#8A8680] mt-1 font-body">{fullDateLabel}</p>
+      </div>
 
       {/* ===================================================================
-          Navigation header
+          Actions: Add button + optional Today shortcut
       =================================================================== */}
-      {title ? (
-        /* Today-page nav: Add button + optional Today shortcut */
-        <div className="flex items-center gap-3 mb-5">
-          <button
-            type="button"
-            onClick={handleOpenAddModal}
-            className="
-              flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium
-              bg-[#1B4332] text-white hover:bg-[#16392A]
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40
-            "
-          >
-            <Plus className="w-4 h-4" />
-            Add appointment
-          </button>
+      <div className="flex items-center gap-3 mb-5">
+        <button
+          type="button"
+          onClick={handleOpenAddModal}
+          className="
+            flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium
+            bg-[#1B4332] text-white hover:bg-[#16392A]
+            transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40
+          "
+        >
+          <Plus className="w-4 h-4" />
+          Add appointment
+        </button>
 
-          {currentDate && !isCurrentlyToday && (
-            <button
-              onClick={handleToday}
-              className="
-                text-sm font-medium text-[#4A4540]
-                px-3 py-2 rounded-lg border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
-                transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
-              "
-            >
-              Today
-            </button>
-          )}
-        </div>
-      ) : (
-        /* Day-browser nav: arrows + date heading + Add button */
-        <div className="flex items-center gap-2 mb-5">
+        {currentDate && !isCurrentlyToday && (
           <button
-            onClick={handlePrevDay}
-            aria-label="Previous day"
+            onClick={handleToday}
             className="
-              p-2 rounded-lg border border-[#E5E2DB]
-              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
+              text-sm font-medium text-[#4A4540]
+              px-3 py-2 rounded-lg border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
               transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
             "
           >
-            <ChevronLeft className="w-4 h-4" />
+            Today
           </button>
-
-          <h2 className="flex-1 text-sm font-semibold text-[#1A1A1A] font-body">
-            {fullDateLabel}
-            {isCurrentlyToday && (
-              <span className="ml-2 text-xs font-medium text-white bg-[#1B4332] px-2 py-0.5 rounded-full align-middle">
-                Today
-              </span>
-            )}
-          </h2>
-
-          {currentDate && !isCurrentlyToday && (
-            <button
-              onClick={handleToday}
-              className="
-                text-sm font-medium text-[#4A4540]
-                px-3 py-1.5 rounded-lg border border-[#E5E2DB] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
-                transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
-              "
-            >
-              Today
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleOpenAddModal}
-            className="
-              flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold
-              bg-[#1B4332] text-white hover:bg-[#16392A]
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40
-            "
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add appointment</span>
-            <span className="sm:hidden">Add</span>
-          </button>
-
-          <button
-            onClick={handleNextDay}
-            aria-label="Next day"
-            className="
-              p-2 rounded-lg border border-[#E5E2DB]
-              text-[#8A8680] hover:text-[#1A1A1A] hover:border-[#1B4332]/30 hover:bg-[#E8F2EC]/50
-              transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/20
-            "
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ===================================================================
           Staff filter pills — only when salon has 2+ staff
@@ -399,7 +321,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
         <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700">{error}</p>
           <button
-            onClick={() => { if (currentDate) fetchAppointments(currentDate); }}
+            onClick={() => setRefreshCount((count) => count + 1)}
             className="text-sm text-red-600 underline mt-1 hover:text-red-800"
           >
             Try again
@@ -418,7 +340,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
       )}
 
       {/* Appointment list */}
-      {!isLoading && !error && sortedAppointments.length > 0 && (
+      {!isLoading && !error && salonTimezone && sortedAppointments.length > 0 && (
         <AnimatePresence mode="popLayout">
           <div className="space-y-2">
             {sortedAppointments.map((appointment, i) => (
@@ -431,7 +353,7 @@ export default function DayView({ initialDate, title }: DayViewProps) {
                 <AppointmentCard
                   appointment={appointment}
                   onClick={() => handleOpenEditModal(appointment)}
-                  timezone={salonTimezone ?? undefined}
+                  timezone={salonTimezone}
                 />
               </motion.div>
             ))}

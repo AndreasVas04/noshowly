@@ -23,6 +23,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Clock, XCircle } from 'lucide-react';
+import { STATUS_LABELS } from '@/lib/appointment-status';
 import { resolveTimeZone, todayInZone } from '@/lib/time';
 import type { AppointmentWithDetails, Salon } from '@/types';
 
@@ -134,21 +135,21 @@ export default function StatsCards() {
 
   const cards: StatConfig[] = [
     {
-      label: 'Confirmed',
+      label: STATUS_LABELS.confirmed,
       count: stats.confirmed,
       loading,
       icon: <CheckCircle className="w-4 h-4" style={{ color: '#1B4332' }} />,
       accentClass: 'border-l-[#1B4332]',
     },
     {
-      label: 'Pending',
+      label: STATUS_LABELS.scheduled,
       count: stats.pending,
       loading,
       icon: <Clock className="w-4 h-4 text-amber-600" />,
       accentClass: 'border-l-amber-600',
     },
     {
-      label: 'Cancelled',
+      label: STATUS_LABELS.cancelled,
       count: stats.cancelled,
       loading,
       icon: <XCircle className="w-4 h-4 text-rose-500" />,

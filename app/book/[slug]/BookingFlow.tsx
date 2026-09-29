@@ -32,7 +32,7 @@
 
 'use client';
 
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useSyncExternalStore, FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -50,7 +50,15 @@ import {
   type SlotCandidate,
 } from '@/lib/availability';
 import { MAX_PHONE_INPUT_LENGTH, validateEmail, validatePhone } from '@/lib/contact';
-import { dayOfWeekForDate, formatDateOnly, resolveZonedTime, todayInZone } from '@/lib/time';
+import { getCurrencySymbol } from '@/lib/currency';
+import {
+  dayOfWeekForDate,
+  formatDateOnly,
+  formatTimeZoneLabel,
+  resolveZonedTime,
+  todayInZone,
+} from '@/lib/time';
+import { getInitials } from '@/lib/utils';
 import type {
   PublicAvailability,
   PublicBarber,
@@ -103,32 +111,6 @@ type Props = {
 };
 
 // ---------------------------------------------------------------------------
-// Currency
-// ---------------------------------------------------------------------------
-
-/** Maps ISO 4217 codes to their display symbols. */
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$',  EUR: '€',  GBP: '£',  AUD: 'A$', CAD: 'C$',
-  CHF: 'Fr', JPY: '¥',  CNY: '¥',  INR: '₹',  BRL: 'R$',
-  MXN: '$',  SGD: 'S$', HKD: 'HK$',NOK: 'kr', SEK: 'kr',
-  DKK: 'kr', NZD: 'NZ$',ZAR: 'R',  AED: 'د.إ',SAR: '﷼',
-  QAR: '﷼',  KWD: 'KD', TRY: '₺',  PLN: 'zł', CZK: 'Kč',
-  HUF: 'Ft', RON: 'lei',BGN: 'лв', ILS: '₪',  KRW: '₩',
-  THB: '฿',  MYR: 'RM', IDR: 'Rp', PHP: '₱',
-};
-
-/**
- * Returns the display symbol for a currency code.
- * Falls back to the code itself if not found.
- *
- * @param code - ISO 4217 currency code, e.g. 'EUR'.
- * @returns    Symbol string, e.g. '€'.
- */
-function getCurrencySymbol(code: string): string {
-  return CURRENCY_SYMBOLS[code] ?? code;
-}
-
-// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
@@ -146,18 +128,6 @@ function formatTime12h(time: string): string {
  */
 function formatDateLong(dateStr: string): string {
   return formatDateOnly(dateStr, { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
-/** Formats an IANA timezone for display, e.g. "America/New_York" → "America/New York". */
-function formatTimeZoneLabel(timeZone: string): string {
-  return timeZone.replace(/_/g, ' ');
-}
-
-/** Builds initials from a name (up to 2 characters). */
-function getInitials(name: string): string {
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /**
@@ -218,6 +188,40 @@ function downloadFile(content: string, filename: string, mimeType: string): void
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Current time
+// ---------------------------------------------------------------------------
+
+const MINUTE_MS = 60_000;
+
+/**
+ * Calls `onMinute` at the start of every minute until unsubscribed.
+ *
+ * @param onMinute - Called when a new minute starts.
+ * @returns        Unsubscribe function.
+ */
+function subscribeToMinutes(onMinute: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout>;
+  const schedule = () => {
+    timer = setTimeout(() => {
+      onMinute();
+      schedule();
+    }, MINUTE_MS - (Date.now() % MINUTE_MS));
+  };
+  schedule();
+  return () => clearTimeout(timer);
+}
+
+/** Start of the current minute, in milliseconds since the epoch. */
+function currentMinute(): number {
+  return Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+}
+
+/** No current time during the server render (and hydration), so it never depends on the clock. */
+function noMinuteOnServer(): number | null {
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -438,23 +442,24 @@ export default function BookingFlow({
   // Current time (client-only, so the server render never depends on it)
   // -------------------------------------------------------------------------
 
-  const [now, setNow] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setNow(new Date());
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
+  /** Start of the current minute, updated every minute; null until hydrated. */
+  const minute = useSyncExternalStore<number | null>(subscribeToMinutes, currentMinute, noMinuteOnServer);
+  const now = minute === null ? null : new Date(minute);
 
   // -------------------------------------------------------------------------
   // Busy times (fetched per selected date)
   // -------------------------------------------------------------------------
 
   const [busy,         setBusy]         = useState<PublicBusyInterval[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError,   setSlotsError]   = useState('');
-  /** Increments per request so a slow, outdated response never overwrites a newer one. */
-  const busyRequestRef = useRef(0);
+  /** Incremented to (re)load the selected date's busy times. */
+  const [busyRequestCount, setBusyRequestCount] = useState(0);
+  /** The request whose response `busy` and `slotsError` hold. */
+  const [loadedBusyRequest, setLoadedBusyRequest] = useState<string | null>(null);
+
+  /** Identifies the busy-times request for the selected date; null when no date is selected. */
+  const busyRequest = selectedDate ? `${selectedDate}#${busyRequestCount}` : null;
+  const loadingSlots = busyRequest !== null && loadedBusyRequest !== busyRequest;
 
   // -------------------------------------------------------------------------
   // Submit state
@@ -577,50 +582,45 @@ export default function BookingFlow({
         }).map((slot) => slot.time)
       : [];
 
+  // While picking a time, drop a selection that is no longer offered
+  // (e.g. it fell inside the minimum notice as time passed).
+  if (step === 'datetime' && !loadingSlots && selectedTime && !timeSlots.includes(selectedTime)) {
+    setSelectedTime(null);
+  }
+
   // -------------------------------------------------------------------------
   // Effects
   // -------------------------------------------------------------------------
 
-  /**
-   * Fetches the busy times for a date from GET /api/book/[slug]?date=.
-   *
-   * @param date - 'YYYY-MM-DD' in the salon timezone.
-   */
-  async function loadBusy(date: string): Promise<void> {
-    const requestId = ++busyRequestRef.current;
-    setLoadingSlots(true);
-    setSlotsError('');
+  // Fetch the selected date's busy times from GET /api/book/[slug]?date=,
+  // for every new request. A slow response to an outdated request never
+  // overwrites a newer one.
+  useEffect(() => {
+    if (!busyRequest || !selectedDate) return;
+    let ignore = false;
 
-    try {
-      const res = await fetch(`/api/book/${encodeURIComponent(slug)}?date=${date}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const data = (await res.json()) as { busy?: PublicBusyInterval[] };
-      if (requestId === busyRequestRef.current) setBusy(data.busy ?? []);
-    } catch (err) {
-      console.error('[BookingFlow] Failed to load booked times:', err);
-      if (requestId === busyRequestRef.current) {
-        setBusy([]);
-        setSlotsError('Could not load the available times. Please try again.');
+    async function loadBusy(date: string, request: string): Promise<void> {
+      try {
+        const res = await fetch(`/api/book/${encodeURIComponent(slug)}?date=${date}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+        const data = (await res.json()) as { busy?: PublicBusyInterval[] };
+        if (ignore) return;
+        setBusy(data.busy ?? []);
+        setSlotsError('');
+      } catch (err) {
+        console.error('[BookingFlow] Failed to load booked times:', err);
+        if (!ignore) {
+          setBusy([]);
+          setSlotsError('Could not load the available times. Please try again.');
+        }
+      } finally {
+        if (!ignore) setLoadedBusyRequest(request);
       }
-    } finally {
-      if (requestId === busyRequestRef.current) setLoadingSlots(false);
     }
-  }
 
-  // Fetch busy times whenever the selected date changes.
-  useEffect(() => {
-    if (!selectedDate) return;
-    setSelectedTime(null);
-    void loadBusy(selectedDate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, slug]);
-
-  // While picking a time, drop a selection that is no longer offered
-  // (e.g. it fell inside the minimum notice as time passed).
-  useEffect(() => {
-    if (step !== 'datetime' || loadingSlots || !selectedTime) return;
-    if (!timeSlots.includes(selectedTime)) setSelectedTime(null);
-  }, [step, loadingSlots, selectedTime, timeSlots]);
+    loadBusy(selectedDate, busyRequest);
+    return () => { ignore = true; };
+  }, [busyRequest, selectedDate, slug]);
 
   // -------------------------------------------------------------------------
   // Submit handler
@@ -691,7 +691,7 @@ export default function BookingFlow({
         }
         setSubmitError(errMsg);
         // The time was taken in the meantime: refresh so it disappears from the list.
-        if (res.status === 409) void loadBusy(selectedDate);
+        if (res.status === 409) setBusyRequestCount((count) => count + 1);
         return;
       }
 
@@ -743,6 +743,18 @@ export default function BookingFlow({
     setSelectedDate(null);
     setSelectedTime(null);
     setStep(globalServices.length > 0 ? 'service' : 'datetime');
+  }
+
+  /**
+   * Selects a date: clears the chosen time and loads the date's busy times.
+   *
+   * @param date - 'YYYY-MM-DD' in the salon timezone.
+   */
+  function handleSelectDate(date: string) {
+    if (date === selectedDate) return;
+    setSelectedDate(date);
+    setSelectedTime(null);
+    setBusyRequestCount((count) => count + 1);
   }
 
   /**
@@ -915,7 +927,7 @@ export default function BookingFlow({
                 <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">
                   Select a staff member
                 </h2>
-                <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you'd like to see</p>
+                <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you&apos;d like to see</p>
               </div>
 
               {bookableBarbers.length === 0 ? (
@@ -950,6 +962,7 @@ export default function BookingFlow({
                       className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
                     >
                       {b.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- a staff photo can be any URL the owner saved, which next/image would have to allow-list
                         <img
                           src={b.photo_url}
                           alt={b.name}
@@ -982,7 +995,7 @@ export default function BookingFlow({
               <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden shadow-sm">
                 <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
                   <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Choose a service</h2>
-                  <p className="font-body text-sm text-[#8A8680] mt-1">Select what you'd like to book</p>
+                  <p className="font-body text-sm text-[#8A8680] mt-1">Select what you&apos;d like to book</p>
                 </div>
 
                 {availableServices.length === 0 ? (
@@ -1050,7 +1063,7 @@ export default function BookingFlow({
                 {today && lastDate ? (
                   <CalendarPicker
                     selected={selectedDate}
-                    onSelect={setSelectedDate}
+                    onSelect={handleSelectDate}
                     today={today}
                     lastDate={lastDate}
                     isSelectable={isDateSelectable}
@@ -1076,7 +1089,7 @@ export default function BookingFlow({
                       <p className="font-body text-sm text-red-700">{slotsError}</p>
                       <button
                         type="button"
-                        onClick={() => void loadBusy(selectedDate)}
+                        onClick={() => setBusyRequestCount((count) => count + 1)}
                         className="font-body text-sm text-[#1B4332] underline underline-offset-2"
                       >
                         Try again
@@ -1186,7 +1199,7 @@ export default function BookingFlow({
               >
                 <div>
                   <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
-                  <p className="font-body text-sm text-[#8A8680] mt-1">We'll use this to confirm your booking</p>
+                  <p className="font-body text-sm text-[#8A8680] mt-1">We&apos;ll use this to confirm your booking</p>
                 </div>
                 <hr className="border-[#E5E2DB]" />
 

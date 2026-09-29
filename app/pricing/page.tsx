@@ -10,7 +10,7 @@
  * Single plan: Basic ($19/month). Every account starts with a 14-day free
  * trial without a card; the banner says how the trial or subscription stands.
  *
- * Auth: redirects to /login if not authenticated (see middleware.ts).
+ * Auth: redirects to /login if not authenticated (see proxy.ts).
  * Design: brand-dark header, Playfair Display headings, shadcn Cards.
  */
 

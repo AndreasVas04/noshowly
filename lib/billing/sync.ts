@@ -33,6 +33,7 @@
 import type Stripe from 'stripe';
 import { parsePlan } from '@/lib/entitlements';
 import type { CanonicalPlan } from '@/lib/plans';
+import { isUuid } from '@/lib/postgrest';
 import {
   derivePlanFromSubscriptions,
   planAfterSync,
@@ -47,22 +48,6 @@ import {
 
 /** How many times the compare-and-set is tried before giving up (then Stripe retries). */
 export const SYNC_ATTEMPTS = 3;
-
-/** users.id values are UUIDs; anything else from metadata is ignored. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Webhook events that trigger a sync. */
-export const BILLING_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'checkout.session.completed',
-  'customer.subscription.created',
-  'customer.subscription.updated',
-  'customer.subscription.deleted',
-  'customer.subscription.paused',
-  'customer.subscription.resumed',
-  'invoice.paid',
-  'invoice.payment_succeeded',
-  'invoice.payment_failed',
-]);
 
 /** The users row fields a sync reads. */
 export type BillingUser = {
@@ -305,8 +290,11 @@ function toTarget(
   return { customerId, userIdHints };
 }
 
-/** A trimmed, lower-case UUID, or null for anything else. */
+/**
+ * A trimmed, lower-case UUID, or null for anything else: users.id values are
+ * UUIDs, so anything else found in metadata is ignored.
+ */
 export function validUserId(value: string | null | undefined): string | null {
   const id = value?.trim().toLowerCase();
-  return id && UUID_PATTERN.test(id) ? id : null;
+  return id && isUuid(id) ? id : null;
 }

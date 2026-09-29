@@ -67,6 +67,7 @@ import {
   MAX_CLIENT_NAME_LENGTH,
 } from '@/lib/clients';
 import { validateEmail, validatePhone } from '@/lib/contact';
+import { isUuid } from '@/lib/postgrest';
 import {
   dayOfWeekForDate,
   isValidDateString,
@@ -93,9 +94,6 @@ const BOOKING_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 /** Postgres error code for an exclusion-constraint violation (overlapping bookings). */
 const EXCLUSION_VIOLATION = '23P01';
-
-/** Matches a UUID, so malformed ids are rejected before reaching the database. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // Request parsing helpers
@@ -126,7 +124,7 @@ function readOptionalString(raw: Record<string, unknown>, field: string): Option
 function readOptionalId(raw: Record<string, unknown>, field: string): OptionalString {
   const result = readOptionalString(raw, field);
   if (!result.ok || result.value === null) return result;
-  if (!UUID_PATTERN.test(result.value)) return { ok: false, error: `${field} is not a valid id` };
+  if (!isUuid(result.value)) return { ok: false, error: `${field} is not a valid id` };
   return result;
 }
 

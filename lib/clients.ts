@@ -21,6 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Client, Database } from '@/types';
 import { normalisePhone, phoneMatchPattern, validateEmail, validatePhone } from '@/lib/contact';
+import { escapeLike } from '@/lib/postgrest';
 
 // ---------------------------------------------------------------------------
 // Constants and types
@@ -30,7 +31,7 @@ import { normalisePhone, phoneMatchPattern, validateEmail, validatePhone } from 
 export const MAX_CLIENT_NAME_LENGTH = 100;
 
 /** Longest client notes accepted. */
-export const MAX_CLIENT_NOTES_LENGTH = 500;
+const MAX_CLIENT_NOTES_LENGTH = 500;
 
 /** Columns returned for client candidates. */
 const CLIENT_COLUMNS = 'id, salon_id, name, phone, email, notes, created_at';
@@ -39,7 +40,7 @@ const CLIENT_COLUMNS = 'id, salon_id, name, phone, email, notes, created_at';
 const CANDIDATE_LIMIT = 50;
 
 /** Validated client fields; a field is present only when it was supplied. */
-export type ClientFields = {
+type ClientFields = {
   name?: string;
   /** Normalised phone number, or null to clear it. */
   phone?: string | null;
@@ -146,11 +147,6 @@ export function parseClientFields(
  */
 export function namesMatch(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
-/** Escapes LIKE wildcards so a value is matched literally by ilike. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 /**

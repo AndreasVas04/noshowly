@@ -4,8 +4,9 @@
  * Stripe client for server-side use only.
  *
  * IMPORTANT: Never import this file in Client Components or any browser-executed
- * code. The STRIPE_SECRET_KEY would be exposed in the client bundle.
- * Use NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY for any client-side Stripe code.
+ * code. The STRIPE_SECRET_KEY would be exposed in the client bundle. There is
+ * no client-side Stripe code: Checkout and the customer portal are pages
+ * hosted by Stripe that the server sends the owner to.
  *
  * This module exports a singleton Stripe instance configured with the secret key
  * from environment variables. Both the checkout route and webhook handler import

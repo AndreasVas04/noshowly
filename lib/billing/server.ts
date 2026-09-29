@@ -88,7 +88,7 @@ export async function cancelSubscription(subscriptionId: string): Promise<void> 
  * @param customerId - Stripe customer id.
  * @returns The id, or null when none is stored or the customer was deleted.
  */
-export async function customerUserId(customerId: string): Promise<string | null> {
+async function customerUserId(customerId: string): Promise<string | null> {
   try {
     const customer = await stripe.customers.retrieve(customerId);
     if ('deleted' in customer && customer.deleted) return null;

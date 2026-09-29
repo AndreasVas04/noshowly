@@ -73,7 +73,7 @@ export const HOUR_MS = 60 * 60 * 1000;
 export const DAY_MS = 24 * HOUR_MS;
 
 /** The 24-hour reminder is due once the appointment starts within this time. */
-export const REMINDER_LEAD_MS = 24 * HOUR_MS;
+const REMINDER_LEAD_MS = 24 * HOUR_MS;
 
 /** No 24-hour reminder within this time of a booking confirmation. */
 export const CONFIRMATION_QUIET_PERIOD_MS = 12 * HOUR_MS;
@@ -85,7 +85,7 @@ export const STALE_CLAIM_AFTER_MS = 30 * 60 * 1000;
 export const MAX_FAILED_REMINDER_ATTEMPTS = 3;
 
 /** Window in which failed 24-hour reminder attempts are counted. */
-export const RETRY_WINDOW_MS = DAY_MS;
+export const RETRY_WINDOW_MS = 24 * HOUR_MS;
 
 /** Email types whose YES/NO links act on the appointment. */
 export const LINK_EMAIL_TYPES = ['email', 'email_confirmation'] as const;
@@ -201,7 +201,7 @@ export function reminderWindow(now: Date): { after: string; until: string } {
 }
 
 /** Returns true when a 'pending' claim is old enough to be retried. */
-export function isStaleClaim(row: Pick<ReminderRecord, 'created_at'>, now: Date): boolean {
+function isStaleClaim(row: Pick<ReminderRecord, 'created_at'>, now: Date): boolean {
   const created = Date.parse(row.created_at);
   return !Number.isFinite(created) || now.getTime() - created >= STALE_CLAIM_AFTER_MS;
 }
@@ -282,7 +282,7 @@ export function checkReminderRetries(rows: readonly ReminderRecord[], now: Date)
  * @param rows - Reminder rows of one appointment (other types are ignored).
  * @param now  - Current instant.
  */
-export function hasRecentConfirmation(rows: readonly ReminderRecord[], now: Date): boolean {
+function hasRecentConfirmation(rows: readonly ReminderRecord[], now: Date): boolean {
   const since = now.getTime() - CONFIRMATION_QUIET_PERIOD_MS;
   return rows.some((row) => {
     if (row.type !== 'email_confirmation') return false;

@@ -23,8 +23,8 @@
  *    getEntitlements() in lib/entitlements.ts, which also honours the trial
  *    end date. Never decide access from the plan name alone.
  *
- * Every part of the codebase that touches plan limits, reminder caps, or
- * geo-blocking MUST import from this file — never hardcode these values.
+ * Every part of the codebase that touches plan limits or reminder caps MUST
+ * import from this file — never hardcode these values.
  */
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,8 @@ export const TRIAL_EMAIL_LIMIT = 25 as const;
  *  - Never expose these values in any public-facing UI or API response.
  *
  * Legacy plan names (starter, professional) are kept as backward-compatible
- * aliases for existing database values. All new users get basic or pro only.
+ * aliases for existing database values. New accounts start on the trial, and
+ * checkout sells basic only.
  */
 export const PLAN_LIMITS = {
   // Trial — full access with a small email cap until users.trial_ends_at.
@@ -94,7 +95,6 @@ export type PlanType = keyof typeof PLAN_LIMITS;
  *
  * Pro and Business are intentionally excluded — internal/future only.
  * starter/professional are excluded — they are legacy DB aliases only.
- * SMS is not offered publicly — Basic has sms: 0.
  */
 export type PaidPlan = 'basic';
 

@@ -5,13 +5,10 @@
  *
  * Shows a row of stat cards (confirmed / pending / cancelled) followed by a
  * chronological list of today's appointments. The salon owner opens this page
- * first thing in the morning to see who is coming in.
+ * first thing in the morning to see who is coming in; other days are on the
+ * Week page.
  *
- * Navigation is still available (prev/next day buttons on DayView) so the owner
- * can glance at tomorrow without switching to the Week page — but the view
- * always opens on today.
- *
- * Authentication is guaranteed by middleware.ts before this page is reached.
+ * Authentication is guaranteed by proxy.ts before this page is reached.
  * This is a Server Component — StatsCards and DayView handle all client-side
  * interactivity independently.
  */
@@ -30,7 +27,7 @@ export default function DashboardPage() {
       {/* Stats summary — confirmed / pending / cancelled counts for today. */}
       <StatsCards />
 
-      {/* Chronological appointment list for the selected day */}
+      {/* Chronological appointment list for today */}
       <div className="max-w-3xl">
         <DayView title="Today" />
       </div>

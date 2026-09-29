@@ -126,7 +126,7 @@ async function loadDashboardAccount(): Promise<DashboardAccount> {
       data: { user },
     } = await supabase.auth.getUser();
 
-    // Middleware redirects signed-out visitors before this renders.
+    // The proxy (proxy.ts) redirects signed-out visitors before this renders.
     if (!user) return FALLBACK_ACCOUNT;
 
     let rows = await readAccountRows(supabase, user.id);

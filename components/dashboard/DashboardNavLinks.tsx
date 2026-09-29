@@ -83,7 +83,7 @@ export function MobileBottomNav() {
 
   /**
    * Signs the user out via Supabase and navigates to /login.
-   * Errors are caught silently — middleware enforces auth on the next request.
+   * Errors are caught silently — the proxy enforces auth on the next request.
    */
   async function handleSignOut(): Promise<void> {
     try {

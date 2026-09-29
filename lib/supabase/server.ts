@@ -1,8 +1,9 @@
 /**
  * lib/supabase/server.ts
  *
- * Supabase server client for use in Server Components, Route Handlers,
- * and middleware — anywhere that runs on the server in Next.js App Router.
+ * Supabase server client for use in Server Components and Route Handlers —
+ * anywhere that runs on the server in Next.js App Router (proxy.ts builds its
+ * own client from the request cookies).
  *
  * This file imports 'next/headers' and must NEVER be imported in Client
  * Components. Browser-side code should use lib/supabase/client.ts instead.
@@ -42,8 +43,8 @@ if (!SUPABASE_ANON_KEY) {
 // ---------------------------------------------------------------------------
 
 /**
- * Creates a Supabase client for use in Server Components, Route Handlers,
- * and middleware — anywhere that runs on the server in Next.js App Router.
+ * Creates a Supabase client for use in Server Components and Route Handlers —
+ * anywhere that runs on the server in Next.js App Router.
  *
  * This client reads and writes auth session cookies via the Next.js `cookies()`
  * API. Because `cookies()` is async in Next.js 15+, this function is async too.
@@ -91,7 +92,7 @@ export async function createServerSupabaseClient() {
          *
          * Note: In Route Handlers, `cookieStore.set()` writes directly to the
          * response. In Server Components (read-only render), this is a no-op
-         * and session refresh must happen in middleware instead.
+         * and session refresh must happen in the proxy (proxy.ts) instead.
          */
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {

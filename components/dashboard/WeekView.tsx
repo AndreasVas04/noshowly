@@ -21,6 +21,8 @@
  *  - Staff pills switch which appointments are displayed. Default: "All".
  *  - Clicking a day column's empty area opens the add modal with that day
  *    and staff pre-filled (when a named staff member is currently selected).
+ *    Keyboard users reach the same through each column's "Add" button, which
+ *    is visually hidden until it has focus.
  *  - Clicking an appointment card opens the edit modal.
  *  - "Add appointment" button opens the add modal.
  *
@@ -47,11 +49,13 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import AddAppointmentModal from '@/components/dashboard/AddAppointmentModal';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { isPastAppointment, weekCardClasses } from '@/lib/appointment-status';
 import {
   addDaysToDate,
+  browserTimeZone,
   formatDateOnly,
   formatTimeInZone,
   resolveTimeZone,
@@ -65,15 +69,6 @@ import type { AppointmentWithDetails, Barber, Salon } from '@/types';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the browser's timezone, used only if the salon's cannot be loaded. */
-function browserTimeZone(): string {
-  try {
-    return resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  } catch {
-    return 'UTC';
-  }
-}
-
 /**
  * Returns the seven salon dates (Mon–Sun) of the week containing a date.
  *
@@ -82,18 +77,6 @@ function browserTimeZone(): string {
 function getWeekDays(anchor: string): string[] {
   const monday = startOfWeekDate(anchor, 1);
   return Array.from({ length: 7 }, (_, i) => addDaysToDate(monday, i));
-}
-
-/**
- * Returns true when a scheduled appointment's time has already passed.
- * Only meaningful for 'scheduled' status — confirmed and cancelled are
- * not affected by whether their time has passed.
- *
- * @param apt - The appointment to check.
- * @returns true if the appointment is not cancelled and its datetime has passed.
- */
-function isPastScheduled(apt: AppointmentWithDetails): boolean {
-  return apt.status !== 'cancelled' && new Date(apt.datetime) < new Date();
 }
 
 /**
@@ -145,87 +128,55 @@ interface WeekCardProps {
 }
 
 /**
- * Returns Tailwind border and background classes for a pill colored by status.
- *  confirmed          = forest green
- *  scheduled (future) = amber
- *  scheduled (past)   = grey/muted — time elapsed without a YES/NO reply
- *  cancelled          = red/dim, dashed border handled by the parent element
- *
- * @param status - Appointment lifecycle status.
- * @param isPast - Whether this is a past unanswered appointment.
- * @returns       Tailwind class string.
- */
-function pillClasses(status: AppointmentWithDetails['status'], isPast: boolean): string {
-  if (isPast) {
-    // Past appointment (any non-cancelled status) — grey/muted
-    return 'border-[#C8C8C8]/60 bg-[#F0EFED] opacity-60';
-  }
-  switch (status) {
-    case 'confirmed':
-      return 'border-[#1B4332]/30 bg-[#E8F2EC]';
-    case 'cancelled':
-      return 'border-red-200/60 bg-red-50/50 opacity-50';
-    default: // 'scheduled' (upcoming) — shown as pending
-      return 'border-amber-200 bg-amber-50';
-  }
-}
-
-/**
  * Compact appointment card for the week grid.
- * Color-coded by status. Past unanswered appointments are greyed out with a
- * "Past" label so they are visually distinct from active upcoming appointments.
+ * Color-coded by status (lib/appointment-status.ts): confirmed green, pending
+ * amber, cancelled red with a dashed border. Past appointments are greyed out
+ * with a "Past" label so they are visually distinct from upcoming ones.
  *
  * @param props.apt     - The appointment data.
  * @param props.onClick - Opens the edit modal for this appointment.
  */
 function WeekCard({ apt, onClick, timezone }: WeekCardProps) {
   const isCancelled = apt.status === 'cancelled';
-  const isPast      = isPastScheduled(apt);
+  const isPast      = isPastAppointment(apt);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       onClick={(e) => {
         e.stopPropagation(); // prevent column click from also firing
         onClick();
       }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.stopPropagation();
-          onClick();
-        }
-      }}
       className={[
-        'rounded-lg border px-2 py-1.5 space-y-0.5',
+        'block w-full text-left rounded-lg border px-2 py-1.5 space-y-0.5',
         'hover:brightness-95 transition-all cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30',
         isCancelled ? 'border-dashed' : '',
-        pillClasses(apt.status, isPast),
+        weekCardClasses(apt.status, isPast),
       ].join(' ')}
     >
       {/* Time + optional "Past" label for past unanswered */}
-      <p className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
+      <span className="text-xs font-bold text-[#1A1A1A] tabular-nums leading-none flex items-center gap-1">
         {formatTimeInZone(apt.datetime, timezone)}
         {isPast && (
           <span className="text-[9px] font-medium text-[#8A8680] bg-[#E5E2DB]/60 px-1 py-0.5 rounded leading-none">
             Past
           </span>
         )}
-      </p>
+      </span>
 
       {/* Client name */}
-      <p className={`text-xs font-semibold text-[#1A1A1A] truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
+      <span className={`block text-xs font-semibold text-[#1A1A1A] truncate leading-snug ${isCancelled ? 'line-through' : ''}`}>
         {apt.client_name ?? 'Unknown'}
-      </p>
+      </span>
 
       {/* Service — only if set */}
       {apt.service_type && (
-        <p className="text-xs text-[#2D2D2D]/60 truncate leading-snug">
+        <span className="block text-xs text-[#2D2D2D]/60 truncate leading-snug">
           {apt.service_type}
-        </p>
+        </span>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -255,7 +206,9 @@ interface DayColumnProps {
 /**
  * DayColumn renders a single day column in the desktop week grid.
  * The column header shows the day name and date (today is highlighted).
- * The empty body area is clickable to add a new appointment for that day.
+ * Clicking the empty body area adds an appointment on that day; keyboard and
+ * screen reader users get an "Add" button below the body instead, visually
+ * hidden until it has focus.
  *
  * @param props.day                - The calendar day this column represents.
  * @param props.appointments       - Appointments to display (already filtered).
@@ -289,9 +242,6 @@ function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick
 
       {/* Clickable body — clicking empty area opens add modal for this day */}
       <div
-        role="button"
-        tabIndex={-1}
-        aria-label={`Add appointment on ${formatDateOnly(day, { weekday: 'long', month: 'long', day: 'numeric' })}`}
         onClick={onColumnClick}
         className="flex-1 p-1.5 space-y-1.5 min-h-[220px] bg-[#FAFAF8] cursor-pointer"
       >
@@ -308,6 +258,20 @@ function DayColumn({ day, isToday: todayColumn, appointments, onAppointmentClick
           />
         ))}
       </div>
+
+      {/* The same action for keyboard and screen reader users, shown when focused */}
+      <button
+        type="button"
+        onClick={onColumnClick}
+        aria-label={`Add appointment on ${formatDateOnly(day, { weekday: 'long', month: 'long', day: 'numeric' })}`}
+        className="
+          sr-only focus-visible:not-sr-only
+          border-t border-[#E5E2DB] bg-white text-xs text-[#1B4332] font-body
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B4332]/30
+        "
+      >
+        <span className="block py-1.5">+ Add</span>
+      </button>
     </div>
   );
 }
@@ -367,8 +331,11 @@ export default function WeekView() {
 
   /** All appointments for the visible week (unfiltered — filtering is client-side). */
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
-  const [isLoadingApts, setIsLoadingApts] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Incremented to refetch the week: after a save, on "Try again" and on realtime changes. */
+  const [refreshCount, setRefreshCount] = useState(0);
+  /** The request whose response `appointments` and `error` hold. */
+  const [loadedRequest, setLoadedRequest] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Modal state
@@ -396,6 +363,10 @@ export default function WeekView() {
   const weekEnd   = weekDays[6] ?? null;
   const isCurrentWeek = !today || weekStart === startOfWeekDate(today, 1);
 
+  /** Identifies the appointments request for the visible week; null until the week is known. */
+  const appointmentsRequest = weekStart ? `${weekStart}#${refreshCount}` : null;
+  const isLoadingApts = appointmentsRequest === null || loadedRequest !== appointmentsRequest;
+
   /** Human-readable week label, e.g. "Mar 30 – Apr 5". */
   const weekLabel = (() => {
     if (!weekStart || !weekEnd) return '';
@@ -409,93 +380,85 @@ export default function WeekView() {
   // Data fetching
   // -------------------------------------------------------------------------
 
-  /**
-   * Fetches the salon's staff list and timezone. Called once on mount; opens
-   * the current week in the salon's timezone once the timezone is known.
-   * Does NOT set a default staff — selection always starts at null ("All") so
-   * no appointments are hidden when the page loads.
-   */
-  const fetchBarbers = useCallback(async (): Promise<void> => {
-    setIsLoadingBarbers(true);
-    let timeZone: string | null = null;
-    try {
-      const [barbersRes, salonRes] = await Promise.all([
-        fetch('/api/barbers', { cache: 'no-store' }),
-        fetch('/api/salon',   { cache: 'no-store' }),
-      ]);
-      if (barbersRes.ok) {
-        const data = (await barbersRes.json()) as { barbers: Barber[] };
-        setBarbers(data.barbers);
-      } else {
-        setBarbers([]);
+  // Fetch the salon's staff list and timezone once on mount, then open the
+  // current week in the salon's timezone. The staff filter is left at null
+  // ("All"): never silently hide appointments by pre-selecting a staff member
+  // the user has not chosen.
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadSalon(): Promise<void> {
+      let staff: Barber[] = [];
+      let timeZone: string | null = null;
+      try {
+        const [barbersRes, salonRes] = await Promise.all([
+          fetch('/api/barbers', { cache: 'no-store' }),
+          fetch('/api/salon',   { cache: 'no-store' }),
+        ]);
+        if (barbersRes.ok) {
+          const data = (await barbersRes.json()) as { barbers: Barber[] };
+          staff = data.barbers;
+        }
+        if (salonRes.ok) {
+          const data = (await salonRes.json()) as { salon: Salon };
+          timeZone = resolveTimeZone(data.salon.timezone);
+        }
+      } catch (err) {
+        console.error('[WeekView] Failed to load staff and salon timezone:', err);
+        staff = [];
       }
-      if (salonRes.ok) {
-        const data = (await salonRes.json()) as { salon: Salon };
-        timeZone = resolveTimeZone(data.salon.timezone);
-      }
-      // Always default to null ("All") — never silently hide appointments by
-      // pre-selecting a specific staff member that the user has not chosen.
-      setSelectedBarberId(null);
-    } catch (err) {
-      console.error('[WeekView] fetchBarbers error:', err);
-      setBarbers([]);
-      setSelectedBarberId(null);
-    } finally {
+      if (ignore) return;
+
       const zone = timeZone ?? browserTimeZone();
       const todayDate = todayInZone(zone);
+      setBarbers(staff);
       setSalonTimezone(zone);
       setAnchor((a) => a ?? todayDate);
       setSelectedDay((d) => d ?? todayDate);
       setIsLoadingBarbers(false);
     }
+
+    loadSalon();
+    return () => { ignore = true; };
   }, []);
 
-  /**
-   * Fetches all appointments for the given Mon–Sun range in a single request.
-   * The dates are salon dates; the API applies the salon's timezone.
-   * Staff filtering is done client-side so switching staff pills is instant.
-   *
-   * @param start - Monday of the target week ('YYYY-MM-DD').
-   * @param end   - Sunday of the target week ('YYYY-MM-DD').
-   */
-  const fetchWeekAppointments = useCallback(async (start: string, end: string): Promise<void> => {
-    setIsLoadingApts(true);
-    setError(null);
-    try {
-      const url = `/api/appointments?start=${start}&end=${end}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+  // Fetch all appointments of the visible Mon–Sun week in one request (the
+  // dates are salon dates; the API applies the salon's timezone), again
+  // whenever a refresh is requested. A response for a week the owner has
+  // already moved away from is ignored. Staff filtering is done client-side
+  // so switching staff pills is instant.
+  useEffect(() => {
+    if (!appointmentsRequest || !weekStart || !weekEnd) return;
+    let ignore = false;
+
+    async function loadWeek(start: string, end: string, request: string): Promise<void> {
+      try {
+        const res = await fetch(`/api/appointments?start=${start}&end=${end}`, { cache: 'no-store' });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error((payload as { error?: string }).error ?? 'Failed to load appointments');
+        }
+        const data = (await res.json()) as { appointments: AppointmentWithDetails[] };
+        if (ignore) return;
+        setAppointments(data.appointments);
+        setError(null);
+      } catch (err) {
+        console.error('[WeekView] Failed to load appointments:', err);
+        if (!ignore) setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        if (!ignore) setLoadedRequest(request);
       }
-      const data = (await res.json()) as { appointments: AppointmentWithDetails[] };
-      setAppointments(data.appointments);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Something went wrong';
-      setError(msg);
-      console.error('[WeekView] fetchWeekAppointments error:', err);
-    } finally {
-      setIsLoadingApts(false);
     }
-  }, []);
 
-  // Fetch staff and the salon timezone on mount.
-  useEffect(() => {
-    fetchBarbers();
-  }, [fetchBarbers]);
-
-  // Fetch appointments whenever the visible week changes (and once the timezone is known).
-  useEffect(() => {
-    if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
+    loadWeek(weekStart, weekEnd, appointmentsRequest);
+    return () => { ignore = true; };
+  }, [appointmentsRequest, weekStart, weekEnd]);
 
   /**
    * Subscribes to appointment changes via Supabase Realtime.
    * Refetches the week on any INSERT, UPDATE, or DELETE so the grid stays current.
    */
   useEffect(() => {
-    if (!weekStart || !weekEnd) return;
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
@@ -504,7 +467,7 @@ export default function WeekView() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'appointments' },
         () => {
-          fetchWeekAppointments(weekStart, weekEnd);
+          setRefreshCount((count) => count + 1);
         },
       )
       .subscribe();
@@ -512,8 +475,7 @@ export default function WeekView() {
     return () => {
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, fetchWeekAppointments]);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Derived visibility flags
@@ -627,7 +589,7 @@ export default function WeekView() {
   function handleModalSaved(): void {
     setModalOpen(false);
     setEditingAppointment(null);
-    if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd);
+    setRefreshCount((count) => count + 1);
   }
 
   // -------------------------------------------------------------------------
@@ -855,7 +817,7 @@ export default function WeekView() {
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700">{error}</p>
           <button
-            onClick={() => { if (weekStart && weekEnd) fetchWeekAppointments(weekStart, weekEnd); }}
+            onClick={() => setRefreshCount((count) => count + 1)}
             className="text-sm text-red-600 underline mt-1 hover:text-red-800"
           >
             Try again
@@ -901,7 +863,7 @@ export default function WeekView() {
             }
 
             return dayApts.map((apt) => {
-              const past = isPastScheduled(apt);
+              const past = isPastAppointment(apt);
               return (
                 <button
                   key={apt.id}

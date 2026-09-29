@@ -4,7 +4,7 @@
  * Client Component: renders a "Sign out" button styled for the dark sidebar.
  * Calls Supabase signOut and redirects to /login.
  *
- * Security: Supabase clears the session cookie on signOut — the middleware will
+ * Security: Supabase clears the session cookie on signOut — the proxy (proxy.ts) will
  * enforce this on the next /dashboard/* request even if the client-side redirect fails.
  */
 
@@ -31,7 +31,7 @@ export default function LogoutButton() {
     try {
       await supabase.auth.signOut();
     } catch {
-      // Sign-out network error — redirect anyway; middleware enforces auth.
+      // Sign-out network error — redirect anyway; the proxy enforces auth.
     }
     router.push('/login');
     router.refresh();

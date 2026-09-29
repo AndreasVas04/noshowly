@@ -19,7 +19,7 @@
 export const MAX_PHONE_INPUT_LENGTH = 30;
 
 /** Longest email address accepted (RFC 5321 path limit). */
-export const MAX_EMAIL_LENGTH = 254;
+const MAX_EMAIL_LENGTH = 254;
 
 /** Separator characters people type inside phone numbers. */
 const SEPARATOR_CHARS = /[\s\-.()]/g;
