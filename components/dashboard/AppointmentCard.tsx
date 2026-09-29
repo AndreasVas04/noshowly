@@ -102,14 +102,14 @@ export default function AppointmentCard({ appointment, onClick, timezone }: Appo
           {appointment.client_name ?? 'Unknown client'}
         </p>
         {detailLine && (
-          <p className="text-xs text-[#8A8680] mt-0.5 truncate font-body">{detailLine}</p>
+          <p className="text-xs text-[#6F6B65] mt-0.5 truncate font-body">{detailLine}</p>
         )}
       </div>
 
       {/* Right: status badge — "Past" label for past unanswered, badge for others */}
       <div className="shrink-0">
         {isPastScheduled ? (
-          <span className="text-xs font-medium text-[#8A8680] bg-[#F0EFED] px-2 py-0.5 rounded-full font-body">
+          <span className="text-xs font-medium text-[#6F6B65] bg-[#F0EFED] px-2 py-0.5 rounded-full font-body">
             Past
           </span>
         ) : (

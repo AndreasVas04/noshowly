@@ -97,7 +97,7 @@ function describeBilling(billing: BillingOverview): { text: string; tone: Tone }
 
 /** Text colour for each tone. */
 const TONE_CLASSES: Record<Tone, string> = {
-  neutral: 'text-[#8A8680]',
+  neutral: 'text-[#6F6B65]',
   warning: 'text-amber-700',
   danger:  'text-red-700',
 };
@@ -114,7 +114,7 @@ export default function BillingSection({ billing }: BillingSectionProps) {
   return (
     <section id="billing">
       <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Billing</h2>
-      <p className="text-sm text-[#8A8680] mb-4 font-body">
+      <p className="text-sm text-[#6F6B65] mb-4 font-body">
         Your plan, trial and subscription.
       </p>
 
@@ -126,12 +126,12 @@ export default function BillingSection({ billing }: BillingSectionProps) {
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest font-body">
+              <p className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest font-body">
                 Current plan
               </p>
               <p className="mt-1 text-lg font-semibold text-[#1A1A1A]">{billing.planLabel}</p>
               {billing.isDemo ? (
-                <p className="mt-1 text-sm text-[#8A8680] font-body">
+                <p className="mt-1 text-sm text-[#6F6B65] font-body">
                   Billing is not available for the demo account.
                 </p>
               ) : description && (

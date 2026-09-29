@@ -60,14 +60,14 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
   return (
     <section>
       <h2 className="font-heading text-base font-semibold text-[#1A1A1A] mb-1">Services</h2>
-      <p className="text-sm text-[#8A8680] mb-4">
+      <p className="text-sm text-[#6F6B65] mb-4">
         Define the services you offer. Toggle &quot;Available on booking page&quot; to control what clients can book.
       </p>
 
       <SectionCard>
         <div className="p-6 space-y-0">
           {salonServices.length === 0 && !showAddSvcForm && (
-            <p className="text-sm text-[#8A8680] py-2">No services yet. Add your first service below.</p>
+            <p className="text-sm text-[#6F6B65] py-2">No services yet. Add your first service below.</p>
           )}
 
           {salonServices.length > 0 && (
@@ -78,7 +78,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                     <div className="space-y-2">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-1 space-y-1">
-                          <Label htmlFor={`service-${svc.id}-name`} className="text-xs text-[#8A8680]">Name</Label>
+                          <Label htmlFor={`service-${svc.id}-name`} className="text-xs text-[#6F6B65]">Name</Label>
                           <Input
                             id={`service-${svc.id}-name`}
                             value={svcEditForms[svc.id]?.name ?? ''}
@@ -88,7 +88,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label htmlFor={`service-${svc.id}-duration`} className="text-xs text-[#8A8680]">Min</Label>
+                          <Label htmlFor={`service-${svc.id}-duration`} className="text-xs text-[#6F6B65]">Min</Label>
                           <Input
                             id={`service-${svc.id}-duration`}
                             type="number"
@@ -100,7 +100,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label htmlFor={`service-${svc.id}-price`} className="text-xs text-[#8A8680]">Price</Label>
+                          <Label htmlFor={`service-${svc.id}-price`} className="text-xs text-[#6F6B65]">Price</Label>
                           <Input
                             id={`service-${svc.id}-price`}
                             type="number"
@@ -128,7 +128,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                         <button
                           type="button"
                           onClick={() => cancelEditingService(svc.id)}
-                          className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                          className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                         >
                           Cancel
                         </button>
@@ -137,9 +137,9 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                   ) : (
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>{svc.name}</p>
+                        <p className={`text-sm ${svc.active ? 'text-[#1A1A1A]' : 'text-[#6F6B65]'}`}>{svc.name}</p>
                         {(svc.duration_minutes || svc.price != null) && (
-                          <p className="text-xs text-[#8A8680] mt-0.5">
+                          <p className="text-xs text-[#6F6B65] mt-0.5">
                             {[
                               svc.duration_minutes ? `${svc.duration_minutes} min` : null,
                               svc.price != null ? `${currencySymbol}${Number(svc.price).toFixed(2)}` : null,
@@ -153,14 +153,14 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                             onChange={(e) => void handleToggleGlobalService(svc.id, e.target.checked)}
                             className="h-3.5 w-3.5 rounded border-[#E5E2DB] accent-[#1A1A1A] cursor-pointer"
                           />
-                          <span className="text-xs text-[#8A8680]">Available on booking page</span>
+                          <span className="text-xs text-[#6F6B65]">Available on booking page</span>
                         </label>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => startEditingService(svc)}
-                          className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                          className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                         >
                           Edit
                         </button>
@@ -168,7 +168,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                           type="button"
                           onClick={() => void handleDeleteGlobalService(svc.id, svc.name)}
                           disabled={deletingSvcId === svc.id}
-                          className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
+                          className="text-xs text-[#6F6B65] hover:text-red-600 disabled:opacity-40 transition-colors"
                         >
                           {deletingSvcId === svc.id ? 'Removing…' : 'Remove'}
                         </button>
@@ -187,7 +187,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
             <div className="space-y-2 pt-1">
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-1 space-y-1">
-                  <Label htmlFor="new-service-name" className="text-xs text-[#8A8680]">Name *</Label>
+                  <Label htmlFor="new-service-name" className="text-xs text-[#6F6B65]">Name *</Label>
                   <Input
                     id="new-service-name"
                     type="text"
@@ -200,7 +200,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="new-service-duration" className="text-xs text-[#8A8680]">Min</Label>
+                  <Label htmlFor="new-service-duration" className="text-xs text-[#6F6B65]">Min</Label>
                   <Input
                     id="new-service-duration"
                     type="number"
@@ -213,7 +213,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="new-service-price" className="text-xs text-[#8A8680]">Price</Label>
+                  <Label htmlFor="new-service-price" className="text-xs text-[#6F6B65]">Price</Label>
                   <Input
                     id="new-service-price"
                     type="number"
@@ -240,7 +240,7 @@ export default function ServicesSection({ services, currencySymbol }: ServicesSe
                 <button
                   type="button"
                   onClick={() => { setShowAddSvcForm(false); setAddSvcError(''); }}
-                  className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                  className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                 >
                   Cancel
                 </button>

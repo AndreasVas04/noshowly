@@ -30,7 +30,7 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-wait ${
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-wait ${
         checked ? 'bg-[#1B4332]' : 'bg-[#E5E2DB]'
       }`}
     >
@@ -60,7 +60,7 @@ export function SmallToggle({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B4332]/40 focus-visible:ring-offset-2 ${
         checked ? 'bg-[#1B4332]' : 'bg-[#E5E2DB]/60'
       }`}
     >

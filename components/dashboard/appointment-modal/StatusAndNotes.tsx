@@ -78,7 +78,7 @@ export default function StatusAndNotes({
         <button
           type="button"
           onClick={() => setShowNotes(true)}
-          className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors rounded"
+          className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors rounded"
         >
           + Add note
         </button>
@@ -92,7 +92,7 @@ export default function StatusAndNotes({
             onChange={(e) => setField('notes', e.target.value)}
             placeholder="Any notes..."
             maxLength={1000}
-            className="w-full px-3 py-2.5 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] resize-none outline-none focus:border-[#1A1A1A] transition-colors"
+            className="w-full px-3 py-2.5 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] placeholder:text-[#6F6B65] resize-none outline-none focus:border-[#1A1A1A] transition-colors"
           />
         </div>
       )}

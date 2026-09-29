@@ -80,7 +80,7 @@ export default async function PricingPage() {
 
       <PricingPageHeader />
 
-      <div className="mx-auto max-w-5xl px-6 py-14">
+      <main className="mx-auto max-w-5xl px-6 py-14">
 
         {/* Trial or subscription notice */}
         {notice && (
@@ -101,7 +101,7 @@ export default async function PricingPage() {
           <h1 className="font-heading text-4xl font-bold text-[#1A1A1A] tracking-tight">
             Simple, flat pricing
           </h1>
-          <p className="mt-3 text-[#8A8680] text-base font-body">
+          <p className="mt-3 text-[#6F6B65] text-base font-body">
             No commissions. No per-booking fees. One flat monthly price.
           </p>
         </div>
@@ -112,7 +112,7 @@ export default async function PricingPage() {
           hasBillingAccount={Boolean(user?.stripe_customer_id)}
         />
 
-      </div>
+      </main>
     </div>
   );
 }

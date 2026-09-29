@@ -87,7 +87,7 @@ export default function SettingsPage() {
   if (loadState === 'loading') {
     return (
       <div className="p-8 lg:p-12 flex items-center justify-center min-h-64">
-        <p className="text-sm text-[#8A8680] font-body">Loading settings…</p>
+        <p className="text-sm text-[#6F6B65] font-body">Loading settings…</p>
       </div>
     );
   }
@@ -125,7 +125,7 @@ export default function SettingsPage() {
         {/* Page heading */}
         <div>
           <h1 className="font-heading text-3xl font-semibold text-[#1A1A1A]">Settings</h1>
-          <p className="text-sm text-[#8A8680] mt-1.5 font-body">
+          <p className="text-sm text-[#6F6B65] mt-1.5 font-body">
             Manage your business info, reminder templates and hours.
           </p>
         </div>

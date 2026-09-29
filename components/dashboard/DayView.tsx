@@ -240,7 +240,7 @@ export default function DayView({ title }: DayViewProps) {
       =================================================================== */}
       <div className="mb-5">
         <h1 className="font-heading text-4xl font-bold text-[#1A1A1A]">{title}</h1>
-        <p className="text-sm text-[#8A8680] mt-1 font-body">{fullDateLabel}</p>
+        <p className="text-sm text-[#6F6B65] mt-1 font-body">{fullDateLabel}</p>
       </div>
 
       {/* ===================================================================
@@ -331,12 +331,12 @@ export default function DayView({ title }: DayViewProps) {
 
       {/* Empty state */}
       {!isLoading && !error && appointments.length === 0 && (
-        <p className="text-sm text-[#8A8680] py-6 font-body">No appointments today.</p>
+        <p className="text-sm text-[#6F6B65] py-6 font-body">No appointments today.</p>
       )}
 
       {/* Filtered empty state */}
       {!isLoading && !error && appointments.length > 0 && sortedAppointments.length === 0 && (
-        <p className="text-sm text-[#8A8680] py-6 font-body">No appointments for this staff member today.</p>
+        <p className="text-sm text-[#6F6B65] py-6 font-body">No appointments for this staff member today.</p>
       )}
 
       {/* Appointment list */}

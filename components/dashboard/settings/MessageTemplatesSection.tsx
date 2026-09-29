@@ -84,7 +84,7 @@ export default function MessageTemplatesSection({
         <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Message templates</h2>
         <SaveIndicator status={templatesSaveStatus} />
       </div>
-      <p className="text-sm text-[#8A8680] mb-4 font-body">
+      <p className="text-sm text-[#6F6B65] mb-4 font-body">
         Customise the reminder email sent to your clients. Leave blank to use the default.
       </p>
 
@@ -104,7 +104,7 @@ export default function MessageTemplatesSection({
 
         {/* Email template fields */}
         <div className="space-y-5">
-          <p className="text-xs font-semibold text-[#8A8680] uppercase tracking-widest font-body">Email</p>
+          <p className="text-xs font-semibold text-[#6F6B65] uppercase tracking-widest font-body">Email</p>
 
           {/* Email subject */}
           <div className="space-y-1.5">
@@ -126,9 +126,9 @@ export default function MessageTemplatesSection({
               placeholder={DEFAULT_EMAIL_SUBJECT}
               rows={2}
               maxLength={200}
-              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
+              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
             />
-            <p className="text-xs text-[#8A8680] font-body">
+            <p className="text-xs text-[#6F6B65] font-body">
               Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}to insert your business name.
             </p>
           </div>
@@ -153,9 +153,9 @@ export default function MessageTemplatesSection({
               placeholder={DEFAULT_EMAIL_GREETING}
               rows={2}
               maxLength={200}
-              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
+              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
             />
-            <p className="text-xs text-[#8A8680] font-body">
+            <p className="text-xs text-[#6F6B65] font-body">
               Use{' '}<span className="font-mono text-[#1A1A1A]/60">{'{client_name}'}</span>{' '}to personalise the greeting.
             </p>
           </div>
@@ -180,7 +180,7 @@ export default function MessageTemplatesSection({
               placeholder={DEFAULT_EMAIL_BODY}
               rows={3}
               maxLength={500}
-              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
+              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
             />
 
             {/* Variable chips for email body */}
@@ -223,9 +223,9 @@ export default function MessageTemplatesSection({
               placeholder={DEFAULT_EMAIL_CLOSING}
               rows={2}
               maxLength={200}
-              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
+              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
             />
-            <p className="text-xs text-[#8A8680] font-body">
+            <p className="text-xs text-[#6F6B65] font-body">
               Shown at the bottom of the email when confirmation buttons are disabled.
             </p>
           </div>
@@ -250,9 +250,9 @@ export default function MessageTemplatesSection({
               placeholder={DEFAULT_EMAIL_FOOTER}
               rows={2}
               maxLength={300}
-              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
+              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65]/70 outline-none focus:border-[#1B4332] resize-none overflow-hidden transition-colors"
             />
-            <p className="text-xs text-[#8A8680] font-body">
+            <p className="text-xs text-[#6F6B65] font-body">
               Small text at the very bottom of reminder emails. Use{' '}
               <span className="font-mono text-[#1A1A1A]/60">{'{business_name}'}</span>{' '}
               to insert your business name.

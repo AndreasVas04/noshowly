@@ -192,7 +192,7 @@ export default async function DashboardLayout({
 
         {/* Business name */}
         <div className="px-6 py-4 border-b border-white/10">
-          <p className="text-xs font-medium text-white/40 uppercase tracking-widest mb-0.5">
+          <p className="text-xs font-medium text-white/60 uppercase tracking-widest mb-0.5">
             Business
           </p>
           <p className="text-sm font-medium text-white/80 truncate">{salonName}</p>
@@ -208,7 +208,7 @@ export default async function DashboardLayout({
               href="/pricing"
               className="
                 flex items-center px-3 py-2.5 rounded-lg text-sm font-medium
-                text-white/40 hover:text-white/70 hover:bg-white/5
+                text-white/60 hover:text-white hover:bg-white/5
                 transition-colors
               "
             >

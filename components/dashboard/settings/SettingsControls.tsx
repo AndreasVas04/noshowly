@@ -25,7 +25,7 @@ export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: R
  */
 export function SaveIndicator({ status }: { status: SaveStatus }) {
   if (status === 'idle')   return null;
-  if (status === 'saving') return <span className="text-xs text-[#8A8680]">Saving…</span>;
+  if (status === 'saving') return <span className="text-xs text-[#6F6B65]">Saving…</span>;
   if (status === 'saved')  return <span className="text-xs text-emerald-600 font-medium">Saved ✓</span>;
   return null; // error shown inline in the section
 }

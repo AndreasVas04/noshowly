@@ -93,7 +93,7 @@ export default function ClientFields({
           className={inputClass(Boolean(fieldErrors.clientPhone))}
         />
         {isPhoneSearching && (
-          <p className="text-xs text-[#C8C8C8]">Searching...</p>
+          <p className="text-xs text-[#6F6B65]">Searching...</p>
         )}
         {!isPhoneSearching && clientFoundByPhone && form.selectedClient && (
           <p className="text-xs text-emerald-600">Existing client: {form.selectedClient.name}</p>
@@ -133,9 +133,9 @@ export default function ClientFields({
           {/* Autocomplete dropdown (create mode) */}
           {!isEditMode && showSuggestions && !nameReadOnly && (
             <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-[#C8C8C8]/40 rounded-xl shadow-lg max-h-40 overflow-y-auto">
-              {isSearching && <p className="px-3 py-2 text-sm text-[#C8C8C8]">Searching...</p>}
+              {isSearching && <p className="px-3 py-2 text-sm text-[#6F6B65]">Searching...</p>}
               {!isSearching && suggestions.length === 0 && (
-                <p className="px-3 py-2 text-sm text-[#C8C8C8]">No match. A new client will be created on save.</p>
+                <p className="px-3 py-2 text-sm text-[#6F6B65]">No match. A new client will be created on save.</p>
               )}
               {!isSearching && suggestions.map((client) => (
                 <button
@@ -145,22 +145,22 @@ export default function ClientFields({
                   className="w-full text-left px-3 py-2 hover:bg-[#1A1A1A]/5 transition-colors border-b border-[#C8C8C8]/20 last:border-0"
                 >
                   <p className="text-sm font-medium text-[#1A1A1A]">{client.name}</p>
-                  {client.phone && <p className="text-xs text-[#C8C8C8] mt-0.5">{client.phone}</p>}
+                  {client.phone && <p className="text-xs text-[#6F6B65] mt-0.5">{client.phone}</p>}
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {nameReadOnly && <p className="text-xs text-[#C8C8C8]">Click to edit</p>}
+        {nameReadOnly && <p className="text-xs text-[#6F6B65]">Click to edit</p>}
         {!isEditMode && !nameReadOnly && form.selectedClient && !clientFoundByPhone && (
-          <p className="text-xs text-[#C8C8C8]">Existing client selected</p>
+          <p className="text-xs text-[#6F6B65]">Existing client selected</p>
         )}
         {!isEditMode && !nameReadOnly && !form.selectedClient && form.clientQuery && !isSearching && (
-          <p className="text-xs text-[#C8C8C8]">New client (will be created on save)</p>
+          <p className="text-xs text-[#6F6B65]">New client (will be created on save)</p>
         )}
         {isEditMode && appointment?.client_id && (
-          <p className="text-xs text-[#C8C8C8]">Changes to the client&apos;s details are saved to their client record.</p>
+          <p className="text-xs text-[#6F6B65]">Changes to the client&apos;s details are saved to their client record.</p>
         )}
         {fieldErrors.clientQuery && (
           <p className="text-xs text-red-600">{fieldErrors.clientQuery}</p>
@@ -170,7 +170,7 @@ export default function ClientFields({
       {/* ---- Email (optional) -------------------------------------- */}
       <div className="space-y-1.5">
         <Label htmlFor="modal-client-email" className={labelClass}>
-          Email <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span>
+          Email <span className="text-xs font-normal text-[#6F6B65]">(optional)</span>
         </Label>
         <Input
           id="modal-client-email"

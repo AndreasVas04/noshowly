@@ -46,12 +46,12 @@ export default function ServiceStep({
       <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden shadow-sm">
         <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
           <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Choose a service</h2>
-          <p className="font-body text-sm text-[#8A8680] mt-1">Select what you&apos;d like to book</p>
+          <p className="font-body text-sm text-[#6F6B65] mt-1">Select what you&apos;d like to book</p>
         </div>
 
         {availableServices.length === 0 ? (
           <div className="p-6 text-center">
-            <p className="font-body text-sm text-[#8A8680]">No services are available for this selection.</p>
+            <p className="font-body text-sm text-[#6F6B65]">No services are available for this selection.</p>
           </div>
         ) : (
           <div className="p-5">
@@ -96,7 +96,7 @@ export default function ServiceStep({
         <button
           type="button"
           onClick={onChangeStaff}
-          className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
+          className="font-body text-sm text-[#6F6B65] hover:text-[#1B4332] transition-colors"
         >
           &#8592; Change staff member
         </button>

@@ -42,7 +42,7 @@ export default function ReminderSettingsSection({
         <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Reminder settings</h2>
         <SaveIndicator status={confirmSaveStatus} />
       </div>
-      <p className="text-sm text-[#8A8680] mb-4 font-body">
+      <p className="text-sm text-[#6F6B65] mb-4 font-body">
         Control whether clients are asked to confirm or cancel their appointment.
       </p>
 
@@ -73,11 +73,11 @@ export default function ReminderSettingsSection({
           <div>
             <p id="email-confirmation-label" className="text-sm font-medium text-[#1A1A1A]">Request email confirmation (YES/NO)</p>
             {emailAllowed ? (
-              <p className="text-xs text-[#8A8680] mt-0.5 font-body">
+              <p className="text-xs text-[#6F6B65] mt-0.5 font-body">
                 When off, email reminders are sent without YES/NO buttons.
               </p>
             ) : (
-              <p className="text-xs text-amber-600 mt-0.5">
+              <p className="text-xs text-amber-700 mt-0.5">
                 Upgrade to send email reminders.
               </p>
             )}

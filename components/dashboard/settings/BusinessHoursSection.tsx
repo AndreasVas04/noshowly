@@ -37,7 +37,7 @@ export default function BusinessHoursSection({ fields, save }: BusinessHoursSect
         <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Business hours</h2>
         <SaveIndicator status={hoursSaveStatus} />
       </div>
-      <p className="text-sm text-[#8A8680] mb-4 font-body">
+      <p className="text-sm text-[#6F6B65] mb-4 font-body">
         Used as the default time range for the booking page and appointment modal.
       </p>
 

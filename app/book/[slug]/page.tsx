@@ -96,7 +96,7 @@ function NotAcceptingBookings({ title, phone }: { title: string; phone: string |
         <p className="font-body text-base text-[#1A1A1A] mb-2">
           We are not accepting online bookings right now.
         </p>
-        <p className="font-body text-sm text-[#8A8680]">
+        <p className="font-body text-sm text-[#6F6B65]">
           Please contact the business directly to schedule an appointment.
         </p>
         {phone && (

@@ -33,7 +33,7 @@ export default function AddStaffForm({ staff }: AddStaffFormProps) {
       <form onSubmit={(e) => void handleAddBarber(e)} noValidate className="px-6 py-5">
         <label
           htmlFor="new-staff-name"
-          className="block text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3"
+          className="block text-xs font-medium text-[#6F6B65] uppercase tracking-widest mb-3"
         >
           Add staff member
         </label>
@@ -46,7 +46,7 @@ export default function AddStaffForm({ staff }: AddStaffFormProps) {
             placeholder="First name, e.g. John"
             maxLength={50}
             disabled={addingBarber}
-            className="flex-1 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+            className="flex-1 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
           />
           <Button
             type="submit"

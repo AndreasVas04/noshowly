@@ -56,19 +56,19 @@ export default function LandingNav() {
         <nav className="hidden md:flex items-center gap-8" aria-label="Main navigation">
           <a
             href="#features"
-            className="text-sm text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body"
+            className="text-sm text-[#6F6B65] hover:text-[#1A1A1A] transition-colors font-body"
           >
             Features
           </a>
           <a
             href="#pricing"
-            className="text-sm text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body"
+            className="text-sm text-[#6F6B65] hover:text-[#1A1A1A] transition-colors font-body"
           >
             Pricing
           </a>
           <Link
             href="/login"
-            className="text-sm text-[#8A8680] hover:text-[#1A1A1A] transition-colors font-body"
+            className="text-sm text-[#6F6B65] hover:text-[#1A1A1A] transition-colors font-body"
           >
             Sign in
           </Link>

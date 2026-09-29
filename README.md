@@ -58,6 +58,11 @@ visitors change is put back every night.
   time zone the owner's or the client's browser uses.
 - **Billing:** a 14-day free trial without a card, then the Basic plan through
   Stripe Checkout, managed in the Stripe customer portal.
+- **Accessibility:** text meets WCAG AA contrast, every page has one `h1`
+  and its content in landmarks, dialogs take and return the focus and keep
+  Tab inside, states such as the chosen day or an appointment's status are not
+  shown by colour alone, and nothing scrolls sideways at 320px. axe-core
+  reports no violations on the public and dashboard pages.
 
 ## Architecture
 
@@ -212,8 +217,8 @@ migration and the order to apply them in.
 - **Unit tests** (Vitest, `npm test`) cover the logic in `lib/`: booking
   rules and time slots, time zone conversion, entitlements, subscription and
   plan sync, reminder rules, claims, quotas and templates, the confirmation
-  page, contact validation, cron authentication, and account setup and
-  deletion.
+  page, contact validation, cron authentication, staff photo URLs, and
+  account setup and deletion.
 - **Database tests** (`scripts/test-db.sh`) build throwaway PostgreSQL
   databases from the migrations and run the SQL checks in `tests/db`: RLS for
   anonymous visitors and owners, tenant isolation, the service role,

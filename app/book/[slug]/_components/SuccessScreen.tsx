@@ -110,7 +110,7 @@ export default function SuccessScreen({
         <h2 className="font-heading text-3xl font-bold text-[#1A1A1A]">
           {"You're booked!"}
         </h2>
-        <p className="font-body text-sm text-[#8A8680] mt-2">
+        <p className="font-body text-sm text-[#6F6B65] mt-2">
           {businessName} will be in touch if anything changes.
         </p>
       </div>
@@ -128,18 +128,18 @@ export default function SuccessScreen({
           </div>
         )}
         {staffLabel && (
-          <p className="font-body text-sm text-[#8A8680]">{staffLabel}</p>
+          <p className="font-body text-sm text-[#6F6B65]">{staffLabel}</p>
         )}
         {selectedDate && selectedTime && (
           <p className="font-body text-sm font-medium text-[#1A1A1A]">
             {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
           </p>
         )}
-        <p className="font-body text-xs text-[#8A8680]">{timeZoneNote}</p>
-        <p className="font-body text-sm text-[#8A8680]">{businessName}</p>
+        <p className="font-body text-xs text-[#6F6B65]">{timeZoneNote}</p>
+        <p className="font-body text-sm text-[#6F6B65]">{businessName}</p>
       </div>
 
-      <p className="font-body text-xs text-[#8A8680]">
+      <p className="font-body text-xs text-[#6F6B65]">
         {"You'll receive a reminder before your appointment."}
       </p>
 
@@ -154,7 +154,7 @@ export default function SuccessScreen({
       )}
 
       {confirmed && (
-        <p className="font-body text-xs text-[#8A8680]">
+        <p className="font-body text-xs text-[#6F6B65]">
           Ref: {confirmed.appointmentId.slice(0, 8).toUpperCase()}
         </p>
       )}

@@ -95,8 +95,8 @@ export default function StaffCard({
         <div className="flex items-center justify-between gap-4">
           <p className="text-sm font-semibold text-[#1A1A1A] truncate">{barber.name}</p>
           <div className="flex items-center gap-3 shrink-0">
-            <span className={`text-xs font-medium transition-colors ${
-              barberSaveStatus === 'saving' ? 'text-[#8A8680]' :
+            <span role="status" className={`text-xs font-medium transition-colors ${
+              barberSaveStatus === 'saving' ? 'text-[#6F6B65]' :
               barberSaveStatus === 'saved'  ? 'text-emerald-600' :
               barberSaveStatus === 'error'  ? 'text-red-600' : 'invisible'
             }`}>
@@ -106,7 +106,7 @@ export default function StaffCard({
               type="button"
               onClick={() => void handleDeleteBarber(barber.id, barber.name)}
               disabled={isDeleting}
-              className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
+              className="text-xs text-[#6F6B65] hover:text-red-600 disabled:opacity-40 transition-colors"
             >
               {isDeleting ? 'Removing…' : 'Remove'}
             </button>
@@ -136,7 +136,7 @@ export default function StaffCard({
             onClick={() => openPhotoPicker(barber.id)}
             disabled={isRemovingPhoto || isSaving}
             className="group relative w-20 h-20 rounded-full overflow-hidden shrink-0 border border-[#E5E2DB]/30 bg-[#F5F3EF] flex items-center justify-center disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A] focus-visible:ring-offset-2"
-            aria-label="Upload photo"
+            aria-label={`Change photo of ${barber.name}`}
           >
             {/* Photo or initials */}
             {form.photo_url ? (
@@ -169,12 +169,12 @@ export default function StaffCard({
             </button>
             {form.photo_url && (
               <>
-                <span className="text-[#8A8680] text-xs">·</span>
+                <span className="text-[#6F6B65] text-xs">·</span>
                 <button
                   type="button"
                   onClick={() => void handleRemovePhoto(barber.id)}
                   disabled={isRemovingPhoto || isSaving}
-                  className="text-xs text-[#8A8680] hover:text-red-600 disabled:opacity-40 transition-colors"
+                  className="text-xs text-[#6F6B65] hover:text-red-600 disabled:opacity-40 transition-colors"
                 >
                   {isRemovingPhoto ? 'Removing…' : 'Remove photo'}
                 </button>
@@ -200,7 +200,7 @@ export default function StaffCard({
         {/* Profile fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label htmlFor={`staff-${barber.id}-name`} className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Name</Label>
+            <Label htmlFor={`staff-${barber.id}-name`} className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest">Name</Label>
             <Input
               id={`staff-${barber.id}-name`}
               value={form.name}
@@ -210,7 +210,7 @@ export default function StaffCard({
             />
           </div>
           <div className="sm:col-span-2 space-y-1.5">
-            <Label htmlFor={`staff-${barber.id}-bio`} className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Bio (optional)</Label>
+            <Label htmlFor={`staff-${barber.id}-bio`} className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest">Bio (optional)</Label>
             <textarea
               id={`staff-${barber.id}-bio`}
               ref={(el) => { registerBioTextarea(barber.id, el); }}
@@ -223,7 +223,7 @@ export default function StaffCard({
               placeholder="Short description shown on the booking page"
               maxLength={300}
               rows={2}
-              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
+              className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
             />
           </div>
         </div>

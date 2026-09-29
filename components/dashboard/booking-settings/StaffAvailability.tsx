@@ -52,7 +52,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
 
   return (
     <div>
-      <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest mb-3">
+      <p className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest mb-3">
         Weekly availability
       </p>
       {availabilityErrors[barber.id] && (
@@ -78,11 +78,11 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                     onChange={(v) => setDayAvailable(barber.id, dow, v)}
                     label={`${label} availability`}
                   />
-                  <span className={`text-xs font-medium ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#8A8680]'}`}>
+                  <span className={`text-xs font-medium ${day.is_available ? 'text-[#1A1A1A]' : 'text-[#6F6B65]'}`}>
                     {label}
                   </span>
                   {!day.is_available && (
-                    <span className="text-xs text-[#8A8680] ml-1">Not available</span>
+                    <span className="text-xs text-[#6F6B65] ml-1">Not available</span>
                   )}
                 </div>
 
@@ -90,7 +90,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                   <div className="pl-2 space-y-2">
                     {/* Working hours section */}
                     <div>
-                      <p className="text-xs text-[#8A8680] font-medium mb-1">Working hours</p>
+                      <p className="text-xs text-[#6F6B65] font-medium mb-1">Working hours</p>
                       <div className="flex flex-row items-center gap-1.5">
                         <input
                           type="time"
@@ -100,7 +100,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                           style={{ width: '110px' }}
                           className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                         />
-                        <span className="text-xs text-[#8A8680] shrink-0">to</span>
+                        <span className="text-xs text-[#6F6B65] shrink-0">to</span>
                         <input
                           type="time"
                           aria-label={`${label} end time`}
@@ -126,7 +126,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                               style={{ width: '110px' }}
                               className="h-8 rounded-lg border border-[#E5E2DB] px-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1B4332] disabled:opacity-50 transition-colors"
                             />
-                            <span className="text-xs text-[#8A8680] shrink-0">to</span>
+                            <span className="text-xs text-[#6F6B65] shrink-0">to</span>
                             <input
                               type="time"
                               aria-label={`${label} break ${i + 1} end time`}
@@ -145,7 +145,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                             <button
                               type="button"
                               onClick={() => removeBreak(barber.id, dow, i)}
-                              className="text-xs text-amber-600 hover:text-amber-800 transition-colors"
+                              className="text-xs text-amber-700 hover:text-amber-900 transition-colors"
                             >
                               × Remove break
                             </button>
@@ -153,7 +153,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                               <button
                                 type="button"
                                 onClick={() => copyBreakToAllDays(barber.id, dow)}
-                                className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                                className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                               >
                                 Apply to all days
                               </button>
@@ -166,7 +166,7 @@ export default function StaffAvailability({ barber, form, staff }: StaffAvailabi
                       <button
                         type="button"
                         onClick={() => addBreak(barber.id, dow)}
-                        className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                        className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                       >
                         + Add break
                       </button>

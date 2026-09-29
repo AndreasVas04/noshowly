@@ -261,7 +261,7 @@ export default function LoginPage() {
           <div className="flex justify-center mb-2">
             <Image src="/Logo.png" alt="Noshowly" width={200} height={50} className="h-16 w-auto" />
           </div>
-          <p className="mt-2 text-sm text-[#8A8680] font-body font-medium tracking-wide uppercase">
+          <p className="mt-2 text-sm text-[#6F6B65] font-body font-medium tracking-wide uppercase">
             Appointment Reminders
           </p>
         </div>
@@ -270,10 +270,10 @@ export default function LoginPage() {
             SIGN-IN CARD
         ---------------------------------------------------------------- */}
         <div className="bg-white rounded-2xl border border-[#E5E2DB] p-8 shadow-sm">
-          <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">
+          <h1 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">
             Welcome back
-          </h2>
-          <p className="text-sm text-[#8A8680] font-body mb-7">
+          </h1>
+          <p className="text-sm text-[#6F6B65] font-body mb-7">
             Sign in to your dashboard.
           </p>
 
@@ -293,7 +293,7 @@ export default function LoginPage() {
                 value={form.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 placeholder="you@example.com"
-                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
               />
             </div>
 
@@ -306,7 +306,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={openResetPanel}
-                  className="text-xs text-[#8A8680] hover:text-[#1B4332] transition-colors"
+                  className="text-xs text-[#6F6B65] hover:text-[#1B4332] transition-colors"
                 >
                   Forgot password?
                 </button>
@@ -330,7 +330,7 @@ export default function LoginPage() {
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   onClick={() => setShowPassword((v) => !v)}
                   tabIndex={-1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8680] hover:text-[#1B4332] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6F6B65] hover:text-[#1B4332] transition-colors"
                 >
                   {/* Hidden → EyeOff (password not visible). Visible → Eye (password visible). */}
                   {showPassword
@@ -395,7 +395,7 @@ export default function LoginPage() {
                         </svg>
                       </div>
                       <p className="text-sm font-medium text-[#1A1A1A] mb-1">Check your email</p>
-                      <p className="text-xs text-[#8A8680] font-body mb-4">
+                      <p className="text-xs text-[#6F6B65] font-body mb-4">
                         If an account exists for {resetEmail}, we sent a password reset link.
                       </p>
                       <button
@@ -411,7 +411,7 @@ export default function LoginPage() {
                     <form onSubmit={handleResetSubmit} noValidate className="space-y-4">
                       <div>
                         <p className="text-sm font-medium text-[#1A1A1A] mb-0.5">Reset your password</p>
-                        <p className="text-xs text-[#8A8680] font-body">
+                        <p className="text-xs text-[#6F6B65] font-body">
                           Enter your email and we will send a reset link.
                         </p>
                       </div>
@@ -431,7 +431,7 @@ export default function LoginPage() {
                             if (resetError) setResetError('');
                           }}
                           placeholder="you@example.com"
-                          className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                          className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
                         />
                       </div>
 
@@ -461,7 +461,7 @@ export default function LoginPage() {
                         <button
                           type="button"
                           onClick={closeResetPanel}
-                          className="text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors font-body"
+                          className="text-sm text-[#6F6B65] hover:text-[#1B4332] transition-colors font-body"
                         >
                           Cancel
                         </button>
@@ -476,7 +476,7 @@ export default function LoginPage() {
         </div>
 
         {/* Register link */}
-        <p className="mt-7 text-center text-sm text-[#8A8680] font-body">
+        <p className="mt-7 text-center text-sm text-[#6F6B65] font-body">
           Don&apos;t have an account?{' '}
           <Link
             href="/register"
@@ -490,10 +490,10 @@ export default function LoginPage() {
         <div className="mt-4 text-center">
           <div className="flex items-center gap-3 mb-2">
             <div className="h-px flex-1 bg-[#E5E2DB]" />
-            <span className="text-xs text-[#8A8680] font-body">or</span>
+            <span className="text-xs text-[#6F6B65] font-body">or</span>
             <div className="h-px flex-1 bg-[#E5E2DB]" />
           </div>
-          <p className="text-xs text-[#8A8680] font-body mb-1">Want to explore the app?</p>
+          <p className="text-xs text-[#6F6B65] font-body mb-1">Want to explore the app?</p>
           <button
             type="button"
             onClick={() => {

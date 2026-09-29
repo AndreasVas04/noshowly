@@ -41,7 +41,7 @@ export default function DeleteAccountSection({ isDemo, deletion }: DeleteAccount
   return (
     <section>
       <h2 className="text-base font-semibold text-red-600 mb-1">Delete account</h2>
-      <p className="text-sm text-[#8A8680] mb-4 font-body">
+      <p className="text-sm text-[#6F6B65] mb-4 font-body">
         Permanently deletes your business data, all appointments, all clients, and all reminders,
         and cancels your subscription. This cannot be undone.
       </p>
@@ -49,7 +49,7 @@ export default function DeleteAccountSection({ isDemo, deletion }: DeleteAccount
       <div className="bg-white rounded-2xl border border-red-100 p-6">
 
         {isDemo ? (
-          <p className="text-sm text-[#8A8680] font-body">
+          <p className="text-sm text-[#6F6B65] font-body">
             The demo account can&apos;t be deleted. Sign up for your own account to try this.
           </p>
         ) : !showDeleteDialog ? (

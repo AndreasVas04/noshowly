@@ -94,9 +94,9 @@ export default function BusinessInfoSection({ fields, save }: BusinessInfoSectio
             }}
             placeholder="e.g. City Dental Clinic"
             maxLength={100}
-            className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+            className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
           />
-          <p className="text-xs text-[#8A8680] font-body">This is the name your clients see in reminder messages.</p>
+          <p className="text-xs text-[#6F6B65] font-body">This is the name your clients see in reminder messages.</p>
         </div>
 
         {/* Timezone */}
@@ -117,7 +117,7 @@ export default function BusinessInfoSection({ fields, save }: BusinessInfoSectio
               <option key={tz} value={tz}>{formatTimeZoneLabel(tz)}</option>
             ))}
           </select>
-          <p className="text-xs text-[#8A8680] font-body">All appointment times are shown in this timezone.</p>
+          <p className="text-xs text-[#6F6B65] font-body">All appointment times are shown in this timezone.</p>
         </div>
 
         {/* Currency */}
@@ -137,7 +137,7 @@ export default function BusinessInfoSection({ fields, save }: BusinessInfoSectio
               <option key={opt.code} value={opt.code}>{opt.label}</option>
             ))}
           </select>
-          <p className="text-xs text-[#8A8680] font-body">Used for displaying service prices on your booking page.</p>
+          <p className="text-xs text-[#6F6B65] font-body">Used for displaying service prices on your booking page.</p>
         </div>
 
       </div>

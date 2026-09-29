@@ -72,15 +72,15 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
       <div className="flex items-center justify-between mb-1">
         <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Booking page</h2>
         {bookingPage && (
-          <span className={`text-xs font-medium transition-colors ${
-            bookingSaveStatus === 'saving' ? 'text-[#8A8680]' :
+          <span role="status" className={`text-xs font-medium transition-colors ${
+            bookingSaveStatus === 'saving' ? 'text-[#6F6B65]' :
             bookingSaveStatus === 'saved'  ? 'text-emerald-600' : 'invisible'
           }`}>
             {bookingSaveStatus === 'saving' ? 'Saving…' : 'Saved'}
           </span>
         )}
       </div>
-      <p className="text-sm text-[#8A8680] mb-4">
+      <p className="text-sm text-[#6F6B65] mb-4">
         Clients book directly at your unique link. You control when it goes live.
       </p>
 
@@ -98,7 +98,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                   </span>
                 </div>
                 {bookingUrl && (
-                  <p className="text-xs text-[#8A8680] font-mono truncate">{bookingUrl}</p>
+                  <p className="text-xs text-[#6F6B65] font-mono truncate">{bookingUrl}</p>
                 )}
               </div>
               <div className="flex items-center gap-3 shrink-0 mt-0.5">
@@ -107,7 +107,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                     <button
                       type="button"
                       onClick={() => void handleCopyLink()}
-                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                      className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                     >
                       {copied ? 'Copied!' : 'Copy link'}
                     </button>
@@ -115,7 +115,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                       href={bookingUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-[#8A8680] hover:text-[#1A1A1A] transition-colors"
+                      className="text-xs text-[#6F6B65] hover:text-[#1A1A1A] transition-colors"
                     >
                       Open ↗
                     </a>
@@ -138,7 +138,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
           {/* The link to copy by hand when the browser does not allow copying */}
           {bookingPage?.is_active && bookingUrl && copyFailed && (
             <div className="space-y-1.5">
-              <label htmlFor="booking-link-copy" className="block text-xs text-[#8A8680]">
+              <label htmlFor="booking-link-copy" className="block text-xs text-[#6F6B65]">
                 This browser did not allow copying. Select the link and copy it:
               </label>
               <input
@@ -161,7 +161,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                   Choose your booking URL
                 </Label>
                 <div className="flex items-center rounded-lg border border-[#E5E2DB] overflow-hidden focus-within:border-[#1B4332] transition-colors">
-                  <span className="px-3 text-sm text-[#8A8680] bg-[#F5F3EF] border-r border-[#E5E2DB] h-10 flex items-center shrink-0">
+                  <span className="px-3 text-sm text-[#6F6B65] bg-[#F5F3EF] border-r border-[#E5E2DB] h-10 flex items-center shrink-0">
                     /book/
                   </span>
                   <input
@@ -172,10 +172,10 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                     placeholder="your-business-name"
                     maxLength={50}
                     disabled={bookingSaveStatus === 'saving'}
-                    className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-white placeholder:text-[#8A8680] disabled:opacity-50"
+                    className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-white placeholder:text-[#6F6B65] disabled:opacity-50"
                   />
                 </div>
-                <p className="text-xs text-[#8A8680]">Lowercase letters, digits, and hyphens only. 3–50 characters. This cannot be changed later.</p>
+                <p className="text-xs text-[#6F6B65]">Lowercase letters, digits, and hyphens only. 3–50 characters. This cannot be changed later.</p>
               </div>
 
               {bookingError && (
@@ -204,7 +204,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                   Booking page URL
                 </Label>
                 <div className="flex items-center rounded-lg border border-[#E5E2DB]/50 bg-[#F5F3EF] overflow-hidden">
-                  <span className="px-3 text-sm text-[#8A8680] bg-[#F5F3EF] border-r border-[#E5E2DB] h-10 flex items-center shrink-0">
+                  <span className="px-3 text-sm text-[#6F6B65] bg-[#F5F3EF] border-r border-[#E5E2DB] h-10 flex items-center shrink-0">
                     /book/
                   </span>
                   <input
@@ -216,7 +216,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                     className="flex-1 h-10 px-3 text-sm text-[#1A1A1A] outline-none bg-transparent disabled:opacity-60 disabled:cursor-default"
                   />
                 </div>
-                <p className="text-xs text-[#8A8680]">Your booking URL is permanent and cannot be changed.</p>
+                <p className="text-xs text-[#6F6B65]">Your booking URL is permanent and cannot be changed.</p>
               </div>
 
               {/* Headline + Description with live preview */}
@@ -235,9 +235,9 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                       onChange={(e) => { setCustomPageTitle(e.target.value); scheduleBookingSave(); }}
                       placeholder="e.g. Book your appointment at Elena's Studio"
                       maxLength={100}
-                      className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                      className="border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
                     />
-                    <p className="text-xs text-[#8A8680]">The first thing clients see. Leave blank to use your business name.</p>
+                    <p className="text-xs text-[#6F6B65]">The first thing clients see. Leave blank to use your business name.</p>
                   </div>
 
                   <div className="space-y-1.5">
@@ -257,9 +257,9 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                       placeholder="e.g. We offer haircuts, coloring and more. Book your slot online in seconds."
                       maxLength={800}
                       rows={3}
-                      className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
+                      className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                     />
-                    <p className="text-xs text-[#8A8680]">A short description shown below the headline. Leave blank to skip.</p>
+                    <p className="text-xs text-[#6F6B65]">A short description shown below the headline. Leave blank to skip.</p>
                   </div>
 
                   <div className="space-y-1.5">
@@ -279,28 +279,28 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                       placeholder="e.g. Book your appointment online. We confirm within 24 hours."
                       maxLength={500}
                       rows={2}
-                      className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
+                      className="w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65] outline-none focus:border-[#1B4332] disabled:opacity-50 resize-none overflow-hidden transition-colors"
                     />
-                    <p className="text-xs text-[#8A8680]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
+                    <p className="text-xs text-[#6F6B65]">Shown when you share your booking link on WhatsApp, Instagram or other apps.</p>
                   </div>
                 </div>
 
                 {/* Right: live preview — matches the real public booking page hero */}
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-[#8A8680] uppercase tracking-widest">Preview</p>
+                  <p className="text-xs font-medium text-[#6F6B65] uppercase tracking-widest">Preview</p>
                   <div
                     className="rounded-2xl px-6 py-8 flex flex-col justify-start min-h-[180px] space-y-2"
                     style={{ background: 'linear-gradient(180deg, #1B4332 0%, #122B20 100%)' }}
                   >
                     <h3 className="font-heading text-2xl font-bold text-white leading-snug">
                       {customPageTitle.trim() || (
-                        <span className="text-white/30 italic">Your headline</span>
+                        <span className="text-white/60 italic">Your headline</span>
                       )}
                     </h3>
                     {customIntro.trim() ? (
                       <p className="font-body text-sm text-white/60 leading-relaxed">{customIntro.trim()}</p>
                     ) : (
-                      <p className="font-body text-sm text-white/20 italic">Description will appear here</p>
+                      <p className="font-body text-sm text-white/60 italic">Description will appear here</p>
                     )}
                   </div>
                 </div>
@@ -311,12 +311,12 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
               <div className="space-y-3">
                 <div className="pt-4 border-t border-[#E5E2DB]/30">
                   <h2 className="font-heading text-base font-semibold text-[#1A1A1A]">Required client information</h2>
-                  <p className="text-xs text-[#8A8680] mt-0.5">Turn off fields you do not need. At least one must be required.</p>
+                  <p className="text-xs text-[#6F6B65] mt-0.5">Turn off fields you do not need. At least one must be required.</p>
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-[#1A1A1A]">Require phone number</p>
-                    <p className="text-xs text-[#8A8680] mt-0.5">Used for client contact.</p>
+                    <p className="text-xs text-[#6F6B65] mt-0.5">Used for client contact.</p>
                   </div>
                   <Toggle
                     checked={requirePhone}
@@ -327,7 +327,7 @@ export default function BookingPageSection({ settings, bookingUrl }: BookingPage
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-[#1A1A1A]">Require email address</p>
-                    <p className="text-xs text-[#8A8680] mt-0.5">Needed for email reminders.</p>
+                    <p className="text-xs text-[#6F6B65] mt-0.5">Needed for email reminders.</p>
                   </div>
                   <Toggle
                     checked={requireEmail}

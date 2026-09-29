@@ -78,7 +78,7 @@ export default function DetailsStep({
     <div className="space-y-4">
       {/* Booking summary card */}
       <div className="bg-white rounded-2xl border border-[#E5E2DB] border-l-[3px] border-l-[#1B4332] p-5 shadow-sm">
-        <p className="font-body text-[10px] font-semibold text-[#8A8680] uppercase tracking-widest mb-3">
+        <p className="font-body text-[10px] font-semibold text-[#6F6B65] uppercase tracking-widest mb-3">
           Your booking
         </p>
         <div className="space-y-1.5">
@@ -87,7 +87,7 @@ export default function DetailsStep({
               <p className="font-body text-sm font-semibold text-[#1A1A1A]">
                 {selectedService.name}
                 {selectedServiceDuration && (
-                  <span className="text-[#8A8680] font-normal"> &middot; {selectedServiceDuration} min</span>
+                  <span className="text-[#6F6B65] font-normal"> &middot; {selectedServiceDuration} min</span>
                 )}
               </p>
               {selectedServicePrice && (
@@ -98,15 +98,15 @@ export default function DetailsStep({
             </div>
           )}
           {staffLabel && (
-            <p className="font-body text-sm text-[#8A8680]">{staffLabel}</p>
+            <p className="font-body text-sm text-[#6F6B65]">{staffLabel}</p>
           )}
           {selectedDate && selectedTime && (
             <p className="font-body text-sm text-[#1A1A1A] font-medium">
               {formatDateLong(selectedDate)} at {formatTime12h(selectedTime)}
             </p>
           )}
-          <p className="font-body text-xs text-[#8A8680]">{timeZoneNote}</p>
-          <p className="font-body text-xs text-[#8A8680]">{businessName}</p>
+          <p className="font-body text-xs text-[#6F6B65]">{timeZoneNote}</p>
+          <p className="font-body text-xs text-[#6F6B65]">{businessName}</p>
         </div>
       </div>
 
@@ -118,7 +118,7 @@ export default function DetailsStep({
       >
         <div>
           <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
-          <p className="font-body text-sm text-[#8A8680] mt-1">We&apos;ll use this to confirm your booking</p>
+          <p className="font-body text-sm text-[#6F6B65] mt-1">We&apos;ll use this to confirm your booking</p>
         </div>
         <hr className="border-[#E5E2DB]" />
 
@@ -136,7 +136,7 @@ export default function DetailsStep({
             maxLength={100}
             required
             autoComplete="name"
-            className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+            className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
           />
         </div>
 
@@ -146,7 +146,7 @@ export default function DetailsStep({
             Phone number{' '}
             {requirePhone
               ? <span className="text-red-500">*</span>
-              : <span className="font-body text-[#8A8680] font-normal">(optional)</span>}
+              : <span className="font-body text-[#6F6B65] font-normal">(optional)</span>}
           </Label>
           <Input
             id="client-phone"
@@ -156,9 +156,9 @@ export default function DetailsStep({
             placeholder="+357 99 123 456"
             maxLength={MAX_PHONE_INPUT_LENGTH}
             autoComplete="tel"
-            className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+            className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
           />
-          <p className="font-body text-xs text-[#8A8680]">
+          <p className="font-body text-xs text-[#6F6B65]">
             Include your country code (e.g. +1, +357).
           </p>
         </div>
@@ -169,7 +169,7 @@ export default function DetailsStep({
             Email{' '}
             {requireEmail
               ? <span className="text-red-500">*</span>
-              : <span className="font-body text-[#8A8680] font-normal">(optional)</span>}
+              : <span className="font-body text-[#6F6B65] font-normal">(optional)</span>}
           </Label>
           <Input
             id="client-email"
@@ -179,17 +179,17 @@ export default function DetailsStep({
             placeholder="jane@example.com"
             maxLength={254}
             autoComplete="email"
-            className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+            className="font-body border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
           />
           {requireEmail && (
-            <p className="font-body text-xs text-[#8A8680]">Required for email reminders.</p>
+            <p className="font-body text-xs text-[#6F6B65]">Required for email reminders.</p>
           )}
         </div>
 
         {/* Notes */}
         <div className="space-y-1.5">
           <Label htmlFor="client-notes" className="font-body text-sm font-medium text-[#1A1A1A]">
-            Notes <span className="font-body text-[#8A8680] font-normal">(optional)</span>
+            Notes <span className="font-body text-[#6F6B65] font-normal">(optional)</span>
           </Label>
           <textarea
             id="client-notes"
@@ -198,7 +198,7 @@ export default function DetailsStep({
             placeholder="Any special requests or information..."
             rows={2}
             maxLength={500}
-            className="font-body w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#8A8680] outline-none focus:border-[#1B4332] resize-none transition-colors"
+            className="font-body w-full rounded-lg border border-[#E5E2DB] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#6F6B65] outline-none focus:border-[#1B4332] resize-none transition-colors"
           />
         </div>
 
@@ -243,7 +243,7 @@ export default function DetailsStep({
             <button
               type="button"
               onClick={() => { setSubmitError(''); onBack(); }}
-              className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
+              className="font-body text-sm text-[#6F6B65] hover:text-[#1B4332] transition-colors"
             >
               &#8592; Back
             </button>

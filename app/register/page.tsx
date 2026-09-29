@@ -211,16 +211,16 @@ export default function RegisterPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-2">
+            <h1 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-2">
               Check your email
-            </h2>
-            <p className="text-sm text-[#8A8680] font-body mb-1">We sent a confirmation link to:</p>
+            </h1>
+            <p className="text-sm text-[#6F6B65] font-body mb-1">We sent a confirmation link to:</p>
             <p className="text-sm font-semibold text-[#1A1A1A] font-body mb-4">{form.email}</p>
-            <p className="text-sm text-[#8A8680] font-body">
+            <p className="text-sm text-[#6F6B65] font-body">
               Click the link in the email to activate your account and get started.
             </p>
           </div>
-          <p className="mt-6 text-center text-sm text-[#8A8680] font-body">
+          <p className="mt-6 text-center text-sm text-[#6F6B65] font-body">
             Wrong email?{' '}
             <button
               type="button"
@@ -257,17 +257,17 @@ export default function RegisterPage() {
           <div className="flex justify-center mb-2">
             <Image src="/Logo.png" alt="Noshowly" width={200} height={50} className="h-16 w-auto" />
           </div>
-          <p className="mt-2 text-sm text-[#8A8680] font-body font-medium tracking-wide uppercase">
+          <p className="mt-2 text-sm text-[#6F6B65] font-body font-medium tracking-wide uppercase">
             Appointment Reminders
           </p>
         </div>
 
         {/* Card */}
         <div className="bg-white rounded-2xl border border-[#E5E2DB] p-8 shadow-sm">
-          <h2 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">
+          <h1 className="font-heading text-2xl font-bold text-[#1A1A1A] mb-1">
             Create your account
-          </h2>
-          <p className="text-sm text-[#8A8680] font-body mb-7">
+          </h1>
+          <p className="text-sm text-[#6F6B65] font-body mb-7">
             Set up your business in minutes. {TRIAL_LENGTH_DAYS}-day free trial, no card required.
           </p>
 
@@ -288,7 +288,7 @@ export default function RegisterPage() {
                 onChange={(e) => handleChange('salonName', e.target.value)}
                 placeholder="e.g. City Dental Clinic"
                 maxLength={100}
-                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
               />
             </div>
 
@@ -306,7 +306,7 @@ export default function RegisterPage() {
                 value={form.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 placeholder="you@example.com"
-                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#8A8680]"
+                className="h-11 border-[#E5E2DB] focus-visible:border-[#1B4332] focus-visible:ring-0 text-[#1A1A1A] placeholder:text-[#6F6B65]"
               />
             </div>
 
@@ -373,7 +373,7 @@ export default function RegisterPage() {
           </form>
 
           {/* Legal */}
-          <p className="mt-5 text-xs text-[#8A8680] font-body text-center">
+          <p className="mt-5 text-xs text-[#6F6B65] font-body text-center">
             By creating an account you agree to our{' '}
             <Link href="/privacy" className="underline underline-offset-2 text-[#1B4332] hover:text-[#16392A]">
               Privacy Policy
@@ -387,7 +387,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Sign-in link */}
-        <p className="mt-7 text-center text-sm text-[#8A8680] font-body">
+        <p className="mt-7 text-center text-sm text-[#6F6B65] font-body">
           Already have an account?{' '}
           <Link
             href="/login"
