@@ -64,7 +64,14 @@ export default function SuccessScreen({
     const start = resolveZonedTime(selectedDate, selectedTime, timeZone);
     if (!start.ok) return;
     const service = selectedService?.name ?? 'Appointment';
-    const ics = buildICS(salonName, service, start.date, confirmed.durationMinutes);
+    const ics = buildICS({
+      uid:             confirmed.appointmentId,
+      salonName,
+      service,
+      start:           start.date,
+      durationMinutes: confirmed.durationMinutes,
+      stamp:           new Date(),
+    });
     downloadFile(ics, 'appointment.ics', 'text/calendar');
   }
 

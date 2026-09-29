@@ -59,14 +59,19 @@ describe('formatRange', () => {
 
 describe('buildICS', () => {
   const start = new Date('2026-04-15T07:30:00Z');
+  const stamp = new Date('2026-04-01T12:00:05Z');
+  const event = (overrides: Partial<Parameters<typeof buildICS>[0]> = {}) =>
+    buildICS({ uid: 'appt-1', salonName: 'Studio Nine', service: 'Haircut', start, durationMinutes: 45, stamp, ...overrides });
 
   it('builds a confirmed event from the start and the duration, in UTC', () => {
-    expect(buildICS('Studio Nine', 'Haircut', start, 45).split('\r\n')).toEqual([
+    expect(event().split('\r\n')).toEqual([
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
-      'PRODID:-//Booking//EN',
+      'PRODID:-//Noshowly//Booking//EN',
       'CALSCALE:GREGORIAN',
       'BEGIN:VEVENT',
+      'UID:appt-1@noshowly',
+      'DTSTAMP:20260401T120005Z',
       'DTSTART:20260415T073000Z',
       'DTEND:20260415T081500Z',
       'SUMMARY:Haircut at Studio Nine',
@@ -74,22 +79,43 @@ describe('buildICS', () => {
       'STATUS:CONFIRMED',
       'END:VEVENT',
       'END:VCALENDAR',
+      '',
     ]);
   });
 
-  it('separates lines with CRLF and has no trailing line break', () => {
-    const ics = buildICS('Studio Nine', 'Haircut', start, 30);
+  it('ends every line with CRLF and has no other line breaks', () => {
+    const ics = event({ durationMinutes: 30 });
     expect(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n')).toBe(true);
-    expect(ics.endsWith('\r\nEND:VCALENDAR')).toBe(true);
+    expect(ics.endsWith('\r\nEND:VCALENDAR\r\n')).toBe(true);
     expect(ics.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/);
   });
 
   it('calls a booking without a service an appointment', () => {
-    expect(buildICS('Studio Nine', '', start, 30)).toContain('\r\nSUMMARY:Appointment at Studio Nine\r\n');
+    expect(event({ service: '' })).toContain('\r\nSUMMARY:Appointment at Studio Nine\r\n');
   });
 
   it('ends on the next day when the appointment runs past midnight UTC', () => {
-    const late = buildICS('Studio Nine', 'Colour', new Date('2026-04-15T23:30:00Z'), 90);
+    const late = event({ service: 'Colour', start: new Date('2026-04-15T23:30:00Z'), durationMinutes: 90 });
     expect(late).toContain('\r\nDTEND:20260416T010000Z\r\n');
+  });
+
+  it('escapes commas, semicolons, backslashes and line breaks in text', () => {
+    const ics = event({ salonName: 'Cuts, Colour; Co\\Style\nNicosia', service: 'Cut, wash' });
+    expect(ics).toContain('\r\nSUMMARY:Cut\\, wash at Cuts\\, Colour\\; Co\\\\Style\\nNicosia\r\n');
+    expect(ics).toContain('\r\nDESCRIPTION:Your appointment at Cuts\\, Colour\\; Co\\\\Style\\nNicosia.\r\n');
+  });
+
+  it('folds lines longer than 75 octets without splitting characters', () => {
+    const salonName = 'Κομμωτήριο '.repeat(8).trim();
+    const ics = event({ salonName });
+    const lines = ics.split('\r\n');
+    for (const line of lines) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+      expect(line).not.toMatch(/\uFFFD/);
+    }
+    // Unfolding gives the original line back.
+    const unfolded = ics.replace(/\r\n /g, '');
+    expect(unfolded).toContain(`\r\nSUMMARY:Haircut at ${salonName}\r\n`);
+    expect(lines.some((line) => line.startsWith(' '))).toBe(true);
   });
 });
