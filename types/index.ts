@@ -8,20 +8,15 @@
  * These types are the single source of truth for TypeScript — the DB is the source
  * of truth for the actual data.
  *
- * NOTE: PlanType and UserPlan are defined in lib/plans.ts (derived from PLAN_LIMITS)
- * and re-exported here so callers that only import from @/types get everything they need.
+ * Plan types (PlanType, PaidPlan, UserPlan, CanonicalPlan) are defined in
+ * lib/plans.ts and imported from there.
  */
 
-// Import plan types from lib/plans (canonical definition) for use in this file,
-// then re-export them so callers that import from @/types get everything they need.
-// PlanType  = keys of PLAN_LIMITS: 'trial' | 'basic' | 'pro' | 'business' | 'starter' | 'professional'
-// PaidPlan  = 'basic'                                   (the only plan sold at checkout)
-// UserPlan  = PlanType | 'cancelled'
-// The database (users_plan_check) accepts 'trial' | 'basic' | 'pro' | 'business' | 'cancelled';
-// the legacy aliases 'starter' and 'professional' were renamed to 'basic' and 'pro'.
-// CanonicalPlan = exactly those five names (parsePlan() in lib/entitlements.ts maps legacy names).
-import type { CanonicalPlan, PlanType, PaidPlan, UserPlan } from '@/lib/plans';
-export type { CanonicalPlan, PlanType, PaidPlan, UserPlan };
+// UserPlan      = a PLAN_LIMITS key or 'cancelled'.
+// CanonicalPlan = the plans the database (users_plan_check) accepts: 'trial' |
+//                 'basic' | 'pro' | 'business' | 'cancelled' (parsePlan() in
+//                 lib/entitlements.ts maps the legacy 'starter' and 'professional').
+import type { CanonicalPlan, UserPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
 // Enum-like string union types
@@ -43,7 +38,7 @@ export type AppointmentStatus = 'scheduled' | 'confirmed' | 'cancelled';
  * 'email_test'         — Manual test send from the dashboard.
  * 'sms'                — Legacy rows only; the product is email-only.
  */
-export type ReminderType = 'email' | 'email_confirmation' | 'email_test' | 'sms';
+type ReminderType = 'email' | 'email_confirmation' | 'email_test' | 'sms';
 
 /**
  * Processing state of a single reminder record.
@@ -60,7 +55,7 @@ export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'confirmed' | 'canc
  * Type of service being performed in an appointment.
  * Now a plain string alias — services are defined per-salon in the services table.
  */
-export type ServiceType = string;
+type ServiceType = string;
 
 /**
  * Row in the `services` table — custom service names defined by each salon.
@@ -89,7 +84,7 @@ export type Service = {
 /**
  * Row in the `users` table — extends auth.users with Noshowly-specific fields.
  */
-export type User = {
+type User = {
   /** UUID from auth.users — primary key. */
   id: string;
   email: string;
@@ -224,7 +219,7 @@ export type Appointment = {
 /**
  * Row in the `reminders` table — one row per SMS or email sent.
  */
-export type Reminder = {
+type Reminder = {
   id: string;
   /** FK → appointments.id */
   appointment_id: string;

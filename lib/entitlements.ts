@@ -155,7 +155,7 @@ export function parsePlan(value: unknown): CanonicalPlan {
 }
 
 /** Returns true for basic, pro and business. */
-export function isSubscriptionPlan(plan: CanonicalPlan): plan is SubscriptionPlan {
+function isSubscriptionPlan(plan: CanonicalPlan): plan is SubscriptionPlan {
   return SUBSCRIPTION_PLANS.has(plan);
 }
 

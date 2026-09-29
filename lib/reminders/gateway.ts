@@ -89,7 +89,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** One email to send. */
-export type SendRequest = {
+type SendRequest = {
   kind: EmailKind;
   context: AppointmentEmailContext;
   /**

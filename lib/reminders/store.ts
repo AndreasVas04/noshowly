@@ -43,14 +43,14 @@ const LOOKUP_CHUNK_SIZE = 50;
 const RECIPIENT_CLIENT_LIMIT = 100;
 
 /** Every kind of email sent to clients; all of them count towards the sending limits. */
-export const CLIENT_EMAIL_TYPES: readonly EmailKind[] = ['email', 'email_confirmation', 'email_test'];
+const CLIENT_EMAIL_TYPES: readonly EmailKind[] = ['email', 'email_confirmation', 'email_test'];
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /** Salon fields the emails need. */
-export type SalonEmailSettings = {
+type SalonEmailSettings = {
   id: string;
   user_id: string;
   name: string;

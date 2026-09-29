@@ -49,19 +49,6 @@ import {
 /** How many times the compare-and-set is tried before giving up (then Stripe retries). */
 export const SYNC_ATTEMPTS = 3;
 
-/** Webhook events that trigger a sync. */
-export const BILLING_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'checkout.session.completed',
-  'customer.subscription.created',
-  'customer.subscription.updated',
-  'customer.subscription.deleted',
-  'customer.subscription.paused',
-  'customer.subscription.resumed',
-  'invoice.paid',
-  'invoice.payment_succeeded',
-  'invoice.payment_failed',
-]);
-
 /** The users row fields a sync reads. */
 export type BillingUser = {
   id: string;

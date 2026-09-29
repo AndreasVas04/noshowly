@@ -42,7 +42,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Spacing of the start times offered on the booking page, from each interval's start. */
-export const SLOT_STEP_MINUTES = 30;
+const SLOT_STEP_MINUTES = 30;
 
 /** Bookings must start at least this far in the future. */
 export const MIN_NOTICE_MINUTES = 30;
@@ -60,7 +60,7 @@ export const MIN_DURATION_MINUTES = 1;
 export const MAX_DURATION_MINUTES = 480;
 
 /** Highest price that fits the DECIMAL(10,2) price columns. */
-export const MAX_PRICE = 99_999_999.99;
+const MAX_PRICE = 99_999_999.99;
 
 /**
  * Hours used for public bookings when a staff member has no hours configured
@@ -378,7 +378,7 @@ export function getBookableIntervals(
  * @param intervals - Sorted intervals.
  * @param window    - Window to clamp to.
  */
-export function clampIntervals(intervals: readonly TimeInterval[], window: TimeInterval): TimeInterval[] {
+function clampIntervals(intervals: readonly TimeInterval[], window: TimeInterval): TimeInterval[] {
   const clamped: TimeInterval[] = [];
   for (const interval of intervals) {
     const start = interval.start > window.start ? interval.start : window.start;
