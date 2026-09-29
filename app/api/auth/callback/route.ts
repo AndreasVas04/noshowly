@@ -28,6 +28,9 @@
  *   - We never log or expose the code value.
  *   - On failure we redirect to the reset page with an error flag so the
  *     user sees a clear message instead of a broken page.
+ *   - `next` must be a path on this site (lib/redirect.ts); anything else,
+ *     such as "//other.site", falls back to /dashboard, so the route cannot
+ *     be used as an open redirect.
  */
 
 import { NextResponse } from 'next/server';
@@ -35,6 +38,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { NextRequest } from 'next/server';
 import type { Database } from '@/types';
+import { safeRedirectPath } from '@/lib/redirect';
 
 /**
  * Exchanges the Supabase PKCE authorization code for a session, then
@@ -47,7 +51,7 @@ import type { Database } from '@/types';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/dashboard';
+  const next = safeRedirectPath(searchParams.get('next'), '/dashboard');
 
   if (!code) {
     console.error('[api/auth/callback] No code in query string');

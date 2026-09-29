@@ -6,6 +6,9 @@
  *    search; the matches are offered as suggestions under the field.
  *  - Phone field also triggers a debounced client lookup on 6+ digits; a
  *    match fills in the client's name and email and locks the name field.
+ *    Changing the phone afterwards clears what the match filled in, including
+ *    the email unless it was edited, so a new client is never saved with the
+ *    matched client's email.
  *
  * In edit mode the client fields edit the linked client instead, so no
  * lookups run (a phone match could otherwise switch the client).
@@ -57,6 +60,8 @@ export default function useClientLookup({
   const [clientFoundByPhone, setClientFoundByPhone] = useState(false);
   const [nameReadOnly, setNameReadOnly] = useState(false);
   const phoneSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The email a phone match filled in, or null when the match filled none. */
+  const [matchedEmail, setMatchedEmail] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // Client lookups (create mode only)
@@ -104,6 +109,7 @@ export default function useClientLookup({
       const payload = (await res.json()) as { clients: Client[] };
       const match = payload.clients[0] ?? null;
       if (match) {
+        setMatchedEmail(match.email ?? null);
         setForm((prev) => ({
           ...prev,
           clientQuery: match.name,
@@ -173,9 +179,17 @@ export default function useClientLookup({
    */
   function handlePhoneChange(value: string): void {
     if (!isEditMode && clientFoundByPhone) {
+      setMatchedEmail(null);
       setClientFoundByPhone(false);
       setNameReadOnly(false);
-      setForm((prev) => ({ ...prev, clientPhone: value, clientQuery: '', selectedClient: null }));
+      setForm((prev) => ({
+        ...prev,
+        clientPhone: value,
+        clientQuery: '',
+        selectedClient: null,
+        // The matched client's email goes too, unless the owner changed it.
+        clientEmail: matchedEmail !== null && prev.clientEmail === matchedEmail ? '' : prev.clientEmail,
+      }));
     } else {
       setField('clientPhone', value);
     }
@@ -216,6 +230,7 @@ export default function useClientLookup({
    * the modal opens, so every opening starts without them.
    */
   function reset(): void {
+    setMatchedEmail(null);
     setSuggestions([]);
     setShowSuggestions(false);
     setIsPhoneSearching(false);

@@ -180,8 +180,8 @@ type DateTimeStepProps = {
   selectedTime: string | null;
   /** Called when a start time is picked. */
   onSelectTime: (time: string) => void;
-  /** Goes back to the previous step. */
-  onBack: () => void;
+  /** Goes back to the previous step; undefined when there is none (no Back button). */
+  onBack?: () => void;
   /** Goes on to the details step. */
   onContinue: () => void;
 };
@@ -277,13 +277,18 @@ export default function DateTimeStep({
       )}
 
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onBack}
-          className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
-        >
-          &#8592; Back
-        </button>
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="font-body text-sm text-[#8A8680] hover:text-[#1B4332] transition-colors"
+          >
+            &#8592; Back
+          </button>
+        ) : (
+          // Keeps Continue on the right when there is no step to go back to.
+          <span />
+        )}
 
         <Button
           type="button"

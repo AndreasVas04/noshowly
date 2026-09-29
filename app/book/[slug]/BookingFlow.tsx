@@ -395,13 +395,11 @@ export default function BookingFlow({
               timeSlots={timeSlots}
               selectedTime={selectedTime}
               onSelectTime={setSelectedTime}
-              onBack={() => {
-                if (globalServices.length > 0) {
-                  setStep('service');
-                } else if (hasStaffChoice) {
-                  setStep('staff');
-                }
-              }}
+              onBack={
+                globalServices.length > 0 ? () => setStep('service')
+                  : hasStaffChoice ? () => setStep('staff')
+                  : undefined
+              }
               onContinue={() => setStep('details')}
             />
           )}

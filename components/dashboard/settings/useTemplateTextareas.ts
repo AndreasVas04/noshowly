@@ -14,6 +14,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { insertVariable } from '@/components/dashboard/settings/settings-helpers';
 import type { TemplateFields } from '@/components/dashboard/settings/useSettingsData';
 
 /** The textarea refs and the variable insertion helper. */
@@ -28,7 +29,7 @@ export type TemplateTextareas = {
     variable: string,
     current: string,
     setter: (fn: (prev: string) => string) => void,
-  ) => void;
+  ) => string;
 };
 
 /** The template values the textareas are resized for. */
@@ -85,27 +86,33 @@ export function useTemplateTextareas({
    * input element. Falls back to appending if the element has no selection.
    * Uses requestAnimationFrame to restore cursor position after React re-renders.
    *
+   * The new text is returned so the caller can save it straight away: the
+   * field's state and its DOM value only change on the next render.
+   *
    * @param elRef    - Ref to the target textarea or input.
    * @param variable - The variable string to insert, e.g. "{client_name}".
-   * @param current  - Current field value (used as fallback for insertion position).
+   * @param current  - Current field value.
    * @param setter   - State setter for the field.
+   * @returns        The field's new text.
    */
   function insertAtCursor(
     elRef: { current: HTMLTextAreaElement | HTMLInputElement | null },
     variable: string,
     current: string,
     setter: (fn: (prev: string) => string) => void,
-  ): void {
+  ): string {
     const el    = elRef.current;
     const pos   = el?.selectionStart ?? current.length;
     const end   = el?.selectionEnd   ?? pos;
-    setter((prev) => prev.slice(0, pos) + variable + prev.slice(end));
+    const next  = insertVariable(current, pos, end, variable);
+    setter(() => next.value);
     requestAnimationFrame(() => {
       if (el) {
         el.focus();
-        el.setSelectionRange(pos + variable.length, pos + variable.length);
+        el.setSelectionRange(next.cursor, next.cursor);
       }
     });
+    return next.value;
   }
 
   return {
