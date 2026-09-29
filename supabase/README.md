@@ -13,6 +13,7 @@ Each file runs in a single transaction and is safe to run again.
 | `20260928140000_private_booking_reads.sql` | Removes anonymous read access to every table. **Apply only after the release in which the public booking page reads through the server with the service-role key.** |
 | `20260928150000_reminders_exactly_once.sql` | At most one pending or sent 24-hour reminder per appointment. **Apply only after the reminders release** (the cron sends the queued reminder instead of inserting a second row, and test sends use the type `email_test`). |
 | `20260929120000_read_only_accounts.sql` | Read-only accounts in the database, not only in the dashboard API: when the trial has ended or the subscription is inactive, the owner can still read everything and edit the salon's settings, but cannot change anything else, also not straight through the Supabase API (`public.owner_has_write_access()`, the same rule as `lib/entitlements.ts`). Owners no longer write reminders or create salons themselves; the server does, with the service-role key. **Apply only after the billing release** (the one with the free trial and read-only accounts). |
+| `20260929130000_demo_reset.sql` | Nightly reset of the public demo account: `public.take_demo_snapshot()` stores a copy of the demo salon in the `private` schema, and `public.reset_demo_data()` puts it back every night at 01:30 UTC (pg_cron job `noshowly-reset-demo`), with the appointments moved to the same days relative to today. It also keeps the demo account on the Basic plan, so it never becomes read-only. Only the service role and the database owner can run either function. |
 
 The migrations need PostgreSQL 15 or later (every Supabase project has it).
 
@@ -79,10 +80,40 @@ harmless: it only reports what is there). It still needs, in order:
 5. `20260929120000_read_only_accounts.sql`, any time after the billing release
    is live. Its result table shows how many accounts can make changes and how
    many are read-only.
+6. `20260929130000_demo_reset.sql`, any time. Then take the demo snapshot
+   (see [The demo account](#the-demo-account)).
 
-Files 3, 4 and 5 do not depend on each other; apply each when its release is
-live. Running `data_integrity` again puts the owner policies that file 5
+Files 3, 4, 5 and 6 do not depend on each other; apply each when its release
+is live. Running `data_integrity` again puts the owner policies that file 5
 replaces back, so run file 5 again after it.
+
+## The demo account
+
+Anyone can sign in to the public demo account (`demo@noshowly.com`, see
+`lib/demo.ts`) and change it, so it is put back to a snapshot every night at
+01:30 UTC. To change what visitors see, sign in as the demo account, set it up
+the way it should look, and take a new snapshot in the SQL Editor:
+
+```sql
+SELECT public.take_demo_snapshot();
+```
+
+The appointments keep their place relative to the day of the snapshot: one
+that was tomorrow is always tomorrow. To reset the demo right away:
+
+```sql
+SELECT public.reset_demo_data();
+```
+
+Until there is a snapshot, the nightly job only keeps the account on the Basic
+plan. The job's last runs:
+
+```sql
+SELECT d.start_time, d.status, d.return_message
+FROM cron.job_run_details d JOIN cron.job j USING (jobid)
+WHERE j.jobname = 'noshowly-reset-demo'
+ORDER BY d.start_time DESC LIMIT 5;
+```
 
 ## Tests
 
