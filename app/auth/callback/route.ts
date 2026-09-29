@@ -13,7 +13,7 @@
  *     dashboard:
  *      - ?error=link_invalid  — no code, or the code could not be exchanged;
  *      - ?error=setup_failed  — the records could not be created. The user is
- *        signed out first (middleware would otherwise send a signed-in user
+ *        signed out first (the proxy would otherwise send a signed-in user
  *        from /login back to /dashboard); signing in again retries, because
  *        the dashboard layout completes a half-created account.
  *

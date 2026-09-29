@@ -15,7 +15,7 @@
  *      — show an error with a link back to /login.
  *
  * "Back to sign in" signs the user out first so the active session does not
- * cause the middleware to redirect /login → /dashboard.
+ * cause the proxy (proxy.ts) to redirect /login → /dashboard.
  */
 
 'use client';
@@ -155,7 +155,7 @@ export default function ResetPasswordPage() {
 
   /**
    * Signs the user out then navigates to /login.
-   * Without signing out, the active session causes the middleware to redirect
+   * Without signing out, the active session causes the proxy to redirect
    * /login → /dashboard.
    */
   async function handleBackToSignIn() {

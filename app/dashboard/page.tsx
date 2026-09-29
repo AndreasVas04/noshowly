@@ -8,7 +8,7 @@
  * first thing in the morning to see who is coming in; other days are on the
  * Week page.
  *
- * Authentication is guaranteed by middleware.ts before this page is reached.
+ * Authentication is guaranteed by proxy.ts before this page is reached.
  * This is a Server Component — StatsCards and DayView handle all client-side
  * interactivity independently.
  */

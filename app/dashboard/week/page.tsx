@@ -6,7 +6,7 @@
  *
  * The WeekView component owns all navigation state and data fetching.
  *
- * Authentication is guaranteed by middleware.ts before this page is reached.
+ * Authentication is guaranteed by proxy.ts before this page is reached.
  * This is a Server Component — WeekView handles all client-side interactivity.
  */
 

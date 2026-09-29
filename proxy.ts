@@ -1,23 +1,24 @@
 /**
- * middleware.ts
+ * proxy.ts
  *
- * Next.js Edge Middleware for NoShowly.
+ * Next.js Proxy (the file convention formerly called Middleware) for Noshowly.
+ * It runs before every matched request, on the Node.js runtime.
  *
  * Responsibilities:
  *  1. Refresh the Supabase session token on every request so it never silently
- *     expires mid-session. This MUST happen in middleware — server components
+ *     expires mid-session. This MUST happen in the proxy — server components
  *     are read-only and cannot write cookies to refresh tokens.
  *  2. Protect all /dashboard/* routes: redirect unauthenticated visitors to /login.
  *  3. Redirect already-authenticated users away from /login and /register so they
  *     land on /dashboard instead of seeing the auth forms again.
  *
  * Why getUser() instead of getSession():
- *  Supabase's docs recommend `getUser()` in middleware because it re-validates the
+ *  Supabase's docs recommend `getUser()` here because it re-validates the
  *  token against the auth server on every call, protecting against stolen/forged
  *  JWTs. `getSession()` only reads the local cookie without server validation.
  *
  * Cookie handling pattern:
- *  The middleware builds a `supabaseResponse` via NextResponse.next() and passes
+ *  The proxy builds a `supabaseResponse` via NextResponse.next() and passes
  *  the same request object to both the Supabase client and the response so that
  *  refreshed session cookies are correctly written to the outgoing response.
  *  Do NOT create a separate NextResponse object — this would break cookie writes.
@@ -58,11 +59,11 @@ function isAuthRoute(pathname: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Middleware
+// Proxy
 // ---------------------------------------------------------------------------
 
 /**
- * Main middleware function — runs on every matched request (see `config` below).
+ * Main proxy function — runs on every matched request (see `config` below).
  *
  * Flow:
  *  1. Build a Supabase server client wired to the request/response cookie stores.
@@ -75,10 +76,10 @@ function isAuthRoute(pathname: string): boolean {
  * The Supabase client must be allowed to mutate `supabaseResponse` (via setAll)
  * before anything else reads from the response — otherwise refreshed tokens are lost.
  *
- * @param request - The incoming Next.js edge request.
+ * @param request - The incoming request.
  * @returns A NextResponse — either a redirect or the request passed through.
  */
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   // Start with a pass-through response. The Supabase client may replace this
@@ -86,7 +87,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   let supabaseResponse = NextResponse.next({ request });
 
   // -------------------------------------------------------------------------
-  // Build the Supabase client wired to the edge request/response cookies.
+  // Build the Supabase client wired to the request/response cookies.
   // The setAll callback MUST update both the request cookies (so subsequent
   // server-side reads in the same render see the fresh token) and the response
   // cookies (so the browser receives the updated token).
@@ -168,7 +169,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// Matcher — which requests trigger this middleware
+// Matcher — which requests run through the proxy
 // ---------------------------------------------------------------------------
 
 export const config = {
