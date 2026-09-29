@@ -40,6 +40,7 @@ export default function StaffServices({ barber, salonServices, assignments, curr
   const {
     barberServiceAssignments,
     savingAssignmentsFor,
+    assignmentErrors,
     handleToggleBarberService,
     updateBarberServiceOverride,
     runAssignmentSave,
@@ -140,6 +141,9 @@ export default function StaffServices({ barber, salonServices, assignments, curr
       </div>
       {savingAssignmentsFor[barber.id] && (
         <p className="text-xs text-[#8A8680] mt-2">Saving…</p>
+      )}
+      {!savingAssignmentsFor[barber.id] && assignmentErrors[barber.id] && (
+        <p role="alert" className="text-xs text-red-600 mt-2">{assignmentErrors[barber.id]}</p>
       )}
     </div>
   );

@@ -4,7 +4,8 @@
  * Instagram-style crop modal for staff photos, open while a chosen photo is
  * being cropped. Full-screen dark overlay. User drags / scrolls / pinches to
  * reposition the image inside a fixed circular crop window. "Apply" crops via
- * Canvas and uploads the result. "Cancel" discards the selection.
+ * Canvas and uploads the result; if that fails, the message is shown above
+ * the buttons and Apply can be tried again. "Cancel" discards the selection.
  *
  * State and handlers come from useStaffPhotos.
  */
@@ -33,6 +34,7 @@ export default function PhotoCropModal({ photos }: PhotoCropModalProps) {
     cropY,
     cropScale,
     cropUploading,
+    cropError,
     isDragging,
     handleCropMouseDown,
     handleCropMouseMove,
@@ -111,6 +113,15 @@ export default function PhotoCropModal({ photos }: PhotoCropModalProps) {
           Drag to reposition · scroll or pinch to zoom
         </p>
       </div>
+
+      {/* ── Why the last Apply failed ─────────────────────────────────────── */}
+      {cropError && (
+        <div className="absolute bottom-24 left-0 right-0 flex justify-center px-8">
+          <p role="alert" className="font-body max-w-sm rounded-lg bg-red-600/90 px-4 py-2 text-center text-sm text-white">
+            {cropError}
+          </p>
+        </div>
+      )}
 
       {/* ── Bottom action row ────────────────────────────────────────────── */}
       <div className="absolute bottom-8 left-0 right-0 flex items-center justify-between px-8">

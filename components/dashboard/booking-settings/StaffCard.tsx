@@ -4,7 +4,9 @@
  * One staff member's card in the Staff section: the name with its save status
  * and "Remove", the photo (click to choose and crop a new one, or remove it),
  * the name and bio fields, the services they perform (StaffServices) and their
- * weekly availability (StaffAvailability). Profile changes are auto-saved.
+ * weekly availability (StaffAvailability). Profile changes are auto-saved;
+ * a failed save or removal shows its message under the header, with
+ * "Try again" for a save, and a photo problem shows under the photo.
  */
 
 'use client';
@@ -60,12 +62,29 @@ export default function StaffCard({
   salonServices,
   currencySymbol,
 }: StaffCardProps) {
-  const { barberSaveStatuses, deletingBarberId, registerBioTextarea, updateBarberField, handleDeleteBarber } = staff;
-  const { removingPhotoForId, registerPhotoInput, openPhotoPicker, handlePhotoUpload, handleRemovePhoto } = photos;
+  const {
+    barberSaveStatuses,
+    deletingBarberId,
+    staffErrors,
+    retryBarberSave,
+    registerBioTextarea,
+    updateBarberField,
+    handleDeleteBarber,
+  } = staff;
+  const {
+    removingPhotoForId,
+    photoErrors,
+    registerPhotoInput,
+    openPhotoPicker,
+    handlePhotoUpload,
+    handleRemovePhoto,
+  } = photos;
   const isSaving = barberSaveStatuses[barber.id] === 'saving';
   const barberSaveStatus = barberSaveStatuses[barber.id] ?? 'idle';
   const isDeleting = deletingBarberId === barber.id;
   const isRemovingPhoto = removingPhotoForId === barber.id;
+  const staffError = staffErrors[barber.id];
+  const photoError = photoErrors[barber.id];
   const initials = getInitials(barber.name);
 
   return (
@@ -78,9 +97,10 @@ export default function StaffCard({
           <div className="flex items-center gap-3 shrink-0">
             <span className={`text-xs font-medium transition-colors ${
               barberSaveStatus === 'saving' ? 'text-[#8A8680]' :
-              barberSaveStatus === 'saved'  ? 'text-emerald-600' : 'invisible'
+              barberSaveStatus === 'saved'  ? 'text-emerald-600' :
+              barberSaveStatus === 'error'  ? 'text-red-600' : 'invisible'
             }`}>
-              {barberSaveStatus === 'saving' ? 'Saving…' : 'Saved'}
+              {barberSaveStatus === 'saving' ? 'Saving…' : barberSaveStatus === 'error' ? 'Not saved' : 'Saved'}
             </span>
             <button
               type="button"
@@ -92,6 +112,21 @@ export default function StaffCard({
             </button>
           </div>
         </div>
+
+        {staffError && (
+          <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-xs text-red-700">
+            <span>{staffError}</span>
+            {barberSaveStatus === 'error' && (
+              <button
+                type="button"
+                onClick={() => retryBarberSave(barber.id)}
+                className="font-medium underline underline-offset-2 hover:text-red-900"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Photo upload section — clicking the circle/link opens the crop modal */}
         <div className="flex flex-col items-start gap-2">
@@ -146,6 +181,10 @@ export default function StaffCard({
               </>
             )}
           </div>
+
+          {photoError && (
+            <p role="alert" className="text-xs text-red-600">{photoError}</p>
+          )}
 
           {/* Hidden file input */}
           <input

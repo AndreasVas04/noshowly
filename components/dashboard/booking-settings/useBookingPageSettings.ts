@@ -7,8 +7,10 @@
  *    (POST /api/booking-page; a new page starts offline).
  *  - Edit flow: headline, description, link preview description and the
  *    required client contact fields, auto-saved with PUT /api/booking-page.
- *  - Go live / take offline (PUT /api/booking-page with is_active) and
- *    "Copy link".
+ *  - Go live / take offline (PUT /api/booking-page with is_active), from
+ *    either section; a failure is shown in the section it came from
+ *    (toggleError). "Copy link", with the link shown for copying by hand
+ *    when the clipboard is not available (copyFailed).
  *
  * Auto-save runs 800 ms after the last change, one save at a time: a change
  * made while a save is in flight queues one more save with the latest values.
@@ -20,7 +22,11 @@
 
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { applySavedText, type SaveStatus } from '@/components/dashboard/booking-settings/form-state';
+import { responseError } from '@/lib/utils';
 import type { BookingPage } from '@/types';
+
+/** The section whose control took the booking page live or offline. */
+export type ToggleSource = 'settings' | 'publish';
 
 /**
  * Owns the booking page settings: the saved booking page, the form fields,
@@ -43,7 +49,13 @@ export function useBookingPageSettings() {
   const [requireFieldsError, setRequireFieldsError] = useState('');
   const [bookingSaveStatus, setBookingSaveStatus] = useState<SaveStatus>('idle');
   const [bookingError, setBookingError] = useState('');
+  /** True while going live or offline; the controls wait for it. */
+  const [togglingLive, setTogglingLive] = useState(false);
+  /** Why the last go-live / take-offline failed, and which section asked. */
+  const [toggleError, setToggleError] = useState<{ source: ToggleSource; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  /** True when the link could not be copied, so it is shown for copying by hand. */
+  const [copyFailed, setCopyFailed] = useState(false);
 
   /** Refs to the booking page description/intro textareas — used for auto-resize. */
   const customIntroRef = useRef<HTMLTextAreaElement | null>(null);
@@ -159,10 +171,13 @@ export function useBookingPageSettings() {
    * Toggles the booking page's is_active flag via PUT /api/booking-page.
    *
    * @param active - New desired active state.
+   * @param source - The section whose control was used; a failure is shown there.
    */
-  async function handleBookingToggle(active: boolean): Promise<void> {
-    if (!bookingPage) return;
+  async function handleBookingToggle(active: boolean, source: ToggleSource): Promise<void> {
+    if (!bookingPage || togglingLive) return;
 
+    setToggleError(null);
+    setTogglingLive(true);
     try {
       const res = await fetch('/api/booking-page', {
         method: 'PUT',
@@ -171,28 +186,33 @@ export function useBookingPageSettings() {
       });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        alert(data.error ?? 'Failed to update. Please try again.');
+        setToggleError({ source, message: await responseError(res, 'Failed to update. Please try again.') });
         return;
       }
 
       const data = (await res.json()) as { bookingPage: BookingPage };
       setBookingPage(data.bookingPage);
     } catch {
-      alert('Something went wrong. Please check your connection and try again.');
+      setToggleError({ source, message: 'Something went wrong. Please check your connection and try again.' });
+    } finally {
+      setTogglingLive(false);
     }
   }
 
-  /** Copies the booking page URL to the clipboard. */
+  /**
+   * Copies the booking page URL to the clipboard. When the browser does not
+   * allow it, the link is shown selected so the owner can copy it by hand.
+   */
   async function handleCopyLink(): Promise<void> {
     if (!bookingPage) return;
     const url = `${window.location.origin}/book/${bookingPage.slug}`;
     try {
       await navigator.clipboard.writeText(url);
+      setCopyFailed(false);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      alert(`Your booking link: ${url}`);
+      setCopyFailed(true);
     }
   }
 
@@ -323,7 +343,11 @@ export function useBookingPageSettings() {
     bookingSaveStatus,
     bookingError,
     setBookingError,
+    togglingLive,
+    toggleError,
     copied,
+    copyFailed,
+    setCopyFailed,
     customIntroRef,
     bookingDescRef,
     initBookingPage,

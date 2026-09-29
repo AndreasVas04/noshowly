@@ -9,13 +9,15 @@
  * whole assignment set with PUT /api/barber-services; an override is saved
  * when its field loses focus. Saves run one at a time per staff member, and a
  * finished save keeps anything the owner changed while it was in flight
- * (lib/barber-services.ts).
+ * (lib/barber-services.ts). A rejected save is undone and its message shown
+ * in the staff card (assignmentErrors).
  */
 
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
 import { mergeSavedAssignments, toAssignmentValues } from '@/lib/barber-services';
+import { responseError } from '@/lib/utils';
 import type { BarberService } from '@/types';
 
 /**
@@ -39,6 +41,8 @@ export function useServiceAssignments() {
   const barberServiceAssignmentsRef = useRef<BarberService[]>([]);
   /** Staff members whose service assignments are being saved (shows "Saving…"). */
   const [savingAssignmentsFor, setSavingAssignmentsFor] = useState<Record<string, boolean>>({});
+  /** Per staff member: why their last assignment save failed. */
+  const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   /** Per-barber: an assignment save is in flight / another save is queued behind it. */
   const assignmentSaveInFlightRef = useRef<Record<string, boolean>>({});
   const assignmentSaveQueuedRef = useRef<Record<string, boolean>>({});
@@ -187,6 +191,19 @@ export function useServiceAssignments() {
       ]);
     }
 
+    /** Shows why the save failed in the staff card, or clears it with null. */
+    function setAssignmentError(message: string | null): void {
+      setAssignmentErrors((prev) => {
+        if (message === null) {
+          if (!(barberId in prev)) return prev;
+          const next = { ...prev };
+          delete next[barberId];
+          return next;
+        }
+        return { ...prev, [barberId]: message };
+      });
+    }
+
     try {
       const res = await fetch('/api/barber-services', {
         method: 'PUT',
@@ -195,6 +212,7 @@ export function useServiceAssignments() {
       });
 
       if (res.ok) {
+        setAssignmentError(null);
         const data = (await res.json()) as { barberServices: BarberService[] };
         // An empty list for a non-empty save means the rows were saved but could
         // not be read back; keep what the owner sees.
@@ -204,22 +222,24 @@ export function useServiceAssignments() {
         return;
       }
 
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      alert(data.error ?? 'Failed to save the services. Please check the price and duration.');
+      setAssignmentError(
+        await responseError(res, 'Failed to save the services. Please check the price and duration.'),
+      );
 
       const reloadRes = await fetch('/api/barber-services');
       if (reloadRes.ok) {
         const { barberServices } = (await reloadRes.json()) as { barberServices: BarberService[] };
         applySaved(barberServices.filter((ba) => ba.barber_id === barberId));
       }
-    } catch (err) {
-      console.error('[BookingPage] saveBarberServiceAssignments error:', err);
+    } catch {
+      setAssignmentError('Could not save the services. Please check your connection and try again.');
     }
   }
 
   return {
     barberServiceAssignments,
     savingAssignmentsFor,
+    assignmentErrors,
     initAssignments,
     updateBarberServiceAssignments,
     handleToggleBarberService,
