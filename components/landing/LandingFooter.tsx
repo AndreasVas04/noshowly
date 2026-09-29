@@ -40,12 +40,12 @@ export default function LandingFooter() {
               Product
             </p>
             <nav className="space-y-3" aria-label="Footer product links">
-              <a href="/#features" className="block text-sm text-white/60 hover:text-white transition-colors font-body">
+              <Link href="/#features" className="block text-sm text-white/60 hover:text-white transition-colors font-body">
                 Features
-              </a>
-              <a href="/#pricing" className="block text-sm text-white/60 hover:text-white transition-colors font-body">
+              </Link>
+              <Link href="/#pricing" className="block text-sm text-white/60 hover:text-white transition-colors font-body">
                 Pricing
-              </a>
+              </Link>
               <Link href="/login" className="block text-sm text-white/60 hover:text-white transition-colors font-body">
                 Sign in
               </Link>

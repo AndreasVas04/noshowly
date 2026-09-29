@@ -603,6 +603,7 @@ export default function SettingsPage() {
         return;
       }
 
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load drops the deleted account's client state
       window.location.href = '/register';
     } catch {
       setDeleteAccountError('Something went wrong. Please check your connection.');
@@ -684,13 +685,11 @@ export default function SettingsPage() {
   const previewBusiness = PREVIEW_VARS.business_name;
 
   // Email preview (live — updates as the owner types)
-  const activeEmailSubject  = emailSubject.trim()  || DEFAULT_EMAIL_SUBJECT;
   const activeEmailGreeting = emailGreeting.trim() || DEFAULT_EMAIL_GREETING;
   const activeEmailBody     = emailBody.trim()     || DEFAULT_EMAIL_BODY;
   const activeEmailFooter   = emailFooter.trim()   || DEFAULT_EMAIL_FOOTER;
   const activeEmailClosing  = emailClosing.trim()  || DEFAULT_EMAIL_CLOSING;
 
-  const previewEmailSubjectText  = applyTemplate(activeEmailSubject,  PREVIEW_VARS);
   const previewEmailGreetingText = applyTemplate(activeEmailGreeting, PREVIEW_VARS);
   const previewEmailBodyText     = applyTemplate(activeEmailBody,     PREVIEW_VARS);
   const previewEmailFooterText   = applyTemplate(activeEmailFooter,   { business_name: previewBusiness });

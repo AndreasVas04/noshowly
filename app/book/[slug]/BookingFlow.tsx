@@ -927,7 +927,7 @@ export default function BookingFlow({
                 <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">
                   Select a staff member
                 </h2>
-                <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you'd like to see</p>
+                <p className="font-body text-sm text-[#8A8680] mt-1">Choose who you&apos;d like to see</p>
               </div>
 
               {bookableBarbers.length === 0 ? (
@@ -962,6 +962,7 @@ export default function BookingFlow({
                       className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
                     >
                       {b.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- a staff photo can be any URL the owner saved, which next/image would have to allow-list
                         <img
                           src={b.photo_url}
                           alt={b.name}
@@ -994,7 +995,7 @@ export default function BookingFlow({
               <div className="bg-white rounded-2xl border border-[#E5E2DB] overflow-hidden shadow-sm">
                 <div className="px-6 pt-6 pb-5 border-b border-[#E5E2DB]/40">
                   <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Choose a service</h2>
-                  <p className="font-body text-sm text-[#8A8680] mt-1">Select what you'd like to book</p>
+                  <p className="font-body text-sm text-[#8A8680] mt-1">Select what you&apos;d like to book</p>
                 </div>
 
                 {availableServices.length === 0 ? (
@@ -1198,7 +1199,7 @@ export default function BookingFlow({
               >
                 <div>
                   <h2 className="font-heading text-2xl font-bold text-[#1A1A1A]">Your details</h2>
-                  <p className="font-body text-sm text-[#8A8680] mt-1">We'll use this to confirm your booking</p>
+                  <p className="font-body text-sm text-[#8A8680] mt-1">We&apos;ll use this to confirm your booking</p>
                 </div>
                 <hr className="border-[#E5E2DB]" />
 

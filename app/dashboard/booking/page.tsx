@@ -2432,6 +2432,7 @@ export default function BookingPage() {
                       >
                         {/* Photo or initials */}
                         {form.photo_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- a staff photo can be any URL the owner saved, which next/image would have to allow-list
                           <img
                             src={form.photo_url}
                             alt={barber.name}
@@ -2860,7 +2861,7 @@ export default function BookingPage() {
       >
         {/* ── Image layer ─────────────────────────────────────────────────── */}
         <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- previews the chosen file from a local object URL */}
           <img
             src={cropModal.src}
             alt="Crop preview"
