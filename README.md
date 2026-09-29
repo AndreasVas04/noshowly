@@ -224,7 +224,8 @@ migration and the order to apply them in.
 - **Database tests** (`scripts/test-db.sh`) build throwaway PostgreSQL
   databases from the migrations and run the SQL checks in `tests/db`: RLS for
   anonymous visitors and owners, tenant isolation, the service role,
-  constraints, double booking, reminders, the demo account and the cron setup.
+  constraints, double booking, reminders, the demo account, function grants
+  and the cron setup.
   They also apply every migration twice and run them over rows with the
   problems the live data can have.
 - **CI:** `ci.yml` runs the type check, ESLint, the unit tests, knip, an audit
