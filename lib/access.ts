@@ -11,6 +11,11 @@
  * email route. PUT /api/salon does not, so owners can always fix their
  * business settings, and DELETE /api/account does not.
  *
+ * The database applies the same rule to writes made with the owner's own
+ * session, e.g. straight through the Supabase API:
+ * public.owner_has_write_access() in
+ * supabase/migrations/20260929120000_read_only_accounts.sql.
+ *
  * Works with the signed-in user's client (RLS lets owners read their own
  * users row) and with the service-role client.
  */

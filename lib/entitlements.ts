@@ -25,6 +25,11 @@
  * data_integrity migration map to their current plan, and an unknown value
  * counts as 'cancelled' (fail closed) and is logged.
  *
+ * The database enforces canWrite for writes made with an owner's own session
+ * through public.owner_has_write_access()
+ * (supabase/migrations/20260929120000_read_only_accounts.sql). Changing these
+ * rules needs a migration that changes that function too.
+ *
  * No imports from Next.js or Supabase, so this is safe to use anywhere,
  * including Client Components.
  */
