@@ -1,7 +1,7 @@
 /**
  * app/api/barbers/[id]/route.ts
  *
- * PUT    /api/barbers/[id] — update a barber's name, bio, or active flag.
+ * PUT    /api/barbers/[id] — update a barber's name, bio, photo or active flag.
  * DELETE /api/barbers/[id] — remove a barber from the authenticated salon.
  *
  * Deletion is safe because the appointments table uses ON DELETE SET NULL for
@@ -14,10 +14,13 @@
  *    read-only (lib/access.ts).
  *  - Ownership verified via salon_id derived from session — never from client.
  *  - RLS provides a second enforcement layer.
+ *  - A new photo_url must be a photo the owner uploaded
+ *    (lib/staff-photos.ts); the photo already saved is accepted unchanged.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { requireWriteAccess } from '@/lib/access';
+import { isOwnStaffPhotoUrl } from '@/lib/staff-photos';
 import type { Barber } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -29,9 +32,10 @@ import type { Barber } from '@/types';
  *
  * Request body (all fields optional — at least one required):
  *  {
- *    name?:   string          — 1–50 chars
- *    bio?:    string | null   — short bio shown on booking page, max 300 chars, or null to clear
- *    active?: boolean         — show/hide on booking page and appointment modal
+ *    name?:      string          — 1–50 chars
+ *    bio?:       string | null   — short bio shown on booking page, max 300 chars, or null to clear
+ *    photo_url?: string | null   — a URL from POST /api/upload/staff-photo, or null to remove
+ *    active?:    boolean         — show/hide on booking page and appointment modal
  *  }
  *
  * @param request - Incoming request.
@@ -129,7 +133,7 @@ export async function PUT(
 
   if (Object.keys(updates).length === 0) {
     return Response.json(
-      { error: 'At least one field (name, bio, active) is required' },
+      { error: 'At least one field (name, bio, photo_url, active) is required' },
       { status: 400 }
     );
   }
@@ -143,6 +147,23 @@ export async function PUT(
 
   if (salonError || !salon) {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
+  }
+
+  // Step 4b: A new photo must be one the owner uploaded. The photo already
+  // saved passes unchanged, so an older URL stays until it is replaced.
+  if (updates.photo_url && !isOwnStaffPhotoUrl(updates.photo_url, process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', session.user.id)) {
+    const { data: current } = await supabase
+      .from('barbers')
+      .select('photo_url')
+      .eq('id', barberId)
+      .eq('salon_id', salon.id)
+      .maybeSingle();
+    if (!current) {
+      return Response.json({ error: 'Barber not found' }, { status: 404 });
+    }
+    if (current.photo_url !== updates.photo_url) {
+      return Response.json({ error: 'Upload the photo with "Change photo".' }, { status: 400 });
+    }
   }
 
   // Step 5: Update — ownership guard via .eq('salon_id', salon.id).

@@ -140,7 +140,7 @@ export default function StaffCard({
           >
             {/* Photo or initials */}
             {form.photo_url ? (
-              // eslint-disable-next-line @next/next/no-img-element -- a staff photo can be any URL the owner saved, which next/image would have to allow-list
+              // eslint-disable-next-line @next/next/no-img-element -- photos saved before uploads were required can be on any host, which next/image would have to allow-list
               <img
                 src={form.photo_url}
                 alt={barber.name}

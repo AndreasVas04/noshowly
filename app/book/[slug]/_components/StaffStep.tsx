@@ -68,7 +68,7 @@ export default function StaffStep({ bookableBarbers, offerAnyStaff, onSelect }: 
               className="w-full flex items-center gap-4 px-6 py-5 hover:bg-[#F5FAF7] transition-colors text-left group"
             >
               {b.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element -- a staff photo can be any URL the owner saved, which next/image would have to allow-list
+                // eslint-disable-next-line @next/next/no-img-element -- photos saved before uploads were required can be on any host, which next/image would have to allow-list
                 <img
                   src={b.photo_url}
                   alt={b.name}

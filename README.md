@@ -138,6 +138,10 @@ flowchart LR
 - **Abuse limits:** a honeypot field and a limit on repeated bookings from the
   same email or phone on the booking page, and per-salon, per-recipient and
   test-email limits on sending.
+- **Staff photos:** an upload must really be a JPEG, PNG or WebP image (its
+  bytes are checked, not the declared type), and a staff member's photo can
+  only be set to a file the owner uploaded to their own folder of the bucket
+  (`lib/staff-photos.ts`).
 - **Demo account:** a database trigger blocks changes to its email and
   password, the API refuses to delete it or start billing for it, and its
   emails go to its own address. A nightly pg_cron job restores it from a
