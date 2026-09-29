@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # eslint-config-next is pinned to the Next.js version: update them together.
+      next:
+        patterns:
+          - next
+          - eslint-config-next
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
