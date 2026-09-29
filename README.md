@@ -90,8 +90,10 @@ flowchart LR
   `BookingFlow` loads the busy times of a date from `GET /api/book/[slug]` and
   books with `POST /api/book/[slug]/appointments`.
 - **Dashboard.** Client components call the route handlers under `app/api`.
-  Each one checks the session with `requireUser()` and reads and writes the
-  owner's data with the owner's session, so Row Level Security applies. The
+  Each one starts with `requireOwner()` (`lib/auth.ts`): it verifies the
+  session with Supabase Auth, refuses changes from a read-only account and
+  loads the owner's salon. The handler then reads and writes the owner's data
+  with the owner's session, so Row Level Security applies. The
   service-role key is only used for what owners may not do themselves, such
   as the billing fields, recording emails and storing staff photos.
 - **Emails.** Every email goes through one gateway, which checks the plan,
@@ -129,9 +131,9 @@ flowchart LR
   and the confirmation links are served by the server.
 - **The service-role key stays on the server.** `lib/supabase/admin.ts`
   imports `server-only`, so a client component cannot import it. Routes that
-  act for a user call `requireUser()` first, which validates the session with
-  Supabase Auth (`getUser()`, not the cookie alone), and only use the verified
-  user id. Public routes first check what authorises them: the booking page
+  act for a user call `requireOwner()` or `requireUser()` first, which
+  validate the session with Supabase Auth (`getUser()`, not the cookie alone),
+  and only use the verified user id. Public routes first check what authorises them: the booking page
   slug (that booking page), the link token (one appointment), the cron secret
   (the reminder job) or the Stripe signature (the webhook).
 - **The database enforces integrity:** CHECK constraints, foreign keys that

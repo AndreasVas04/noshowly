@@ -15,7 +15,7 @@
  *  - RLS on salons table provides a second enforcement layer.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/auth';
 import { isValidTimeZone, normaliseTime } from '@/lib/time';
 import type { Salon } from '@/types';
 
@@ -47,21 +47,16 @@ function withNormalisedHours(salon: Salon): Salon {
  * @returns 500 { error: string }              — unexpected DB error
  */
 export async function GET(): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: Verify the session with Supabase Auth.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { supabase, user } = auth;
 
   // Step 2: Fetch salon.
   const { data: salon, error } = await supabase
     .from('salons')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .single();
 
   if (error || !salon) {
@@ -102,15 +97,10 @@ export async function GET(): Promise<Response> {
  * @returns 500 { error: string }              — unexpected DB error
  */
 export async function PUT(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: Verify the session with Supabase Auth.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { supabase, user } = auth;
 
   // Step 2: Parse and validate the request body.
   let body: unknown;
@@ -367,7 +357,7 @@ export async function PUT(request: Request): Promise<Response> {
       const { data: stored } = await supabase
         .from('salons')
         .select('opening_time, closing_time')
-        .eq('user_id', session.user.id)
+        .eq('user_id', user.id)
         .maybeSingle();
       if (opening === undefined) opening = normaliseTime(stored?.opening_time);
       if (closing === undefined) closing = normaliseTime(stored?.closing_time);
@@ -381,12 +371,12 @@ export async function PUT(request: Request): Promise<Response> {
   }
 
   // Step 4: Update the salon for this user.
-  // The .eq('user_id', session.user.id) clause is the ownership guard —
+  // The .eq('user_id', user.id) clause is the ownership guard —
   // users can only update their own salon even if they knew another salon's id.
   const { data: salon, error: updateError } = await supabase
     .from('salons')
     .update(updates)
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .select()
     .single();
 

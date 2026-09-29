@@ -17,8 +17,7 @@
  *    read-only (lib/access.ts).
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { isValidDuration, isValidPrice } from '@/lib/availability';
 import type { Service } from '@/types';
 
@@ -35,28 +34,12 @@ import type { Service } from '@/types';
  * @returns 500 { error: string }               — unexpected DB error
  */
 export async function GET(): Promise<Response> {
-  // Step 1: Verify authentication — always first.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 3: Fetch all services for this salon, ordered alphabetically.
+  // Step 2: Fetch all services for this salon, ordered alphabetically.
   const { data: services, error: servicesError } = await supabase
     .from('services')
     .select('*')
@@ -94,21 +77,12 @@ export async function GET(): Promise<Response> {
  * @returns 500 { error: string }               — unexpected DB error
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
-
-  // Step 3: Parse and validate the request body.
+  // Step 2: Parse and validate the request body.
   let body: unknown;
   try {
     body = await request.json();
@@ -164,18 +138,7 @@ export async function POST(request: Request): Promise<Response> {
     active = raw.active;
   }
 
-  // Step 3: Resolve salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: Insert the new service.
+  // Step 3: Insert the new service.
   const { data: service, error: insertError } = await supabase
     .from('services')
     .insert({ salon_id: salon.id, name, duration_minutes, price, active })

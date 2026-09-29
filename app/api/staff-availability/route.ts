@@ -21,8 +21,7 @@
  *  - RLS provides a second enforcement layer.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { validateTimeSlots } from '@/lib/schedule';
 import type { StaffAvailability, TimeSlot } from '@/types';
 
@@ -54,28 +53,12 @@ type DayInput = {
  * @returns 500 { error: string }
  */
 export async function GET(_request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 3: Fetch all barber IDs for this salon.
+  // Step 2: Fetch all barber IDs for this salon.
   const { data: barbers, error: barbersError } = await supabase
     .from('barbers')
     .select('id')
@@ -90,7 +73,7 @@ export async function GET(_request: Request): Promise<Response> {
     return Response.json({ availability: [] }, { status: 200 });
   }
 
-  // Step 4: Fetch all availability records for those barbers.
+  // Step 3: Fetch all availability records for those barbers.
   const barberIds = barbers.map((b) => b.id);
 
   const { data: availability, error: availError } = await supabase
@@ -141,21 +124,12 @@ export async function GET(_request: Request): Promise<Response> {
  * @returns 500 { error: string }                     — unexpected DB error
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
-
-  // Step 3: Parse request body.
+  // Step 2: Parse request body.
   let body: unknown;
   try {
     body = await request.json();
@@ -228,17 +202,6 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  // Step 3: Resolve salon and verify barber ownership.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
   // Security: confirm the barber belongs to this salon before writing.
   const { data: barber, error: barberError } = await supabase
     .from('barbers')
@@ -252,7 +215,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Step 4: Build upsert rows.
+  // Step 3: Build upsert rows.
   // Populate time_slots (primary) and legacy start/end_time columns (backwards compat).
   // Legacy columns mirror the first two time_slots entries for clients that haven't updated.
   const rows = days.map((d) => {
@@ -271,7 +234,7 @@ export async function POST(request: Request): Promise<Response> {
     };
   });
 
-  // Step 5: Upsert on (barber_id, day_of_week) unique constraint.
+  // Step 4: Upsert on (barber_id, day_of_week) unique constraint.
   const { data: upserted, error: upsertError } = await supabase
     .from('staff_availability')
     .upsert(rows, { onConflict: 'barber_id,day_of_week' })

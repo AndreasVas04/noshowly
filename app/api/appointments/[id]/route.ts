@@ -20,17 +20,16 @@
  * including links the client already answered, so old emails cannot act on
  * it or show it as confirmed, and a new 24-hour reminder can go out. Owners
  * cannot write reminders rows themselves, so this uses the service-role key,
- * after the owner's own update of the appointment succeeded; PUT and DELETE
- * therefore authenticate with requireUser() (lib/auth.ts).
+ * after the owner's own update of the appointment succeeded; every handler
+ * therefore authenticates with requireOwner() (lib/auth.ts), which verifies
+ * the token with Supabase Auth.
  *
  * PUT and DELETE need write access: an ended trial or an inactive
  * subscription is read-only (lib/access.ts). GET always works.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
-import { requireUser } from '@/lib/auth';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import {
   appointmentsOverlap,
   findAppointmentService,
@@ -93,28 +92,12 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Resolve the salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 3: Fetch the appointment, scoped to this salon.
+  // Step 2: Fetch the appointment, scoped to this salon.
   // Scoping to salon_id means even if the caller guesses a valid UUID that
   // belongs to another salon, they get a 404 — not a data leak.
   const { data: row, error: dbError } = await supabase
@@ -179,15 +162,11 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify authentication. requireUser(), because Step 9 uses the
-  // service-role key.
-  const auth = await requireUser();
-  if (!auth.ok) return auth.response;
-  const { user, supabase } = auth;
-
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, user.id);
-  if (!access.ok) return access.response;
+  // Step 1: The signed-in owner, with write access, and their salon. requireOwner()
+  // verifies the token with Supabase Auth, which the service-role step below needs.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Parse and validate request body.
   let body: unknown;
@@ -298,18 +277,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'No valid fields provided to update' }, { status: 400 });
   }
 
-  // Step 3: Resolve salon for this user. Include timezone for auto-assign availability checks.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id, timezone')
-    .eq('user_id', user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: Load the current appointment. Cancelled is a terminal state.
+  // Step 3: Load the current appointment. Cancelled is a terminal state.
   const { data: current } = await supabase
     .from('appointments')
     .select('datetime, client_id, barber_id, service_type, duration_minutes, status')
@@ -325,7 +293,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'Cannot edit a cancelled appointment' }, { status: 400 });
   }
 
-  // Step 5: Service, staff and duration.
+  // Step 4: Service, staff and duration.
   const serviceSent      = 'service_id' in raw || 'service_type' in raw;
   const barberChanged    = 'barber_id' in updates && updates.barber_id !== current.barber_id;
   const newBarberId      = 'barber_id' in updates ? (updates.barber_id ?? null) : current.barber_id;
@@ -391,7 +359,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     }
   }
 
-  // Step 6: Auto-assign when rescheduling an appointment that has no barber.
+  // Step 5: Auto-assign when rescheduling an appointment that has no barber.
   // Only runs when:
   //  - datetime is being updated (it's a reschedule — not a pure notes/status edit)
   //  - barber_id is NOT in the update body (owner left the staff field unchanged)
@@ -454,7 +422,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     }
   }
 
-  // Step 7: Double-booking checks — duration-aware overlap detection.
+  // Step 6: Double-booking checks — duration-aware overlap detection.
   // Only run when datetime, duration, or participants change. The stored
   // duration is used when it does not change. The current appointment (id) is
   // excluded from each conflict query so re-saving the same data never
@@ -531,7 +499,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'No valid fields provided to update' }, { status: 400 });
   }
 
-  // Step 8: Update — scoped to this salon so cross-salon updates are impossible.
+  // Step 7: Update — scoped to this salon so cross-salon updates are impossible.
   const { data: appointment, error: updateError } = await supabase
     .from('appointments')
     .update(updates)
@@ -556,7 +524,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     return Response.json({ error: 'Failed to update appointment' }, { status: 500 });
   }
 
-  // Step 9: Retire the email links when the time or the client changes, or
+  // Step 8: Retire the email links when the time or the client changes, or
   // the appointment is cancelled: old YES/NO buttons stop working, and the
   // reminder job can claim a new 24-hour reminder for the new time.
   const datetimeChanged =
@@ -594,28 +562,13 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
 export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify authentication. requireUser(), because Step 4 uses the
-  // service-role key.
-  const auth = await requireUser();
-  if (!auth.ok) return auth.response;
-  const { user, supabase } = auth;
+  // Step 1: The signed-in owner, with write access, and their salon. requireOwner()
+  // verifies the token with Supabase Auth, which the service-role step below needs.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, user.id);
-  if (!access.ok) return access.response;
-
-  // Step 2: Resolve salon for this user.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 3: Set status to 'cancelled' — soft delete, never hard delete.
+  // Step 2: Set status to 'cancelled' — soft delete, never hard delete.
   // Scoped to salon_id to prevent cross-salon mutations.
   const { data: appointment, error: updateError } = await supabase
     .from('appointments')
@@ -633,7 +586,7 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
     return Response.json({ error: 'Failed to cancel appointment' }, { status: 500 });
   }
 
-  // Step 4: Retire the appointment's email links (pending, sent and already
+  // Step 3: Retire the appointment's email links (pending, sent and already
   // answered 24-hour reminders and booking confirmations), so old YES/NO
   // buttons stop working. The reminder job never emails cancelled appointments.
   const reminderError = await retireEmailLinks(appointment.id);

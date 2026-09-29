@@ -23,8 +23,7 @@
  *    read-only (lib/access.ts).
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import { isValidDuration, isValidPrice } from '@/lib/availability';
 import { isUuid } from '@/lib/postgrest';
 import type { BarberService } from '@/types';
@@ -42,28 +41,12 @@ import type { BarberService } from '@/types';
  * @returns 500 { error: string }
  */
 export async function GET(): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Resolve salon — salon_id always comes from session.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 3: Fetch all assignments for this salon.
+  // Step 2: Fetch all assignments for this salon.
   const { data, error: dbError } = await supabase
     .from('barber_services')
     .select('*')
@@ -115,21 +98,12 @@ type AssignmentInput = {
  * @returns 500 { error: string }
  */
 export async function PUT(request: Request): Promise<Response> {
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Step 1: The signed-in owner, with write access, and their salon.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Step 2: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
-  if (!access.ok) return access.response;
-
-  // Step 3: Parse request body.
+  // Step 2: Parse request body.
   let body: unknown;
   try {
     body = await request.json();
@@ -196,18 +170,7 @@ export async function PUT(request: Request): Promise<Response> {
 
   const serviceIds = assignments.map((a) => a.service_id);
 
-  // Step 3: Resolve salon — salon_id always comes from session.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
-  // Step 4: Verify the barber belongs to this salon (prevents cross-salon writes).
+  // Step 3: Verify the barber belongs to this salon (prevents cross-salon writes).
   const { data: barber } = await supabase
     .from('barbers')
     .select('id')
@@ -219,7 +182,7 @@ export async function PUT(request: Request): Promise<Response> {
     return Response.json({ error: 'Barber not found' }, { status: 404 });
   }
 
-  // Step 5: Verify all service_ids belong to this salon.
+  // Step 4: Verify all service_ids belong to this salon.
   if (serviceIds.length > 0) {
     const { data: validServices, error: svcError } = await supabase
       .from('services')
@@ -237,7 +200,7 @@ export async function PUT(request: Request): Promise<Response> {
     }
   }
 
-  // Step 6: Upsert the new set on the (barber_id, service_id) unique key.
+  // Step 5: Upsert the new set on the (barber_id, service_id) unique key.
   // Existing rows keep their ids; there is no moment where they are missing.
   if (assignments.length > 0) {
     const { error: upsertError } = await supabase
@@ -259,7 +222,7 @@ export async function PUT(request: Request): Promise<Response> {
     }
   }
 
-  // Step 6b: Remove this barber's assignments that are not in the new set.
+  // Step 6: Remove this barber's assignments that are not in the new set.
   // Scoped to salon_id to prevent cross-salon mutations even if RLS is bypassed.
   // The ids were checked with isUuid() and against this salon's services above.
   let removeQuery = supabase

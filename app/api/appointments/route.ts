@@ -29,9 +29,7 @@
  */
 
 import { after } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { requireUser } from '@/lib/auth';
-import { requireWriteAccess } from '@/lib/access';
+import { requireOwner } from '@/lib/auth';
 import type {
   Appointment,
   AppointmentWithDetails,
@@ -70,15 +68,10 @@ import { sendAppointmentEmail } from '@/lib/reminders/gateway';
  * @returns 500 { error: string }               — unexpected DB error
  */
 export async function GET(request: Request): Promise<Response> {
-  // Step 1: Verify authentication — always first.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: The signed-in owner and their salon.
+  const owner = await requireOwner();
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
   // Step 2: Parse query params.
   const { searchParams } = new URL(request.url);
@@ -126,25 +119,13 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
-  // Step 3: Resolve the salon for this user, with its timezone.
-  // salon_id is derived from the session — never trusted from the client.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id, timezone')
-    .eq('user_id', session.user.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
   // Dates are calendar days in the salon's timezone, not in UTC (the server's
   // timezone) or the browser's. The window is [first day 00:00, day after last 00:00).
   const timeZone   = resolveTimeZone(salon.timezone);
   const rangeStart = dayRangeUtc(firstDate, timeZone).start.toISOString();
   const rangeEnd   = dayRangeUtc(lastDate, timeZone).end.toISOString();
 
-  // Step 4: Fetch appointments for the time window with joined client and
+  // Step 3: Fetch appointments for the time window with joined client and
   // barber names. The nested select syntax performs LEFT JOINs via the
   // foreign keys defined in the database schema.
   const { data: rows, error: dbError } = await supabase
@@ -208,17 +189,13 @@ export async function GET(request: Request): Promise<Response> {
  * @returns 500 { error: string }               — unexpected DB error
  */
 export async function POST(request: Request): Promise<Response> {
-  // Step 1: Verify the user with Supabase Auth. The email step below uses the
-  // service-role key, so the user ID must come from a verified token.
-  const auth = await requireUser();
-  if (!auth.ok) return auth.response;
-  const { user: authUser, supabase } = auth;
+  // Step 1: The signed-in owner, with write access, and their salon. requireOwner()
+  // verifies the token with Supabase Auth, which the service-role step below needs.
+  const owner = await requireOwner({ write: true });
+  if (!owner.ok) return owner.response;
+  const { supabase, salon } = owner;
 
-  // Step 2: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, authUser.id);
-  if (!access.ok) return access.response;
-
-  // Step 3: Parse and validate the request body.
+  // Step 2: Parse and validate the request body.
   let body: unknown;
   try {
     body = await request.json();
@@ -317,21 +294,10 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 3: Resolve salon for this user. Include timezone for availability checks.
-  const { data: salon, error: salonError } = await supabase
-    .from('salons')
-    .select('id, timezone')
-    .eq('user_id', authUser.id)
-    .single();
-
-  if (salonError || !salon) {
-    return Response.json({ error: 'Salon not found' }, { status: 404 });
-  }
-
   const clientId = (raw.client_id as string | null | undefined) || null;
   const barberId = (raw.barber_id as string | null | undefined) || null;
 
-  // Step 4: Resolve the service — by id (must belong to this salon), or by
+  // Step 3: Resolve the service — by id (must belong to this salon), or by
   // name for free-text service types. The name is stored as service_type.
   const serviceLookup = await findAppointmentService({
     supabase,
@@ -346,7 +312,7 @@ export async function POST(request: Request): Promise<Response> {
   const serviceTypeName: string | null =
     service?.name ?? ((raw.service_type as string | null | undefined)?.trim() || null);
 
-  // Step 5: Staff/service assignment check — the selected staff member must
+  // Step 4: Staff/service assignment check — the selected staff member must
   // belong to this salon and, when the service has barber_services rows, be
   // one of them (the same rule the booking page uses).
   if (barberId) {
@@ -369,7 +335,7 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 5b: Auto-assign or block when no staff selected and the salon has
+  // Step 5: Auto-assign or block when no staff selected and the salon has
   // active barbers. findEligibleBarbers applies service + availability +
   // conflict filters in one call, each staff member with their own duration.
   // If the salon has no barbers, skip entirely — unassigned appointments allowed.
@@ -414,7 +380,7 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 5c: Double-booking checks — duration-aware overlap detection.
+  // Step 6: Double-booking checks — duration-aware overlap detection.
   // Two appointments overlap when: existingStart < newEnd AND newStart < existingEnd.
   const newStartMs  = datetimeParsed.getTime();
   const MAX_DURATION_MS = 480 * 60_000; // 8 h — matches validation max
@@ -474,7 +440,7 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Step 6: Insert the appointment.
+  // Step 7: Insert the appointment.
   // salon_id is derived from session — never accepted from client request body.
   const { data: appointment, error: insertError } = await supabase
     .from('appointments')
@@ -503,7 +469,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Failed to create appointment' }, { status: 500 });
   }
 
-  // Step 7: Booking confirmation email with YES/NO buttons for 'scheduled'
+  // Step 8: Booking confirmation email with YES/NO buttons for 'scheduled'
   // appointments that are still ahead ("Please confirm your appointment on
   // Tuesday 6 October at 10:00"). Recorded as 'email_confirmation', so the
   // 24-hour reminder still goes out (see lib/reminders/rules.ts). Sent through
