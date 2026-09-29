@@ -11,15 +11,18 @@
  *  2. Validate the requested plan ('basic' is the only public plan).
  *  3. Check the configuration: the plan's price id and NEXT_PUBLIC_APP_URL.
  *  4. Load the user's plan and Stripe customer.
- *  5. Refuse a second subscription (409): when the customer already has an
- *     active, trialing or past_due subscription, or the account already has
- *     a paid plan. The owner uses Manage billing (the Stripe portal) instead.
- *  6. Create the Stripe customer when there is none, with the idempotency key
- *     `customer-<userId>` so concurrent requests get the same customer, and
- *     store it only while users.stripe_customer_id is empty, then read it
- *     back. The request fails when the link cannot be stored: a customer is
- *     never used without being linked to its user.
- *  7. Create the Checkout session. client_reference_id and metadata carry the
+ *  5. Choose the Stripe customer (prepareCheckoutCustomer() in
+ *     lib/billing/customer.ts):
+ *      - a stored customer that Stripe no longer has (deleted, or created in
+ *        test mode before the switch to live keys) is replaced by a new one;
+ *      - a second subscription is refused (409) when the customer already has
+ *        an active, trialing or past_due subscription, or the account already
+ *        has a paid plan. The owner uses Manage billing (the Stripe portal);
+ *      - without a usable customer, one is created with an idempotency key,
+ *        so concurrent requests get the same customer, and stored only while
+ *        users.stripe_customer_id is empty or still holds the missing one. A
+ *        customer is never used without being linked to its user.
+ *  6. Create the Checkout session. client_reference_id and metadata carry the
  *     user id, so the webhook can find the user even before the customer is
  *     linked, and success_url brings the session id back to the dashboard,
  *     which syncs the plan straight away (POST /api/stripe/sync).
@@ -48,8 +51,8 @@ import { stripe } from '@/lib/stripe';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getEntitlements } from '@/lib/entitlements';
 import { resolveAppUrl } from '@/lib/reminders/links';
-import { decideCheckout, type SubscriptionSnapshot } from '@/lib/billing/subscriptions';
-import { linkStripeCustomer, listCustomerSubscriptions } from '@/lib/billing/server';
+import { prepareCheckoutCustomer } from '@/lib/billing/customer';
+import { createCheckoutCustomerDeps } from '@/lib/billing/server';
 import type { PaidPlan } from '@/lib/plans';
 
 // ---------------------------------------------------------------------------
@@ -157,74 +160,28 @@ export async function POST(request: Request): Promise<Response> {
   }
   const entitlements = getEntitlements(account, new Date());
 
-  // Step 5: Never create a second subscription.
-  let customerId = account.stripe_customer_id;
-  let subscriptions: SubscriptionSnapshot[] = [];
-  if (customerId) {
-    try {
-      subscriptions = await listCustomerSubscriptions(customerId);
-    } catch (err) {
-      console.error(`[stripe/checkout] Failed to list subscriptions of customer=${customerId}:`, errorMessage(err));
-      return Response.json({ error: 'Could not reach the billing provider. Please try again.' }, { status: 502 });
-    }
-  }
-  const decision = decideCheckout({ isPaid: entitlements.isPaid, subscriptions });
-  if (!decision.allowed) {
-    return Response.json({ error: CONFLICT_MESSAGES[decision.reason], code: decision.reason }, { status: 409 });
-  }
-
-  // Step 6: Create and link the Stripe customer when there is none.
-  if (!customerId) {
-    let createdId: string;
-    try {
-      const customer = await stripe.customers.create(
-        {
-          email: authUser.email ?? undefined,
-          // Lets the webhook find the user even if the link below is lost.
-          metadata: { user_id: userId },
-        },
-        // Concurrent requests (double clicks, two tabs) get the same customer.
-        { idempotencyKey: `customer-${userId}` },
-      );
-      createdId = customer.id;
-    } catch (err) {
-      console.error('[stripe/checkout] Failed to create Stripe customer:', errorMessage(err));
-      return Response.json({ error: 'Failed to set up billing account' }, { status: 502 });
-    }
-
-    try {
-      customerId = await linkStripeCustomer(db, userId, createdId);
-    } catch (err) {
-      console.error('[stripe/checkout] Failed to store stripe_customer_id:', errorMessage(err));
-      return Response.json({ error: 'Failed to set up billing account' }, { status: 500 });
-    }
-    if (!customerId) {
-      console.error(`[stripe/checkout] stripe_customer_id could not be stored for user=${userId} (customer=${createdId})`);
-      return Response.json({ error: 'Failed to set up billing account' }, { status: 500 });
-    }
-
-    // Another customer was linked meanwhile: check that one for a subscription too.
-    if (customerId !== createdId) {
-      console.warn(`[stripe/checkout] user=${userId} already linked to customer=${customerId}; using it instead of ${createdId}`);
-      try {
-        const linkedDecision = decideCheckout({
-          isPaid: entitlements.isPaid,
-          subscriptions: await listCustomerSubscriptions(customerId),
-        });
-        if (!linkedDecision.allowed) {
-          return Response.json(
-            { error: CONFLICT_MESSAGES[linkedDecision.reason], code: linkedDecision.reason },
-            { status: 409 },
-          );
-        }
-      } catch (err) {
-        console.error(`[stripe/checkout] Failed to list subscriptions of customer=${customerId}:`, errorMessage(err));
+  // Step 5: The Stripe customer: a working one, and never a second subscription.
+  const prepared = await prepareCheckoutCustomer(createCheckoutCustomerDeps(db, authUser), {
+    userId,
+    storedCustomerId: account.stripe_customer_id,
+    isPaid: entitlements.isPaid,
+  });
+  if (!prepared.ok) {
+    switch (prepared.reason) {
+      case 'subscription_exists':
+      case 'already_paid':
+        return Response.json({ error: CONFLICT_MESSAGES[prepared.reason], code: prepared.reason }, { status: 409 });
+      case 'stripe':
+        console.error(`[stripe/checkout] Stripe failed while preparing the customer of user=${userId}:`, prepared.message);
         return Response.json({ error: 'Could not reach the billing provider. Please try again.' }, { status: 502 });
-      }
+      case 'database':
+        console.error(`[stripe/checkout] Failed to store the Stripe customer of user=${userId}:`, prepared.message);
+        return Response.json({ error: 'Failed to set up billing account' }, { status: 500 });
     }
   }
+  const customerId = prepared.customerId;
 
-  // Step 7: Create the Stripe Checkout session.
+  // Step 6: Create the Stripe Checkout session.
   try {
     const checkoutSession = await stripe.checkout.sessions.create({
       customer:            customerId,

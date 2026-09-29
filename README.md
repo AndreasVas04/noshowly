@@ -153,6 +153,8 @@ Stripe setup, in test and in live mode:
 - **Customer portal** (Settings → Billing → Customer portal): turn it on and allow customers to update payment methods, see invoices and cancel subscriptions (at the end of the billing period).
 - **Failed payments** (Settings → Billing → Subscriptions and emails → manage failed payments): after the last retry, cancel the subscription or mark it unpaid, so an unpaid account ends up read-only.
 
+Switching from test to live keys: Stripe customers stored while testing do not exist in live mode. The next checkout replaces such a customer, and Manage billing forgets it, so nobody gets stuck. Plans set by test subscriptions are not changed, though: no live webhook will ever update them, so set those accounts back to `trial` or `cancelled` before going live.
+
 ---
 
 ## Project Structure

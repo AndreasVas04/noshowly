@@ -35,7 +35,8 @@ import { requireUser } from '@/lib/auth';
 import { loadEntitlements } from '@/lib/access';
 import { stripe } from '@/lib/stripe';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
-import { createBillingSyncDeps, isMissingStripeResource } from '@/lib/billing/server';
+import { createBillingSyncDeps } from '@/lib/billing/server';
+import { isMissingStripeResource } from '@/lib/billing/customer';
 import { syncCustomerPlan, validUserId } from '@/lib/billing/sync';
 
 /** Stripe Checkout session ids: cs_test_… or cs_live_…. */

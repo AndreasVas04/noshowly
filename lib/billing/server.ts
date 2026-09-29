@@ -3,12 +3,16 @@
  *
  * Stripe and Supabase operations for billing, shared by the checkout, portal,
  * sync, billing and account routes and the Stripe webhook:
- *  - listCustomerSubscriptions() / cancelSubscription() / customerUserId():
- *    Stripe calls, returning the plain shapes of lib/billing/subscriptions.ts;
+ *  - listCustomerSubscriptions() / cancelSubscription() / customerUserId() /
+ *    stripeCustomerExists(): Stripe calls, returning the plain shapes of
+ *    lib/billing/subscriptions.ts;
  *  - linkStripeCustomer(): stores a user's Stripe customer id only while none
- *    is stored, so two requests can never leave two customers behind;
- *  - createBillingSyncDeps(): BillingSyncDeps (lib/billing/sync.ts) backed by
- *    Stripe and the service-role client.
+ *    (or a customer Stripe no longer has) is stored, so two requests can
+ *    never leave two customers behind; unlinkStripeCustomer() clears it only
+ *    while it still holds a customer Stripe no longer has;
+ *  - createBillingSyncDeps(), createCheckoutCustomerDeps() and
+ *    createBillingPortalDeps(): the Deps of lib/billing/sync.ts and
+ *    lib/billing/customer.ts, backed by Stripe and the service-role client.
  *
  * Server-only: it uses the Stripe secret key and the service-role key.
  */
@@ -23,6 +27,11 @@ import {
   type SubscriptionSnapshot,
 } from '@/lib/billing/subscriptions';
 import type { BillingSyncDeps, BillingUser } from '@/lib/billing/sync';
+import {
+  isMissingStripeResource,
+  type BillingPortalDeps,
+  type CheckoutCustomerDeps,
+} from '@/lib/billing/customer';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -37,16 +46,6 @@ const UNIQUE_VIOLATION = '23505';
 // ---------------------------------------------------------------------------
 // Stripe
 // ---------------------------------------------------------------------------
-
-/**
- * Returns true for Stripe's "No such …" error (resource_missing), e.g. a
- * customer that was deleted in the Stripe dashboard.
- *
- * @param err - Any thrown value.
- */
-export function isMissingStripeResource(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'resource_missing';
-}
 
 /**
  * Lists every subscription of a customer, any status.
@@ -100,18 +99,40 @@ export async function customerUserId(customerId: string): Promise<string | null>
   }
 }
 
+/**
+ * Returns whether Stripe still has a customer: false when it was deleted, or
+ * when this Stripe account and mode do not know it (e.g. a test-mode id read
+ * with a live key).
+ *
+ * @param customerId - Stripe customer id.
+ * @throws The Stripe error for anything else.
+ */
+export async function stripeCustomerExists(customerId: string): Promise<boolean> {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    return !('deleted' in customer && customer.deleted);
+  } catch (err) {
+    if (isMissingStripeResource(err)) return false;
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------------
 
 /**
- * Stores a user's Stripe customer id only while none is stored, then reads
- * back what is stored. Two checkouts or webhook events racing each other can
- * therefore never replace a customer that is already linked.
+ * Stores a user's Stripe customer id only while none is stored or, with
+ * `replacing`, while the stored one is still that customer (one Stripe no
+ * longer has), then reads back what is stored. Two checkouts or webhook
+ * events racing each other can therefore never replace a customer that is
+ * already linked and working.
  *
  * @param db         - Service-role client (owners cannot write public.users).
  * @param userId     - users.id
  * @param customerId - Stripe customer id.
+ * @param replacing  - The stored customer Stripe no longer has, which this one
+ *                     replaces; null to link to an account without one.
  * @returns The customer id stored afterwards: `customerId` when linked, the
  *          other id when one was already stored, null when the row is gone or
  *          the customer belongs to another account (users_stripe_customer_id_key).
@@ -121,7 +142,22 @@ export async function linkStripeCustomer(
   db: AdminSupabaseClient,
   userId: string,
   customerId: string,
+  replacing: string | null = null,
 ): Promise<string | null> {
+  if (replacing) {
+    const { error: replaceError } = await db
+      .from('users')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', userId)
+      .eq('stripe_customer_id', replacing);
+
+    if (replaceError && replaceError.code !== UNIQUE_VIOLATION) {
+      throw new Error(`Failed to replace the Stripe customer: ${replaceError.message}`);
+    }
+  }
+
+  // An empty row. After a replacement this matches nothing, unless the
+  // billing portal emptied the row meanwhile.
   const { error: updateError } = await db
     .from('users')
     .update({ stripe_customer_id: customerId })
@@ -140,6 +176,33 @@ export async function linkStripeCustomer(
 
   if (error) throw new Error(`Failed to read the Stripe customer back: ${error.message}`);
   return data?.stripe_customer_id ?? null;
+}
+
+/**
+ * Clears a user's Stripe customer id after Stripe answered that the customer
+ * does not exist, only while the row still holds that id: a customer another
+ * request linked meanwhile is kept.
+ *
+ * @param db         - Service-role client (owners cannot write public.users).
+ * @param userId     - users.id
+ * @param customerId - The customer Stripe no longer has.
+ * @returns True when the id was cleared.
+ * @throws Error on a database error.
+ */
+export async function unlinkStripeCustomer(
+  db: AdminSupabaseClient,
+  userId: string,
+  customerId: string,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('users')
+    .update({ stripe_customer_id: null })
+    .eq('id', userId)
+    .eq('stripe_customer_id', customerId)
+    .select('id');
+
+  if (error) throw new Error(`Failed to unlink the Stripe customer: ${error.message}`);
+  return (data ?? []).length > 0;
 }
 
 /** Columns of BillingUser. */
@@ -195,5 +258,56 @@ export function createBillingSyncDeps(db: AdminSupabaseClient): BillingSyncDeps 
     listSubscriptions: listCustomerSubscriptions,
     customerUserId,
     priceMap: priceMapFromEnv(process.env),
+  };
+}
+
+/**
+ * CheckoutCustomerDeps backed by Stripe and the service-role client.
+ *
+ * @param db   - Service-role client.
+ * @param user - The verified user; a new customer gets their email and id.
+ */
+export function createCheckoutCustomerDeps(
+  db: AdminSupabaseClient,
+  user: { id: string; email?: string | null },
+): CheckoutCustomerDeps {
+  return {
+    customerExists: stripeCustomerExists,
+    listSubscriptions: listCustomerSubscriptions,
+
+    async createCustomer(idempotencyKey) {
+      const customer = await stripe.customers.create(
+        {
+          email: user.email ?? undefined,
+          // Lets the webhook find the user even if the link is lost.
+          metadata: { user_id: user.id },
+        },
+        { idempotencyKey },
+      );
+      return customer.id;
+    },
+
+    linkCustomer(userId, customerId, replacing) {
+      return linkStripeCustomer(db, userId, customerId, replacing);
+    },
+  };
+}
+
+/**
+ * BillingPortalDeps backed by Stripe and the service-role client.
+ *
+ * @param db        - Service-role client.
+ * @param returnUrl - Where the portal sends the owner back to.
+ */
+export function createBillingPortalDeps(db: AdminSupabaseClient, returnUrl: string): BillingPortalDeps {
+  return {
+    async createPortalSession(customerId) {
+      const portal = await stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
+      return portal.url;
+    },
+
+    unlinkCustomer(userId, customerId) {
+      return unlinkStripeCustomer(db, userId, customerId);
+    },
   };
 }

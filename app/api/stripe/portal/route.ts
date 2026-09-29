@@ -10,7 +10,12 @@
  * Flow:
  *  1. Verify the user (requireUser). The public demo account has no billing (403).
  *  2. Load the user's Stripe customer; without one there is nothing to manage (404).
- *  3. Create a portal session that returns to /dashboard/settings.
+ *  3. Create a portal session that returns to /dashboard/settings
+ *     (openBillingPortal() in lib/billing/customer.ts). When Stripe no longer
+ *     has the customer (deleted, or created in test mode before the switch to
+ *     live keys), it is unlinked and the answer is the same 404 as without
+ *     one: the Billing section then offers a plan instead of this portal, and
+ *     checkout creates a new customer.
  *  4. Answer { url }; the browser redirects there.
  *
  * The portal must be configured once in the Stripe dashboard
@@ -26,12 +31,12 @@
 
 import { requireUser } from '@/lib/auth';
 import { isDemoAccount } from '@/lib/demo';
-import { stripe } from '@/lib/stripe';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { resolveAppUrl } from '@/lib/reminders/links';
-import { isMissingStripeResource } from '@/lib/billing/server';
+import { openBillingPortal } from '@/lib/billing/customer';
+import { createBillingPortalDeps } from '@/lib/billing/server';
 
-/** Shown when the account has never been through checkout. */
+/** Shown when the account has no Stripe customer, or one that Stripe no longer has. */
 const NO_BILLING_ACCOUNT = 'You have no billing account yet. Choose a plan to subscribe.';
 
 /**
@@ -54,7 +59,8 @@ export async function POST(): Promise<Response> {
   }
 
   // Step 2: The user's Stripe customer.
-  const { data: account, error } = await createAdminSupabaseClient()
+  const db = createAdminSupabaseClient();
+  const { data: account, error } = await db
     .from('users')
     .select('stripe_customer_id')
     .eq('id', userId)
@@ -70,22 +76,29 @@ export async function POST(): Promise<Response> {
   }
 
   // Step 3: Portal session, returning to Settings.
-  try {
-    const portal = await stripe.billingPortal.sessions.create({
-      customer:   customerId,
-      return_url: `${appUrl.url}/dashboard/settings`,
-    });
-    return Response.json({ url: portal.url }, { status: 200 });
-  } catch (err) {
-    if (isMissingStripeResource(err)) {
-      console.warn(`[stripe/portal] customer=${customerId} of user=${userId} does not exist in Stripe`);
-      return Response.json({ error: NO_BILLING_ACCOUNT }, { status: 404 });
+  const portal = await openBillingPortal(
+    createBillingPortalDeps(db, `${appUrl.url}/dashboard/settings`),
+    userId,
+    customerId,
+  );
+  if (portal.ok) return Response.json({ url: portal.url }, { status: 200 });
+
+  if (portal.reason === 'customer_missing') {
+    if (portal.unlinkError) {
+      console.error(
+        `[stripe/portal] customer=${customerId} of user=${userId} does not exist in Stripe and could not be unlinked:`,
+        portal.unlinkError,
+      );
+    } else {
+      console.warn(`[stripe/portal] customer=${customerId} of user=${userId} does not exist in Stripe; unlinked`);
     }
-    // Also the error Stripe returns while the portal is not configured.
-    console.error('[stripe/portal] Failed to create portal session:', err instanceof Error ? err.message : err);
-    return Response.json(
-      { error: 'Billing management is not available right now. Please try again later.' },
-      { status: 502 }
-    );
+    return Response.json({ error: NO_BILLING_ACCOUNT }, { status: 404 });
   }
+
+  // Also the error Stripe returns while the portal is not configured.
+  console.error('[stripe/portal] Failed to create portal session:', portal.message);
+  return Response.json(
+    { error: 'Billing management is not available right now. Please try again later.' },
+    { status: 502 }
+  );
 }
