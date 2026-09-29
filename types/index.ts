@@ -176,14 +176,14 @@ export type Barber = {
 
 /**
  * Row in the `clients` table — the salon's end customers.
- * Clients NEVER log in; they only receive SMS/email reminders and reply YES/NO.
+ * Clients NEVER log in; they only receive email reminders and reply YES/NO.
  */
 export type Client = {
   id: string;
   /** FK → salons.id */
   salon_id: string;
   name: string;
-  /** Required for SMS reminders. */
+  /** Contact number; null for clients who booked online without one. */
   phone: string | null;
   /** Optional; used for email reminders. */
   email: string | null;
@@ -217,7 +217,7 @@ export type Appointment = {
 }
 
 /**
- * Row in the `reminders` table — one row per SMS or email sent.
+ * Row in the `reminders` table — one row per email (legacy rows may have type 'sms').
  */
 type Reminder = {
   id: string;
