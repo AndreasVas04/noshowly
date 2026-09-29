@@ -190,12 +190,10 @@ export default function MessageTemplatesSection({
                   key={v}
                   type="button"
                   onClick={() => {
-                    insertAtCursor(emailBodyTextareaRef, v, emailBody, setEmailBody);
-                    scheduleTemplatesSave(
-                      emailFooter, emailSubject, emailGreeting,
-                      emailBodyTextareaRef.current?.value ?? emailBody,
-                      emailClosing
-                    );
+                    // Save the text with the variable in it: the textarea
+                    // itself only shows it after the next render.
+                    const body = insertAtCursor(emailBodyTextareaRef, v, emailBody, setEmailBody);
+                    scheduleTemplatesSave(emailFooter, emailSubject, emailGreeting, body, emailClosing);
                   }}
                   className="inline-block font-mono text-[11px] bg-[#1A1A1A]/5 hover:bg-[#1A1A1A]/10 active:bg-[#1A1A1A]/15 text-[#1A1A1A] px-2 py-1 rounded-md transition-colors"
                 >

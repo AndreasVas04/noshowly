@@ -3,13 +3,14 @@
  *
  * Unit tests for the Settings page helpers in
  * components/dashboard/settings/settings-helpers.ts: the timezone options,
- * the business name and business hours checks, and the sample values of the
- * reminder email preview.
+ * the business name and business hours checks, variable insertion, and the
+ * sample values of the reminder email preview.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
   businessHoursError,
+  insertVariable,
   previewVariables,
   salonNameError,
   timezoneOptions,
@@ -93,5 +94,32 @@ describe('previewVariables', () => {
     expect(applyTemplate(DEFAULT_EMAIL_GREETING, vars)).toBe('Hi John,');
     expect(applyTemplate(DEFAULT_EMAIL_FOOTER, { business_name: vars.business_name }))
       .toBe('If you have questions, contact Salon Elena directly.');
+  });
+});
+
+describe('insertVariable', () => {
+  it('inserts at the cursor and moves the cursor after the variable', () => {
+    expect(insertVariable('Welcome back!', 8, 8, '{client_name}')).toEqual({
+      value: 'Welcome {client_name}back!',
+      cursor: 21,
+    });
+  });
+
+  it('replaces the selected text', () => {
+    expect(insertVariable('Hi NAME, see you', 3, 7, '{client_name}')).toEqual({
+      value: 'Hi {client_name}, see you',
+      cursor: 16,
+    });
+  });
+
+  it('inserts at the start and at the end', () => {
+    expect(insertVariable('there', 0, 0, '{client_name} ').value).toBe('{client_name} there');
+    expect(insertVariable('See you at ', 11, 11, '{time}').value).toBe('See you at {time}');
+  });
+
+  it('clamps positions outside the text', () => {
+    expect(insertVariable('abc', 10, 12, '{date}')).toEqual({ value: 'abc{date}', cursor: 9 });
+    expect(insertVariable('abc', -3, 1, '{date}')).toEqual({ value: '{date}bc', cursor: 6 });
+    expect(insertVariable('abc', 2, 1, '{date}')).toEqual({ value: 'ab{date}c', cursor: 8 });
   });
 });

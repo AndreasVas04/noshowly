@@ -4,6 +4,7 @@
  * Pure helpers of the Settings page (app/dashboard/settings/page.tsx):
  *  - the timezones offered in the timezone select;
  *  - the checks run before the business info and business hours sections save;
+ *  - inserting a template variable at the cursor of a template field;
  *  - the sample values of the live reminder email preview.
  *
  * No React and no requests: everything here is covered by unit tests in
@@ -119,6 +120,30 @@ export function salonNameError(trimmedName: string): string | null {
 export function businessHoursError(open: string, close: string): string | null {
   if (open && close && open >= close) return 'Closing time must be after opening time.';
   return null;
+}
+
+/**
+ * Inserts a template variable into a field's text, replacing the selected
+ * range (or at the cursor when nothing is selected).
+ *
+ * @param value    - Current text of the field.
+ * @param start    - Selection start (cursor position); clamped to the text.
+ * @param end      - Selection end; clamped to [start, text length].
+ * @param variable - Variable to insert, e.g. "{client_name}".
+ * @returns        The new text, and the cursor position just after the variable.
+ */
+export function insertVariable(
+  value: string,
+  start: number,
+  end: number,
+  variable: string,
+): { value: string; cursor: number } {
+  const from = Math.min(Math.max(0, start), value.length);
+  const to   = Math.min(Math.max(from, end), value.length);
+  return {
+    value:  value.slice(0, from) + variable + value.slice(to),
+    cursor: from + variable.length,
+  };
 }
 
 /**
