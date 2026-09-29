@@ -5,9 +5,10 @@
  * client, staff member and salon, reading and writing reminders rows, counting
  * recent sends for the sending limits, and the owner's monthly counter.
  *
- * Used by lib/reminders/gateway.ts and app/api/cron/send-reminders with the
- * service-role client, and by app/api/appointments/[id] (cancelReminderLinks)
- * with the signed-in owner's client.
+ * Used with the service-role client by lib/reminders/gateway.ts,
+ * app/api/cron/send-reminders and app/api/appointments/[id]
+ * (cancelReminderLinks). Owners can read reminders rows but not write them
+ * (supabase/migrations/20260929120000_read_only_accounts.sql).
  *
  * Every query selects explicit columns and is scoped by id or salon_id.
  * Database errors are thrown as Error (message only, never client data)
@@ -362,10 +363,10 @@ export async function markReminderRejected(db: Db, id: string): Promise<void> {
  * reminder or as a failed attempt. Test sends never change anything and are
  * left alone.
  *
- * Works with the service-role client and with the signed-in owner's client
- * (RLS lets owners update the reminders of their own appointments).
+ * Needs the service-role client: owners cannot write reminders rows. The
+ * caller checks that the appointment belongs to the owner.
  *
- * @param db            - Supabase client allowed to update the appointment's reminders.
+ * @param db            - Service-role client.
  * @param appointmentId - Appointment id.
  * @returns             Error message, or null on success. Never throws.
  */

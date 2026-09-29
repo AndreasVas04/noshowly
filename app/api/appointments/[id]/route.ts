@@ -18,13 +18,18 @@
  * cancelled, the YES/NO links of its 24-hour reminder and booking
  * confirmation are retired (lib/reminders/store.ts cancelReminderLinks),
  * including links the client already answered, so old emails cannot act on
- * it or show it as confirmed, and a new 24-hour reminder can go out.
+ * it or show it as confirmed, and a new 24-hour reminder can go out. Owners
+ * cannot write reminders rows themselves, so this uses the service-role key,
+ * after the owner's own update of the appointment succeeded; PUT and DELETE
+ * therefore authenticate with requireUser() (lib/auth.ts).
  *
  * PUT and DELETE need write access: an ended trial or an inactive
  * subscription is read-only (lib/access.ts). GET always works.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { requireUser } from '@/lib/auth';
 import { requireWriteAccess } from '@/lib/access';
 import {
   appointmentsOverlap,
@@ -79,6 +84,24 @@ function toAppointmentWithDetails(row: RawAppointmentRow): AppointmentWithDetail
     client_email: clients?.email ?? null,
     barber_name: barbers?.name ?? null,
   };
+}
+
+/**
+ * Retires an appointment's email links (cancelReminderLinks()) with the
+ * service-role key: owners can read reminders rows but not change them
+ * (supabase/migrations/20260929120000_read_only_accounts.sql). Only call it
+ * with the id of an appointment the owner has just updated through their own
+ * client, which Row Level Security only allows for their own appointments.
+ *
+ * @param appointmentId - Appointment id, as returned by the owner's update.
+ * @returns             Error message, or null on success. Never throws.
+ */
+async function retireEmailLinks(appointmentId: string): Promise<string | null> {
+  try {
+    return await cancelReminderLinks(createAdminSupabaseClient(), appointmentId);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,18 +219,14 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: Verify authentication. requireUser(), because Step 9 uses the
+  // service-role key.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { user, supabase } = auth;
 
   // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
+  const access = await requireWriteAccess(supabase, user.id);
   if (!access.ok) return access.response;
 
   // Step 2: Parse and validate request body.
@@ -323,7 +342,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   const { data: salon, error: salonError } = await supabase
     .from('salons')
     .select('id, timezone')
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .single();
 
   if (salonError || !salon) {
@@ -585,7 +604,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     new Date(updates.datetime).getTime() !== new Date(current.datetime).getTime();
   const clientChanged = 'client_id' in updates && updates.client_id !== current.client_id;
   if (datetimeChanged || clientChanged || updates.status === 'cancelled') {
-    const reminderError = await cancelReminderLinks(supabase, id);
+    const reminderError = await retireEmailLinks(appointment.id);
     if (reminderError) {
       // Log but do not fail — the appointment is already updated.
       console.error('[PUT /api/appointments/:id] Failed to retire reminder links:', reminderError);
@@ -615,25 +634,21 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
 export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
 
-  // Step 1: Verify authentication.
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Step 1: Verify authentication. requireUser(), because Step 4 uses the
+  // service-role key.
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { user, supabase } = auth;
 
   // Step 1b: Plan check — an ended trial or an inactive subscription is read-only.
-  const access = await requireWriteAccess(supabase, session.user.id);
+  const access = await requireWriteAccess(supabase, user.id);
   if (!access.ok) return access.response;
 
   // Step 2: Resolve salon for this user.
   const { data: salon, error: salonError } = await supabase
     .from('salons')
     .select('id')
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .single();
 
   if (salonError || !salon) {
@@ -661,7 +676,7 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
   // Step 4: Retire the appointment's email links (pending, sent and already
   // answered 24-hour reminders and booking confirmations), so old YES/NO
   // buttons stop working. The reminder job never emails cancelled appointments.
-  const reminderError = await cancelReminderLinks(supabase, id);
+  const reminderError = await retireEmailLinks(appointment.id);
 
   if (reminderError) {
     // Log but do not fail — the appointment is already cancelled.
