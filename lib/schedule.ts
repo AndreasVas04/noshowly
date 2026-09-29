@@ -2,7 +2,7 @@
  * lib/schedule.ts
  *
  * Weekly staff schedule helpers for the availability editor
- * (app/dashboard/booking/page.tsx) and POST /api/staff-availability.
+ * (components/dashboard/booking-settings/) and POST /api/staff-availability.
  *
  * The editor shows a working day as one working window with any number of
  * breaks. The database stores the time actually worked as a list of intervals

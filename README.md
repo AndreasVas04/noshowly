@@ -312,15 +312,17 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe   # prints the STR
 app/
   api/                  route handlers: appointments, clients, staff, services,
                         booking, billing, reminder job, webhooks, email links
-  book/[slug]/          public booking page
+  book/[slug]/          public booking page (steps in _components/)
   dashboard/            today, week, booking page setup and settings
   auth/, login/,        sign-up, sign-in and password reset
   register/
   pricing/              plan and Stripe Checkout
 components/             dashboard, landing page and shared UI components
+  dashboard/            day and week views, and one folder per larger screen:
+                        appointment-modal/, booking-settings/, settings/
 lib/                    booking rules, time zones, entitlements, billing,
                         reminders, Supabase clients
-  __tests__/            unit tests
+  __tests__/            unit tests (more next to the components they cover)
 proxy.ts                session refresh and route guards
 supabase/migrations/    schema, RLS policies and the reminder job
 tests/db/               database tests (scripts/test-db.sh)

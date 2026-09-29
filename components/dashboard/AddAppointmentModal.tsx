@@ -22,13 +22,25 @@
  * converted to UTC on save. The appointment length is resolved by the server
  * from the service and staff member (their override); the modal shows it.
  *
+ * Structure: this file renders the dialog (header, form body, sticky footer
+ * and the soft-warning overlay). The rest lives in
+ * components/dashboard/appointment-modal/:
+ *  - useAppointmentForm: form state, the reset each time the modal opens and
+ *    the derived values. It composes useModalData (staff, services, business
+ *    hours and staff/service assignments), useClientLookup (client search and
+ *    phone lookup) and useAppointmentSave (submit, save, cancel and test
+ *    reminder requests).
+ *  - ClientFields, DateTimeFields, ServiceStaffFields and StatusAndNotes: the
+ *    form's field groups. WarningDialog: the soft-warning confirmation.
+ *  - form.ts, validation.ts and payloads.ts: pure helpers for the form state,
+ *    validation and request bodies. styles.ts: classes the fields share.
+ *
  * Premium design: shadcn Dialog + Input + Label + Button components,
  * brand-dark palette, generous whitespace.
  */
 
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import {
   Dialog,
@@ -38,56 +50,13 @@ import {
 } from '@/components/ui/dialog';
 import Badge from '@/components/ui/Badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { isDemoAccount } from '@/lib/demo';
-import { getEffectiveDuration, isBarberEligibleForService } from '@/lib/availability';
-import { MAX_PHONE_INPUT_LENGTH, validateEmail, validatePhone } from '@/lib/contact';
-import {
-  formatTimeZoneLabel,
-  minutesToTime,
-  normaliseTime,
-  resolveZonedTime,
-  timeToMinutes,
-  todayInZone,
-  utcToZonedParts,
-} from '@/lib/time';
-import type { AppointmentStatus, AppointmentWithDetails, BarberService, Barber, Client, Service } from '@/types';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the next rounded 30-minute slot from now in the salon's timezone.
- * e.g. 14:10 → "14:30", 14:35 → "15:00". Late in the evening it stops at 23:30.
- *
- * @param timeZone - Salon timezone.
- * @returns Time string like "14:30".
- */
-function getNextRounded30(timeZone: string): string {
-  const minutes = timeToMinutes(utcToZonedParts(new Date(), timeZone).time);
-  const next = (Math.floor(minutes / 30) + 1) * 30;
-  return minutesToTime(Math.min(next, 23 * 60 + 30));
-}
-
-/**
- * Predicts the status the server gives a new appointment when none is chosen:
- * confirmed when it starts within 23 hours (no reminder will be sent), otherwise pending.
- *
- * @param start - Appointment start, or null when the date/time is incomplete.
- */
-function predictStatus(start: Date | null): AppointmentStatus {
-  if (!start) return 'scheduled';
-  const hoursUntil = (start.getTime() - Date.now()) / (1000 * 60 * 60);
-  return hoursUntil < 23 ? 'confirmed' : 'scheduled';
-}
-
-/** Case-insensitive, trimmed comparison of optional names. */
-function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
-  return (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
-}
+import ClientFields from '@/components/dashboard/appointment-modal/ClientFields';
+import DateTimeFields from '@/components/dashboard/appointment-modal/DateTimeFields';
+import ServiceStaffFields from '@/components/dashboard/appointment-modal/ServiceStaffFields';
+import StatusAndNotes from '@/components/dashboard/appointment-modal/StatusAndNotes';
+import WarningDialog from '@/components/dashboard/appointment-modal/WarningDialog';
+import useAppointmentForm from '@/components/dashboard/appointment-modal/useAppointmentForm';
+import type { AppointmentWithDetails } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -109,36 +78,6 @@ export interface AddAppointmentModalProps {
   /** If provided, opens in edit mode pre-filled with this appointment. */
   appointment?: AppointmentWithDetails;
 }
-
-// ---------------------------------------------------------------------------
-// Internal form state
-// ---------------------------------------------------------------------------
-
-interface FormState {
-  /** Client name (search text in create mode). */
-  clientQuery: string;
-  selectedClient: Client | null;
-  clientPhone: string;
-  clientEmail: string;
-  /** 'YYYY-MM-DD' in the salon timezone. */
-  date: string;
-  /** 'HH:MM' in the salon timezone. */
-  time: string;
-  /**
-   * Service id picked in the form; '' when none is picked or the service is
-   * free text. An edited appointment's service is matched by name instead.
-   */
-  serviceId: string;
-  /** Service name (free text when the salon has no services). */
-  serviceType: string;
-  barberId: string;
-  notes: string;
-  /** Status chosen in the form. Only sent when the owner changed it. */
-  appointmentStatus: AppointmentStatus;
-}
-
-/** Select value for an edited appointment's service that is not in the list. */
-const CURRENT_SERVICE_OPTION = '__current__';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -165,799 +104,38 @@ export default function AddAppointmentModal({
   initialBarberId,
   appointment,
 }: AddAppointmentModalProps) {
-  const isEditMode = Boolean(appointment);
-
-  // ---------------------------------------------------------------------------
-  // Form state
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Builds the initial FormState from the appointment prop (edit mode) or defaults.
-   * Edit mode converts the stored UTC time to the salon's timezone.
-   */
-  function getInitialState(): FormState {
-    if (appointment) {
-      const local = utcToZonedParts(appointment.datetime, timezone);
-      return {
-        clientQuery: appointment.client_name ?? '',
-        selectedClient: appointment.client_id
-          ? {
-              id: appointment.client_id,
-              salon_id: appointment.salon_id,
-              name: appointment.client_name ?? '',
-              phone: appointment.client_phone,
-              email: appointment.client_email,
-              notes: null,
-              created_at: '',
-            }
-          : null,
-        clientPhone: appointment.client_phone ?? '',
-        clientEmail: appointment.client_email ?? '',
-        date: local.date,
-        time: local.time,
-        serviceId: '',
-        serviceType: appointment.service_type ?? '',
-        barberId: appointment.barber_id ?? '',
-        notes: appointment.notes ?? '',
-        appointmentStatus: appointment.status,
-      };
-    }
-
-    return {
-      clientQuery: '',
-      selectedClient: null,
-      clientPhone: '',
-      clientEmail: '',
-      date: initialDate ?? todayInZone(timezone),
-      time: getNextRounded30(timezone),
-      serviceId: '',
-      serviceType: '',
-      barberId: initialBarberId ?? '',
-      notes: '',
-      appointmentStatus: 'scheduled',
-    };
-  }
-
-  const [form, setForm] = useState<FormState>(getInitialState);
-  /** The form as it was when the modal opened — used to send only changed fields. */
-  const [initialForm, setInitialForm] = useState<FormState>(form);
-  /** True once the owner picks a status; otherwise the server decides (create mode). */
-  const [statusTouched, setStatusTouched] = useState(false);
-  const [showNotes, setShowNotes] = useState(false);
-
-  // ---------------------------------------------------------------------------
-  // Staff + services + hours
-  // ---------------------------------------------------------------------------
-
-  const [barbers, setBarbers] = useState<Barber[]>([]);
-  const [isLoadingBarbers, setIsLoadingBarbers] = useState(isOpen);
-  const [services, setServices] = useState<Service[]>([]);
-  const [isLoadingServices, setIsLoadingServices] = useState(isOpen);
-  /** Barber/service assignments — used to filter the staff dropdown and show durations. */
-  const [barberServices, setBarberServices] = useState<BarberService[]>([]);
-  /** Salon opening hours as 'HH:MM', or null when not configured. */
-  const [salonHours, setSalonHours] = useState<{ opening: string; closing: string } | null>(null);
-
-  /** Whether the signed-in account is the public demo account. */
-  const [isDemo, setIsDemo] = useState(false);
-
-  // ---------------------------------------------------------------------------
-  // Test reminder state
-  // ---------------------------------------------------------------------------
-
-  const [isSendingTestReminder, setIsSendingTestReminder] = useState(false);
-  const [testReminderResult, setTestReminderResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Warning dialog state
-  // ---------------------------------------------------------------------------
-
-  /**
-   * When non-null, a confirmation overlay is shown with this message.
-   * Triggered by soft warnings (past date, far future, outside hours).
-   */
-  const [warningDialog, setWarningDialog] = useState<string | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Client autocomplete state (create mode only)
-  // ---------------------------------------------------------------------------
-
-  const [suggestions, setSuggestions] = useState<Client[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [isPhoneSearching, setIsPhoneSearching] = useState(false);
-  const [clientFoundByPhone, setClientFoundByPhone] = useState(false);
-  const [nameReadOnly, setNameReadOnly] = useState(false);
-  const phoneSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Submit / error state
-  // ---------------------------------------------------------------------------
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({});
-
-  // ---------------------------------------------------------------------------
-  // State adjusted while rendering
-  // ---------------------------------------------------------------------------
-
-  const [wasOpen, setWasOpen] = useState(isOpen);
-  /** The staff list the create-mode default below was last checked against. */
-  const [checkedBarbers, setCheckedBarbers] = useState<Barber[] | null>(null);
-
-  // The modal stays mounted while closed, so every opening starts a fresh form.
-  // Resetting here, during render, means the previous form is never painted.
-  if (isOpen !== wasOpen) {
-    setWasOpen(isOpen);
-    if (isOpen) {
-      const state = getInitialState();
-      setForm(state);
-      setInitialForm(state);
-      setStatusTouched(false);
-      setShowNotes(Boolean(appointment?.notes));
-      setSuggestions([]);
-      setShowSuggestions(false);
-      setError(null);
-      setFieldErrors({});
-      setIsPhoneSearching(false);
-      setClientFoundByPhone(false);
-      setNameReadOnly(false);
-      setWarningDialog(null);
-      setSalonHours(null);
-      setTestReminderResult(null);
-      setIsLoadingBarbers(true);
-      setIsLoadingServices(true);
-      setCheckedBarbers(null);
-    }
-  }
-
-  // In create mode, once the staff list loads, keep the pre-selected
-  // (initialBarberId) or chosen staff member only when they are listed, and
-  // default to the first listed one otherwise. An inactive staff member (e.g.
-  // from the week view's filter) is not listed: keeping them would save them
-  // while the dropdown shows someone else. Checked once per loaded list, so a
-  // staff member cleared later (by picking another service) stays cleared.
-  if (!isEditMode && !isLoadingBarbers && checkedBarbers !== barbers) {
-    setCheckedBarbers(barbers);
-    const listed = barbers.filter((b) => b.active);
-    setForm((prev) => {
-      if (listed.some((b) => b.id === prev.barberId)) return prev;
-      const fallback = listed[0]?.id ?? '';
-      return prev.barberId === fallback ? prev : { ...prev, barberId: fallback };
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Client lookups (create mode only)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Debounced client name search — fires 300 ms after the user stops typing.
-   *
-   * @param query - The search term to send to GET /api/clients.
-   */
-  const searchClients = useCallback(async (query: string): Promise<void> => {
-    if (!query.trim()) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-    setIsSearching(true);
-    try {
-      const res = await fetch(`/api/clients?search=${encodeURIComponent(query)}`, { cache: 'no-store' });
-      if (res.ok) {
-        const payload = (await res.json()) as { clients: Client[] };
-        setSuggestions(payload.clients);
-        setShowSuggestions(true);
-      }
-    } catch (err) {
-      console.error('[AddAppointmentModal] Client search error:', err);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
-
-  /**
-   * Phone-based client lookup — fires after 6+ digits are present.
-   * Auto-fills name + email on match and locks the name field.
-   *
-   * @param phone - Current value of the phone input.
-   */
-  const searchByPhone = useCallback(async (phone: string): Promise<void> => {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length < 6) return;
-    setIsPhoneSearching(true);
-    try {
-      const res = await fetch(`/api/clients?search=${encodeURIComponent(phone)}`, { cache: 'no-store' });
-      if (!res.ok) return;
-      const payload = (await res.json()) as { clients: Client[] };
-      const match = payload.clients[0] ?? null;
-      if (match) {
-        setForm((prev) => ({
-          ...prev,
-          clientQuery: match.name,
-          selectedClient: match,
-          clientEmail: match.email ?? prev.clientEmail,
-        }));
-        setClientFoundByPhone(true);
-        setNameReadOnly(true);
-        setFieldErrors((prev) => {
-          const next = { ...prev };
-          delete next.clientQuery;
-          delete next.clientPhone;
-          return next;
-        });
-      } else {
-        setClientFoundByPhone(false);
-        setNameReadOnly(false);
-      }
-    } catch (err) {
-      console.error('[AddAppointmentModal] Phone search error:', err);
-    } finally {
-      setIsPhoneSearching(false);
-    }
-  }, []);
-
-  // ---------------------------------------------------------------------------
-  // Effects
-  // ---------------------------------------------------------------------------
-
-  // Load the staff list, services, business hours and staff/service
-  // assignments each time the modal opens. Responses that arrive after it has
-  // closed again are ignored.
-  useEffect(() => {
-    if (!isOpen) return;
-    let ignore = false;
-
-    /** The salon's staff list, for the staff dropdown. */
-    async function loadBarbers(): Promise<void> {
-      try {
-        const res = await fetch('/api/barbers', { cache: 'no-store' });
-        if (res.ok) {
-          const payload = (await res.json()) as { barbers: Barber[] };
-          if (!ignore) setBarbers(payload.barbers);
-        }
-      } catch (err) {
-        console.error('[AddAppointmentModal] Failed to load staff:', err);
-      } finally {
-        if (!ignore) setIsLoadingBarbers(false);
-      }
-    }
-
-    /** The salon's services. The form falls back to free text when there are none. */
-    async function loadServices(): Promise<void> {
-      try {
-        const res = await fetch('/api/services', { cache: 'no-store' });
-        if (res.ok) {
-          const payload = (await res.json()) as { services: Service[] };
-          if (!ignore) setServices(payload.services);
-        }
-      } catch (err) {
-        console.error('[AddAppointmentModal] Failed to load services:', err);
-      } finally {
-        if (!ignore) setIsLoadingServices(false);
-      }
-    }
-
-    /**
-     * The salon's business hours (normalised to 'HH:MM' by the API). Only set
-     * when both times are configured and form a valid range.
-     */
-    async function loadSalonHours(): Promise<void> {
-      try {
-        const res = await fetch('/api/salon', { cache: 'no-store' });
-        if (res.ok) {
-          const payload = (await res.json()) as {
-            salon: { opening_time: string | null; closing_time: string | null };
-          };
-          const opening = normaliseTime(payload.salon.opening_time);
-          const closing = normaliseTime(payload.salon.closing_time);
-          if (!ignore) setSalonHours(opening && closing && opening < closing ? { opening, closing } : null);
-        }
-      } catch (err) {
-        console.error('[AddAppointmentModal] Failed to load salon hours:', err);
-      }
-    }
-
-    /**
-     * Staff/service assignments, used to filter the staff dropdown when a
-     * service is selected and to show per-staff durations.
-     */
-    async function loadBarberServices(): Promise<void> {
-      try {
-        const res = await fetch('/api/barber-services', { cache: 'no-store' });
-        if (res.ok) {
-          const payload = (await res.json()) as { barberServices: BarberService[] };
-          if (!ignore) setBarberServices(payload.barberServices);
-        }
-      } catch (err) {
-        console.error('[AddAppointmentModal] Failed to load barber service assignments:', err);
-      }
-    }
-
-    loadBarbers();
-    loadServices();
-    loadSalonHours();
-    loadBarberServices();
-    return () => { ignore = true; };
-  }, [isOpen]);
-
-  // Look up whether this is the public demo account (for the demo-only note).
-  useEffect(() => {
-    let cancelled = false;
-    createBrowserSupabaseClient()
-      .auth.getUser()
-      .then(({ data }) => { if (!cancelled) setIsDemo(isDemoAccount(data.user?.email)); })
-      .catch(() => { /* Non-critical: the note simply stays hidden. */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Debounced client name search (create mode only).
-  useEffect(() => {
-    if (isEditMode || form.selectedClient) return;
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => { searchClients(form.clientQuery); }, 300);
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-  }, [isEditMode, form.clientQuery, form.selectedClient, searchClients]);
-
-  // Debounced phone lookup (create mode only — in edit mode it could switch the client).
-  useEffect(() => {
-    if (isEditMode) return;
-    if (phoneSearchTimerRef.current) clearTimeout(phoneSearchTimerRef.current);
-    phoneSearchTimerRef.current = setTimeout(() => { searchByPhone(form.clientPhone); }, 400);
-    return () => { if (phoneSearchTimerRef.current) clearTimeout(phoneSearchTimerRef.current); };
-  }, [isEditMode, form.clientPhone, searchByPhone]);
-
-  /** Active staff, plus the appointment's current staff member when editing. */
-  const selectableBarbers = barbers.filter(
-    (b) => b.active || (isEditMode && b.id === appointment?.barber_id)
-  );
-
-  // ---------------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Updates a single form field and clears its per-field error.
-   *
-   * @param key   - The FormState key to update.
-   * @param value - The new value.
-   */
-  function setField<K extends keyof FormState>(key: K, value: FormState[K]): void {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    if (fieldErrors[key]) {
-      setFieldErrors((prev) => { const next = { ...prev }; delete next[key]; return next; });
-    }
-  }
-
-  /**
-   * Handles client name input. In create mode it clears selectedClient to
-   * trigger a new search; in edit mode it edits the linked client's name.
-   *
-   * @param value - New text in the client name field.
-   */
-  function handleClientQueryChange(value: string): void {
-    setField('clientQuery', value);
-    if (!isEditMode && form.selectedClient) {
-      setForm((prev) => ({ ...prev, clientQuery: value, selectedClient: null }));
-    }
-  }
-
-  /**
-   * Handles phone field changes. Clears auto-filled data if phone changes after a match.
-   *
-   * @param value - New phone input value.
-   */
-  function handlePhoneChange(value: string): void {
-    if (!isEditMode && clientFoundByPhone) {
-      setClientFoundByPhone(false);
-      setNameReadOnly(false);
-      setForm((prev) => ({ ...prev, clientPhone: value, clientQuery: '', selectedClient: null }));
-    } else {
-      setField('clientPhone', value);
-    }
-  }
-
-  /** Unlocks the client name field when clicked while read-only. */
-  function handleNameUnlock(): void {
-    setNameReadOnly(false);
-    setClientFoundByPhone(false);
-    setForm((prev) => ({ ...prev, selectedClient: null }));
-  }
-
-  /**
-   * Selects a client from the autocomplete dropdown — pre-fills phone + email.
-   *
-   * @param client - The selected client record.
-   */
-  function handleSelectClient(client: Client): void {
-    setForm((prev) => ({
-      ...prev,
-      clientQuery: client.name,
-      selectedClient: client,
-      clientPhone: client.phone ?? prev.clientPhone,
-      clientEmail: client.email ?? prev.clientEmail,
-    }));
-    setShowSuggestions(false);
-    setSuggestions([]);
-    setFieldErrors((prev) => {
-      const next = { ...prev };
-      delete next.clientQuery;
-      delete next.clientPhone;
-      return next;
-    });
-  }
-
-  /**
-   * Handles a service selection from the dropdown.
-   *
-   * @param value - Service id, '' for none, or CURRENT_SERVICE_OPTION.
-   */
-  function handleServiceChange(value: string): void {
-    if (value === CURRENT_SERVICE_OPTION) return;
-    const service = services.find((s) => s.id === value);
-    setForm((prev) => ({
-      ...prev,
-      serviceId: service?.id ?? '',
-      serviceType: service?.name ?? '',
-      // Clear a staff member who cannot perform the new service (same rule as
-      // the booking page), so the owner picks one who can.
-      barberId:
-        service && prev.barberId && !isBarberEligibleForService(service.id, prev.barberId, barberServices)
-          ? ''
-          : prev.barberId,
-    }));
-  }
-
-  // ---------------------------------------------------------------------------
-  // Derived values
-  // ---------------------------------------------------------------------------
-
-  /** The selected salon service, when the form's service is one (matched by name when editing). */
-  const selectedService: Service | null =
-    services.find((s) => s.id === form.serviceId) ??
-    (form.serviceType ? services.find((s) => sameName(s.name, form.serviceType)) : undefined) ??
-    null;
-
-  const serviceChanged = !sameName(form.serviceType, initialForm.serviceType);
-  const barberChanged  = form.barberId !== initialForm.barberId;
-
-  /**
-   * Appointment length as the server will resolve it: the stored length when
-   * editing without changing service or staff, otherwise the service duration
-   * with the staff member's override (else 30 minutes).
-   */
-  const resolvedDuration: number =
-    isEditMode && appointment && !serviceChanged && !barberChanged
-      ? appointment.duration_minutes
-      : isEditMode && appointment && !serviceChanged && !selectedService
-        ? appointment.duration_minutes // staff change on a free-text service keeps its length
-        : getEffectiveDuration(selectedService, form.barberId || null, barberServices);
-
-  /** Start instant of the form's date and time in the salon timezone, when valid. */
-  const formStart = (() => {
-    const time = normaliseTime(form.time);
-    if (!form.date || !time) return null;
-    const result = resolveZonedTime(form.date, time, timezone);
-    return result.ok ? result.date : null;
-  })();
-
-  /** Status shown in create mode until the owner picks one. */
-  const displayedStatus: AppointmentStatus =
-    isEditMode || statusTouched ? form.appointmentStatus : predictStatus(formStart);
-
-  /**
-   * Validates the form. Sets per-field errors and returns false on failure.
-   * Staff is required when barbers exist. Business hours constraints are soft warnings only.
-   *
-   * @returns true if all required fields pass.
-   */
-  function validate(): boolean {
-    const errors: Partial<Record<keyof FormState, string>> = {};
-
-    // Stored contact details (the edited appointment's client, or an existing
-    // client picked in create mode) are only re-checked when changed, so an
-    // older entry never blocks booking or editing.
-    const storedPhone = isEditMode ? initialForm.clientPhone : form.selectedClient?.phone ?? null;
-    const storedEmail = isEditMode ? initialForm.clientEmail : form.selectedClient?.email ?? null;
-    const phoneChanged = storedPhone === null || form.clientPhone.trim() !== storedPhone.trim();
-    const emailChanged = storedEmail === null || form.clientEmail.trim() !== storedEmail.trim();
-
-    if (!form.clientQuery.trim()) errors.clientQuery = 'Client name is required';
-    if (!form.clientPhone.trim()) {
-      // A new client needs a phone number. Existing clients booked online may
-      // have none; booking or editing them does not require one, but a stored
-      // number cannot be removed here.
-      const createsClient = isEditMode ? !appointment?.client_id : !form.selectedClient;
-      const phoneRequired = createsClient || (isEditMode && Boolean(initialForm.clientPhone.trim()));
-      if (phoneRequired) errors.clientPhone = 'Phone number is required';
-    } else if (phoneChanged) {
-      const phone = validatePhone(form.clientPhone);
-      if (!phone.ok) errors.clientPhone = phone.error;
-    }
-    if (!form.date) errors.date = 'Date is required';
-    if (!form.time) {
-      errors.time = 'Time is required';
-    } else if (form.date && !formStart) {
-      errors.time = 'This time does not exist on that date (the clocks change). Choose another time.';
-    }
-    if (form.clientEmail.trim() && emailChanged) {
-      const email = validateEmail(form.clientEmail);
-      if (!email.ok) errors.clientEmail = email.error;
-    }
-    // Staff is required when the salon has staff to choose from.
-    if (selectableBarbers.length > 0 && !form.barberId) {
-      errors.barberId = 'Please select a staff member.';
-    }
-
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  }
-
-  /**
-   * Routes a 409 conflict error message to the appropriate field.
-   *
-   * Auto-assign errors ("No available staff", "Multiple staff") are shown
-   * under the staff dropdown so the owner can act on them directly.
-   * All other 409s (booking time conflicts) go under the time field.
-   *
-   * @param message - Error string from the API response.
-   */
-  function route409Error(message: string): void {
-    const isStaffAutoAssign =
-      message.startsWith('No available staff') ||
-      message.startsWith('Multiple staff');
-    if (isStaffAutoAssign) {
-      setFieldErrors((prev) => ({ ...prev, barberId: message }));
-    } else {
-      setFieldErrors((prev) => ({ ...prev, time: message }));
-    }
-  }
-
-  /**
-   * Creates a client (or reuses the one with the same phone and name) via
-   * POST /api/clients and returns its id.
-   */
-  async function createClient(): Promise<string> {
-    const clientRes = await fetch('/api/clients', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.clientQuery.trim(),
-        phone: form.clientPhone.trim(),
-        email: form.clientEmail.trim() || null,
-      }),
-    });
-
-    if (!clientRes.ok) {
-      const payload = (await clientRes.json()) as { error?: string };
-      throw new Error(payload.error ?? 'Failed to create client');
-    }
-
-    const clientPayload = (await clientRes.json()) as { client: Client };
-    return clientPayload.client.id;
-  }
-
-  /**
-   * Saves changed client details of the linked client via PATCH /api/clients/[id].
-   * Only fields that differ from when the modal opened are sent.
-   *
-   * @param clientId - The appointment's client.
-   */
-  async function saveClientDetails(clientId: string): Promise<void> {
-    const changes: Record<string, string | null> = {};
-    if (form.clientQuery.trim() !== initialForm.clientQuery.trim()) changes.name = form.clientQuery.trim();
-    if (form.clientPhone.trim() !== initialForm.clientPhone.trim()) changes.phone = form.clientPhone.trim() || null;
-    if (form.clientEmail.trim() !== initialForm.clientEmail.trim()) changes.email = form.clientEmail.trim() || null;
-    if (Object.keys(changes).length === 0) return;
-
-    const res = await fetch(`/api/clients/${clientId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(changes),
-    });
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(payload.error ?? 'Failed to update client details');
-    }
-  }
-
-  /**
-   * Executes the API save after all validations pass.
-   * Shared by handleSubmit (direct) and the warning dialog ("Yes, save").
-   */
-  async function doSave(): Promise<void> {
-    setIsSubmitting(true);
-    setWarningDialog(null);
-    setError(null);
-
-    try {
-      if (!formStart) throw new Error('Choose a valid date and time.');
-      // The form's date and time are in the salon's timezone.
-      const datetime = formStart.toISOString();
-      const serviceName = (selectedService?.name ?? form.serviceType).trim() || null;
-
-      if (isEditMode && appointment) {
-        // 1. Client details: update the linked client, or link a new one when
-        //    the appointment has none (e.g. the client record was deleted).
-        let newClientId: string | null = null;
-        if (appointment.client_id) {
-          await saveClientDetails(appointment.client_id);
-        } else if (form.clientQuery.trim()) {
-          newClientId = await createClient();
-        }
-
-        // 2. Appointment: send only the fields that changed.
-        const updateBody: Record<string, unknown> = {};
-        if (form.date !== initialForm.date || form.time !== initialForm.time) updateBody.datetime = datetime;
-        if (barberChanged) updateBody.barber_id = form.barberId || null;
-        if (serviceChanged) {
-          updateBody.service_id = selectedService?.id ?? null;
-          updateBody.service_type = serviceName;
-        }
-        if (form.notes.trim() !== initialForm.notes.trim()) updateBody.notes = form.notes.trim() || null;
-        if (statusTouched && form.appointmentStatus !== initialForm.appointmentStatus) {
-          updateBody.status = form.appointmentStatus;
-        }
-        if (newClientId) updateBody.client_id = newClientId;
-
-        if (Object.keys(updateBody).length > 0) {
-          const res = await fetch(`/api/appointments/${appointment.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updateBody),
-          });
-
-          if (!res.ok) {
-            const payload = (await res.json()) as { error?: string };
-            if (res.status === 409) {
-              route409Error(payload.error ?? 'Booking conflict');
-              return;
-            }
-            throw new Error(payload.error ?? 'Failed to update appointment');
-          }
-        }
-      } else {
-        const clientId = form.selectedClient?.id ?? (await createClient());
-
-        const res = await fetch('/api/appointments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client_id: clientId,
-            barber_id: form.barberId || null,
-            datetime,
-            service_id: selectedService?.id ?? null,
-            service_type: serviceName,
-            notes: form.notes.trim() || null,
-            // Without an explicit choice the server decides from the lead time.
-            ...(statusTouched ? { status: form.appointmentStatus } : {}),
-          }),
-        });
-
-        if (!res.ok) {
-          const payload = (await res.json()) as { error?: string };
-          if (res.status === 409) {
-            route409Error(payload.error ?? 'Booking conflict');
-            return;
-          }
-          throw new Error(payload.error ?? 'Failed to create appointment');
-        }
-      }
-
-      onSaved();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Something went wrong';
-      setError(message);
-      console.error('[AddAppointmentModal] submit error:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  /**
-   * Handles the form submit button. Validates fields, collects soft warnings,
-   * shows a confirmation dialog if needed, otherwise calls doSave directly.
-   *
-   * @param e - The React form submit event.
-   */
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    if (isSubmitting) return; // Guard against double-submits.
-    if (!validate()) return;
-
-    const warnings: string[] = [];
-
-    if (formStart) {
-      const now = new Date();
-
-      if (formStart < now) {
-        warnings.push('This date has already passed. Are you sure?');
-      } else {
-        const sixMonthsFromNow = new Date(now);
-        sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-        if (formStart > sixMonthsFromNow) {
-          warnings.push('This is more than 6 months away. Are you sure?');
-        }
-      }
-    }
-
-    // Soft warning when the appointment starts before opening or runs past
-    // closing time (both in salon time).
-    const startTime = normaliseTime(form.time);
-    if (salonHours && startTime) {
-      const startMinutes = timeToMinutes(startTime);
-      const endMinutes = startMinutes + resolvedDuration;
-      if (startMinutes < timeToMinutes(salonHours.opening) || endMinutes > timeToMinutes(salonHours.closing)) {
-        warnings.push(
-          `This appointment (${startTime}, ${resolvedDuration} min) is outside your business hours (${salonHours.opening} to ${salonHours.closing}).`
-        );
-      }
-    }
-
-    if (warnings.length > 0) {
-      setWarningDialog(warnings.join('\n'));
-      return;
-    }
-
-    await doSave();
-  }
-
-  /**
-   * Cancels the appointment (sets status to 'cancelled'). Edit mode only.
-   */
-  async function handleCancelAppointment(): Promise<void> {
-    if (!appointment) return;
-    setIsCancelling(true);
-    setError(null);
-
-    try {
-      const res = await fetch(`/api/appointments/${appointment.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const payload = (await res.json()) as { error?: string };
-        throw new Error(payload.error ?? 'Failed to cancel appointment');
-      }
-      onSaved();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Something went wrong';
-      setError(message);
-      console.error('[AddAppointmentModal] cancel error:', err);
-    } finally {
-      setIsCancelling(false);
-    }
-  }
-
-  /**
-   * Sends a test reminder email immediately for this appointment.
-   * Only available in edit mode when the client has an email address.
-   */
-  async function handleTestReminder(): Promise<void> {
-    if (!appointment) return;
-    setIsSendingTestReminder(true);
-    setTestReminderResult(null);
-
-    try {
-      const res = await fetch(`/api/appointments/${appointment.id}/test-reminder`, {
-        method: 'POST',
-      });
-      const payload = (await res.json()) as { success?: boolean; message?: string; error?: string };
-
-      if (res.ok) {
-        setTestReminderResult({ success: true, message: payload.message ?? 'Test reminder sent.' });
-      } else {
-        setTestReminderResult({ success: false, message: payload.error ?? 'Failed to send test reminder.' });
-      }
-    } catch (err) {
-      setTestReminderResult({ success: false, message: 'Something went wrong. Please try again.' });
-      console.error('[AddAppointmentModal] Test reminder error:', err);
-    } finally {
-      setIsSendingTestReminder(false);
-    }
-  }
+  const {
+    isEditMode,
+    form,
+    setForm,
+    setField,
+    fieldErrors,
+    setStatusTouched,
+    showNotes,
+    setShowNotes,
+    data,
+    lookup,
+    save,
+    selectableBarbers,
+    selectedService,
+    resolvedDuration,
+    displayedStatus,
+    handleServiceChange,
+  } = useAppointmentForm({ isOpen, onSaved, timezone, initialDate, initialBarberId, appointment });
+  const { isLoadingBarbers, services, isLoadingServices, barberServices, salonHours, isDemo } = data;
+  const {
+    isSendingTestReminder,
+    testReminderResult,
+    warningDialog,
+    setWarningDialog,
+    isSubmitting,
+    isCancelling,
+    error,
+    doSave,
+    handleSubmit,
+    handleCancelAppointment,
+    handleTestReminder,
+  } = save;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -966,37 +144,6 @@ export default function AddAppointmentModal({
   const title = isEditMode ? 'Edit appointment' : 'New appointment';
   /** True when viewing a cancelled appointment — all fields disabled, save hidden. */
   const isCancelledView = isEditMode && appointment?.status === 'cancelled';
-
-  /** Active services, plus the edited appointment's service when it is inactive. */
-  const selectableServices = services.filter((s) => s.active || s.id === selectedService?.id);
-
-  // Staff dropdown: when a service is selected, only staff eligible for it
-  // (if the service has barber_services rows, only those staff members). The
-  // current selection always stays listed so the select never shows another name.
-  const filteredBarbers = selectedService
-    ? selectableBarbers.filter(
-        (b) => b.id === form.barberId || isBarberEligibleForService(selectedService.id, b.id, barberServices)
-      )
-    : selectableBarbers;
-
-  // Whether the staff dropdown is filtered to a subset of barbers.
-  const staffFiltered = filteredBarbers.length < selectableBarbers.length && selectableBarbers.length > 0;
-
-  /**
-   * Value of the service select: the selected service (in edit mode, the one
-   * matching the stored name), the stored free-text name, or none.
-   */
-  const serviceSelectValue = selectedService?.id ?? (form.serviceType ? CURRENT_SERVICE_OPTION : '');
-
-  // Shared input class helpers
-  const inputClass = (hasError?: boolean) =>
-    `h-10 text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] ${
-      hasError
-        ? 'border-red-400 focus-visible:border-red-400'
-        : 'border-[#C8C8C8] focus-visible:border-[#1A1A1A]'
-    } focus-visible:ring-0`;
-
-  const labelClass = 'text-xs font-medium text-[#1A1A1A]';
 
   return (
     <Dialog
@@ -1047,278 +194,50 @@ export default function AddAppointmentModal({
               </div>
             )}
 
-            {/* ---- Phone (primary identifier) --------------------------- */}
-            {/* Typing 6+ digits triggers a client lookup (create mode) */}
-            <div className="space-y-1.5">
-              <Label htmlFor="modal-client-phone" className={labelClass}>
-                Phone <span className="text-red-400">*</span>
-              </Label>
-              <Input
-                id="modal-client-phone"
-                type="tel"
-                autoFocus
-                disabled={isCancelledView}
-                value={form.clientPhone}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-                placeholder="+357 99 123 456"
-                maxLength={MAX_PHONE_INPUT_LENGTH}
-                className={inputClass(Boolean(fieldErrors.clientPhone))}
-              />
-              {isPhoneSearching && (
-                <p className="text-xs text-[#C8C8C8]">Searching...</p>
-              )}
-              {!isPhoneSearching && clientFoundByPhone && form.selectedClient && (
-                <p className="text-xs text-emerald-600">Existing client: {form.selectedClient.name}</p>
-              )}
-              {fieldErrors.clientPhone && (
-                <p className="text-xs text-red-600">{fieldErrors.clientPhone}</p>
-              )}
-            </div>
+            <ClientFields
+              form={form}
+              fieldErrors={fieldErrors}
+              isEditMode={isEditMode}
+              isCancelledView={isCancelledView}
+              appointment={appointment}
+              lookup={lookup}
+              setField={setField}
+            />
 
-            {/* ---- Client name with autocomplete ------------------------ */}
-            <div className="space-y-1.5">
-              <Label htmlFor="modal-client-name" className={labelClass}>
-                Client name <span className="text-red-400">*</span>
-              </Label>
-              <div className="relative">
-                <Input
-                  id="modal-client-name"
-                  type="text"
-                  autoComplete="off"
-                  readOnly={nameReadOnly}
-                  disabled={isCancelledView}
-                  value={form.clientQuery}
-                  onChange={(e) => handleClientQueryChange(e.target.value)}
-                  onClick={() => { if (nameReadOnly) handleNameUnlock(); }}
-                  onFocus={() => {
-                    if (suggestions.length > 0 && !nameReadOnly) setShowSuggestions(true);
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => setShowSuggestions(false), 150);
-                  }}
-                  placeholder={isEditMode ? 'Client name' : 'Search or enter new name'}
-                  maxLength={100}
-                  className={inputClass(Boolean(fieldErrors.clientQuery))}
-                  style={{ cursor: nameReadOnly ? 'pointer' : 'text', background: nameReadOnly ? '#F9F9F9' : undefined }}
-                />
+            <DateTimeFields
+              form={form}
+              fieldErrors={fieldErrors}
+              isCancelledView={isCancelledView}
+              salonHours={salonHours}
+              timezone={timezone}
+              setField={setField}
+            />
 
-                {/* Autocomplete dropdown (create mode) */}
-                {!isEditMode && showSuggestions && !nameReadOnly && (
-                  <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-[#C8C8C8]/40 rounded-xl shadow-lg max-h-40 overflow-y-auto">
-                    {isSearching && <p className="px-3 py-2 text-sm text-[#C8C8C8]">Searching...</p>}
-                    {!isSearching && suggestions.length === 0 && (
-                      <p className="px-3 py-2 text-sm text-[#C8C8C8]">No match. A new client will be created on save.</p>
-                    )}
-                    {!isSearching && suggestions.map((client) => (
-                      <button
-                        key={client.id}
-                        type="button"
-                        onMouseDown={() => handleSelectClient(client)}
-                        className="w-full text-left px-3 py-2 hover:bg-[#1A1A1A]/5 transition-colors border-b border-[#C8C8C8]/20 last:border-0"
-                      >
-                        <p className="text-sm font-medium text-[#1A1A1A]">{client.name}</p>
-                        {client.phone && <p className="text-xs text-[#C8C8C8] mt-0.5">{client.phone}</p>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <ServiceStaffFields
+              form={form}
+              fieldErrors={fieldErrors}
+              isCancelledView={isCancelledView}
+              isLoadingServices={isLoadingServices}
+              services={services}
+              selectedService={selectedService}
+              isLoadingBarbers={isLoadingBarbers}
+              selectableBarbers={selectableBarbers}
+              barberServices={barberServices}
+              resolvedDuration={resolvedDuration}
+              handleServiceChange={handleServiceChange}
+              setForm={setForm}
+              setField={setField}
+            />
 
-              {nameReadOnly && <p className="text-xs text-[#C8C8C8]">Click to edit</p>}
-              {!isEditMode && !nameReadOnly && form.selectedClient && !clientFoundByPhone && (
-                <p className="text-xs text-[#C8C8C8]">Existing client selected</p>
-              )}
-              {!isEditMode && !nameReadOnly && !form.selectedClient && form.clientQuery && !isSearching && (
-                <p className="text-xs text-[#C8C8C8]">New client (will be created on save)</p>
-              )}
-              {isEditMode && appointment?.client_id && (
-                <p className="text-xs text-[#C8C8C8]">Changes to the client&apos;s details are saved to their client record.</p>
-              )}
-              {fieldErrors.clientQuery && (
-                <p className="text-xs text-red-600">{fieldErrors.clientQuery}</p>
-              )}
-            </div>
-
-            {/* ---- Email (optional) -------------------------------------- */}
-            <div className="space-y-1.5">
-              <Label htmlFor="modal-client-email" className={labelClass}>
-                Email <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span>
-              </Label>
-              <Input
-                id="modal-client-email"
-                type="email"
-                disabled={isCancelledView}
-                value={form.clientEmail}
-                onChange={(e) => setField('clientEmail', e.target.value)}
-                placeholder="client@example.com"
-                maxLength={254}
-                className={inputClass(Boolean(fieldErrors.clientEmail))}
-              />
-              {fieldErrors.clientEmail && (
-                <p className="text-xs text-red-600">{fieldErrors.clientEmail}</p>
-              )}
-            </div>
-
-            {/* ---- Date + Time ------------------------------------------ */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="modal-date" className={labelClass}>
-                  Date <span className="text-red-400">*</span>
-                </Label>
-                <div className={`rounded-lg border overflow-hidden transition-colors ${
-                  fieldErrors.date ? 'border-red-400' : 'border-[#C8C8C8] focus-within:border-[#1A1A1A]'
-                }`}>
-                  <input
-                    id="modal-date"
-                    type="date"
-                    disabled={isCancelledView}
-                    value={form.date}
-                    onChange={(e) => setField('date', e.target.value)}
-                    className="w-full h-11 px-3 text-sm text-[#1A1A1A] outline-none border-none bg-transparent"
-                  />
-                </div>
-                {fieldErrors.date && <p className="text-xs text-red-600">{fieldErrors.date}</p>}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="modal-time" className={labelClass}>
-                  Time <span className="text-red-400">*</span>
-                </Label>
-                <div className={`rounded-lg border overflow-hidden transition-colors ${
-                  fieldErrors.time ? 'border-red-400' : 'border-[#C8C8C8] focus-within:border-[#1A1A1A]'
-                }`}>
-                  <input
-                    id="modal-time"
-                    type="time"
-                    disabled={isCancelledView}
-                    value={form.time}
-                    onChange={(e) => setField('time', e.target.value)}
-                    min={salonHours?.opening}
-                    max={salonHours?.closing}
-                    className="w-full h-11 px-3 text-sm text-[#1A1A1A] outline-none border-none bg-transparent"
-                  />
-                </div>
-                {fieldErrors.time && <p className="text-xs text-red-600">{fieldErrors.time}</p>}
-              </div>
-            </div>
-            <p className="text-xs text-[#8A8680] -mt-2">Times are in {formatTimeZoneLabel(timezone)} time.</p>
-
-            {/* ---- Service + Staff -------------------------------------- */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Service */}
-              <div className="space-y-1.5">
-                <Label htmlFor="modal-service" className={labelClass}>Service</Label>
-                {isLoadingServices ? (
-                  <div className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-[#F9F9F9] text-sm text-[#C8C8C8] flex items-center">
-                    Loading…
-                  </div>
-                ) : services.length > 0 ? (
-                  <select
-                    id="modal-service"
-                    value={serviceSelectValue}
-                    disabled={isCancelledView}
-                    onChange={(e) => handleServiceChange(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                  >
-                    <option value="">Select (optional)</option>
-                    {serviceSelectValue === CURRENT_SERVICE_OPTION && (
-                      <option value={CURRENT_SERVICE_OPTION}>{form.serviceType}</option>
-                    )}
-                    {selectableServices.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    id="modal-service"
-                    type="text"
-                    value={form.serviceType}
-                    disabled={isCancelledView}
-                    onChange={(e) => setForm((prev) => ({ ...prev, serviceId: '', serviceType: e.target.value }))}
-                    placeholder="e.g. Haircut (optional)"
-                    maxLength={100}
-                    className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                  />
-                )}
-              </div>
-
-              {/* Staff — required when barbers exist; filtered by service assignment */}
-              <div className="space-y-1.5">
-                <Label htmlFor="modal-staff" className={labelClass}>
-                  {selectableBarbers.length > 0
-                    ? 'Staff'
-                    : <span>Staff <span className="text-xs font-normal text-[#C8C8C8]">(optional)</span></span>
-                  }
-                </Label>
-                <select
-                  id="modal-staff"
-                  value={form.barberId}
-                  onChange={(e) => setField('barberId', e.target.value)}
-                  disabled={isLoadingBarbers || isCancelledView}
-                  className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] disabled:opacity-60 transition-colors"
-                >
-                  {/* Placeholder keeps the select honest while no staff member is chosen. */}
-                  {selectableBarbers.length === 0
-                    ? <option value="">No staff assigned</option>
-                    : <option value="" disabled>Select staff…</option>}
-                  {filteredBarbers.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-                {staffFiltered && (
-                  <p className="text-xs text-[#8A8680]">
-                    Showing {filteredBarbers.length} of {selectableBarbers.length} staff for this service.
-                  </p>
-                )}
-                {fieldErrors.barberId && (
-                  <p className="text-xs text-red-600">{fieldErrors.barberId}</p>
-                )}
-              </div>
-            </div>
-            <p className="text-xs text-[#8A8680] -mt-2">Duration: {resolvedDuration} min</p>
-
-            {/* ---- Status ------------------------------------------------ */}
-            {!isCancelledView && (
-              <div className="space-y-1.5">
-                <Label htmlFor="modal-status" className={labelClass}>Status</Label>
-                <select
-                  id="modal-status"
-                  value={displayedStatus}
-                  onChange={(e) => {
-                    setStatusTouched(true);
-                    setField('appointmentStatus', e.target.value as AppointmentStatus);
-                  }}
-                  className="w-full h-10 px-3 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition-colors"
-                >
-                  <option value="scheduled">Pending (awaiting confirmation)</option>
-                  <option value="confirmed">Confirmed</option>
-                </select>
-              </div>
-            )}
-
-            {/* ---- Notes ------------------------------------------------- */}
-            {!showNotes ? (
-              <button
-                type="button"
-                onClick={() => setShowNotes(true)}
-                className="text-xs text-[#C8C8C8] hover:text-[#1A1A1A] transition-colors rounded"
-              >
-                + Add note
-              </button>
-            ) : (
-              <div className="space-y-1.5">
-                <Label htmlFor="modal-notes" className={labelClass}>Notes</Label>
-                <textarea
-                  id="modal-notes"
-                  rows={2}
-                  value={form.notes}
-                  onChange={(e) => setField('notes', e.target.value)}
-                  placeholder="Any notes..."
-                  maxLength={1000}
-                  className="w-full px-3 py-2.5 rounded-lg border border-[#C8C8C8] bg-white text-sm text-[#1A1A1A] placeholder:text-[#C8C8C8] resize-none outline-none focus:border-[#1A1A1A] transition-colors"
-                />
-              </div>
-            )}
+            <StatusAndNotes
+              form={form}
+              isCancelledView={isCancelledView}
+              displayedStatus={displayedStatus}
+              setStatusTouched={setStatusTouched}
+              showNotes={showNotes}
+              setShowNotes={setShowNotes}
+              setField={setField}
+            />
 
           </div>
 
@@ -1416,38 +335,11 @@ export default function AddAppointmentModal({
             Overlaid inside the modal when appointment has soft warnings.
         ================================================================ */}
         {warningDialog !== null && (
-          <div
-            className="absolute inset-0 z-10 flex items-center justify-center bg-black/20 rounded-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Appointment warning"
-          >
-            <div className="mx-4 bg-white rounded-xl shadow-xl p-6 max-w-sm w-full border border-[#C8C8C8]/40">
-              <p className="font-heading text-base font-semibold text-[#1A1A1A] mb-3">
-                Check before saving
-              </p>
-              {warningDialog.split('\n').map((line, i) => (
-                <p key={i} className="text-sm text-[#2D2D2D] mb-2">{line}</p>
-              ))}
-              <div className="flex gap-2 justify-end mt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setWarningDialog(null)}
-                  className="border-[#C8C8C8] text-[#1A1A1A] hover:border-[#1A1A1A]/40 text-sm"
-                >
-                  Go back
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => { void doSave(); }}
-                  className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm"
-                >
-                  Yes, save
-                </Button>
-              </div>
-            </div>
-          </div>
+          <WarningDialog
+            message={warningDialog}
+            onGoBack={() => setWarningDialog(null)}
+            onConfirm={() => { void doSave(); }}
+          />
         )}
 
       </DialogContent>
