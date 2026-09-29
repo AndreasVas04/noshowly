@@ -4,7 +4,8 @@
  * Online Booking management page — /dashboard/booking.
  *
  * This is the centralised place for all booking-related configuration:
- *  1. Booking page — slug, description, no-preference staff toggle, live status.
+ *  1. Booking page — address, live status, headline, intro, description and
+ *     the client details a booking requires.
  *  2. Services — global service catalogue (add/edit/delete/toggle active).
  *  3. Staff — add/remove staff members, update name/photo/bio,
  *     service assignments (barber_services), weekly availability.
@@ -59,9 +60,9 @@ type LoadState = 'loading' | 'ready' | 'error';
 // ---------------------------------------------------------------------------
 
 /**
- * BookingPage manages the full Online Booking setup:
- * slug/description/no-preference toggles, per-staff services,
- * photo uploads, availability, and publish controls.
+ * BookingPage manages the full Online Booking setup: the booking page
+ * settings, the services, each staff member's profile, photo, services and
+ * availability, and the publish controls.
  *
  * @returns The booking management page JSX.
  */
@@ -236,7 +237,7 @@ export default function BookingPage() {
           />
 
           {/* ==================================================================
-              SECTION 3: Publish
+              SECTION 4: Publish
           ================================================================== */}
           <PublishSection settings={bookingSettings} bookingUrl={bookingUrl} hasAnyService={hasAnyService} />
 

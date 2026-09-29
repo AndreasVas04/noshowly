@@ -2,7 +2,8 @@
  * lib/barber-services.ts
  *
  * Client-side helper for saving a staff member's service assignments
- * (app/dashboard/booking/page.tsx → PUT /api/barber-services).
+ * (components/dashboard/booking-settings/useServiceAssignments.ts →
+ * PUT /api/barber-services).
  *
  * The page saves a staff member's whole assignment list at a time, one
  * request after another. While a request is in flight the owner can keep
