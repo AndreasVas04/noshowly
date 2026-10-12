@@ -4,6 +4,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # A new major of stripe moves to a new Stripe API version (lib/stripe.ts
+      # pins apiVersion, and the webhook endpoint has its own): upgrade it on
+      # purpose, together with the endpoint, not from a bot PR.
+      - dependency-name: stripe
+        update-types: ["version-update:semver-major"]
+      # The Node.js types follow the Node.js version the app runs on
+      # (engines in package.json, Node 22 and 24 on Vercel), not the newest one.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # eslint-config-next is pinned to the Next.js version: update them together.
       next:
